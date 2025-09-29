@@ -250,8 +250,9 @@ class PreferencesWindow:
         audio_dropdown = NSPopUpButton.alloc().initWithFrame_pullsDown_(NSMakeRect(30, y_pos, 450, 26), False)
         audio_devices = self.get_all_audio_devices()
 
-        # Remove default item if it exists
+        # Remove all items and configure
         audio_dropdown.removeAllItems()
+        audio_dropdown.setAutoenablesItems_(False)
 
         for device in audio_devices:
             audio_dropdown.addItemWithTitle_(device)
@@ -317,8 +318,9 @@ class PreferencesWindow:
         # Sonos speaker dropdown
         sonos_dropdown = NSPopUpButton.alloc().initWithFrame_pullsDown_(NSMakeRect(30, y_pos, 450, 26), False)
 
-        # Remove default item if it exists
+        # Remove all items and configure
         sonos_dropdown.removeAllItems()
+        sonos_dropdown.setAutoenablesItems_(False)
 
         sonos_dropdown.addItemWithTitle_("(None - Manual Selection)")
 
