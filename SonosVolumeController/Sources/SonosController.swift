@@ -1,11 +1,16 @@
 import Foundation
 import Network
 
-class SonosController {
+class SonosController: @unchecked Sendable {
     private let settings: AppSettings
     private var devices: [SonosDevice] = []
     private var selectedDevice: SonosDevice?
     private let volumeStep = 5 // Volume change per key press
+
+    // Expose devices for menu population
+    var discoveredDevices: [SonosDevice] {
+        return devices
+    }
 
     struct SonosDevice {
         let name: String
@@ -56,11 +61,25 @@ class SonosController {
             }
 
             DispatchQueue.main.async {
-                self.devices = foundDevices
-                print("Found \(foundDevices.count) Sonos devices")
+                // Deduplicate devices by name (keeps first occurrence)
+                var uniqueDevices: [SonosDevice] = []
+                var seenNames = Set<String>()
+
                 for device in foundDevices {
+                    if !seenNames.contains(device.name) {
+                        uniqueDevices.append(device)
+                        seenNames.insert(device.name)
+                    }
+                }
+
+                self.devices = uniqueDevices
+                print("Found \(foundDevices.count) Sonos devices (\(uniqueDevices.count) unique)")
+                for device in uniqueDevices {
                     print("  - \(device.name) at \(device.ipAddress)")
                 }
+
+                // Post notification so menu can update
+                NotificationCenter.default.post(name: NSNotification.Name("SonosDevicesDiscovered"), object: nil)
             }
         } catch {
             print("SSDP Discovery error: \(error)")
@@ -129,10 +148,20 @@ class SonosController {
     }
 
     func volumeUp() {
+        print("📢 volumeUp() called")
+        guard selectedDevice != nil else {
+            print("⚠️ No device selected!")
+            return
+        }
         changeVolume(by: volumeStep)
     }
 
     func volumeDown() {
+        print("📢 volumeDown() called")
+        guard selectedDevice != nil else {
+            print("⚠️ No device selected!")
+            return
+        }
         changeVolume(by: -volumeStep)
     }
 
@@ -150,14 +179,21 @@ class SonosController {
 
     private func changeVolume(by delta: Int) {
         guard let device = selectedDevice else {
-            print("No Sonos device selected")
+            print("❌ No Sonos device selected")
             return
         }
 
+        print("🎚️ Changing volume by \(delta) for \(device.name)")
+
         // Get current volume
         sendSonosCommand(to: device, action: "GetVolume") { currentVolumeStr in
-            guard let currentVolume = Int(currentVolumeStr) else { return }
+            print("   Current volume string: '\(currentVolumeStr)'")
+            guard let currentVolume = Int(currentVolumeStr) else {
+                print("   ❌ Failed to parse volume: '\(currentVolumeStr)'")
+                return
+            }
             let newVolume = max(0, min(100, currentVolume + delta))
+            print("   📊 \(currentVolume) → \(newVolume)")
             self.sendSonosCommand(to: device, action: "SetVolume", arguments: ["DesiredVolume": String(newVolume)])
         }
     }
@@ -209,43 +245,82 @@ class SonosController {
     }
 }
 
-// Simple UDP socket helper
+// BSD socket for SSDP discovery
+import Darwin
+
 class Socket {
-    private var socket: NWConnection?
+    private var sockfd: Int32 = -1
 
     init() throws {
-        let host = NWEndpoint.Host("239.255.255.250")
-        let port = NWEndpoint.Port(integerLiteral: 1900)
+        sockfd = socket(AF_INET, SOCK_DGRAM, 0)
+        guard sockfd >= 0 else {
+            throw NSError(domain: "Socket", code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "Failed to create socket"])
+        }
 
-        let parameters = NWParameters.udp
-        parameters.allowLocalEndpointReuse = true
+        // Allow socket reuse
+        var reuseAddr: Int32 = 1
+        setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuseAddr, socklen_t(MemoryLayout<Int32>.size))
 
-        socket = NWConnection(host: host, port: port, using: parameters)
-        socket?.start(queue: .global())
+        #if os(macOS)
+        var reusePort: Int32 = 1
+        setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &reusePort, socklen_t(MemoryLayout<Int32>.size))
+        #endif
+
+        // Set timeout for receives
+        var timeout = timeval(tv_sec: 1, tv_usec: 0)
+        setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+    }
+
+    deinit {
+        if sockfd >= 0 {
+            close(sockfd)
+        }
     }
 
     func send(_ message: String, to address: String, port: UInt16) throws {
-        let data = message.data(using: .utf8)!
-        socket?.send(content: data, completion: .contentProcessed({ error in
-            if let error = error {
-                print("Send error: \(error)")
-            }
-        }))
-    }
+        guard let data = message.data(using: .utf8) else { return }
 
-    func receive(timeout: TimeInterval) throws -> (data: String, address: String)? {
-        var result: (String, String)?
-        let semaphore = DispatchSemaphore(value: 0)
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        inet_pton(AF_INET, address, &addr.sin_addr)
 
-        socket?.receiveMessage { data, context, isComplete, error in
-            defer { semaphore.signal() }
-
-            if let data = data, let string = String(data: data, encoding: .utf8) {
-                result = (string, "unknown")
+        let sent = data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) -> Int in
+            return withUnsafePointer(to: addr) { addrPtr in
+                addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    return sendto(sockfd, buffer.baseAddress, buffer.count, 0, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
             }
         }
 
-        _ = semaphore.wait(timeout: .now() + timeout)
-        return result
+        guard sent >= 0 else {
+            throw NSError(domain: "Socket", code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "Failed to send"])
+        }
+    }
+
+    func receive(timeout: TimeInterval) throws -> (data: String, address: String)? {
+        var buffer = [UInt8](repeating: 0, count: 8192)
+        var addr = sockaddr_in()
+        var addrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+
+        let received = withUnsafeMutablePointer(to: &addr) { addrPtr in
+            addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                recvfrom(sockfd, &buffer, buffer.count, 0, sockaddrPtr, &addrLen)
+            }
+        }
+
+        guard received > 0 else {
+            return nil
+        }
+
+        guard let string = String(bytes: buffer[..<received], encoding: .utf8) else {
+            return nil
+        }
+
+        var hostBuffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+        inet_ntop(AF_INET, &addr.sin_addr, &hostBuffer, socklen_t(INET_ADDRSTRLEN))
+        let host = String(cString: hostBuffer)
+
+        return (string, host)
     }
 }

@@ -15,8 +15,8 @@ class VolumeKeyMonitor {
 
     func start() {
         // Request accessibility permissions if needed
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-        let trusted = AXIsProcessTrustedWithOptions(options as CFDictionary)
+        // Swift 6 workaround: this constant is safe to access despite warning
+        let trusted = AXIsProcessTrustedWithOptions(nil)
 
         if !trusted {
             print("⚠️ Please grant accessibility permissions in System Settings > Privacy & Security > Accessibility")
@@ -27,7 +27,10 @@ class VolumeKeyMonitor {
     }
 
     private func setupEventTap() {
-        let eventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue)
+        let eventMask = (1 << CGEventType.keyDown.rawValue) |
+                        (1 << CGEventType.keyUp.rawValue) |
+                        (1 << CGEventType.tapDisabledByTimeout.rawValue) |
+                        (1 << CGEventType.tapDisabledByUserInput.rawValue)
 
         guard let eventTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -55,6 +58,16 @@ class VolumeKeyMonitor {
     }
 
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent> {
+        // Re-enable tap if it was disabled
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            print("⚠️ Event tap was disabled, re-enabling...")
+            if let tap = eventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+                print("✅ Event tap re-enabled")
+            }
+            return Unmanaged.passUnretained(event)
+        }
+
         // Only process key down events
         guard type == .keyDown else {
             return Unmanaged.passUnretained(event)
@@ -62,36 +75,47 @@ class VolumeKeyMonitor {
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
 
-        // Volume key codes on macOS
-        // Volume Up: 72, Volume Down: 73, Mute: 74
-        let isVolumeKey = keyCode == 72 || keyCode == 73 || keyCode == 74
+        // F11/F12 key codes on macOS
+        // F11 (Volume Down): 103, F12 (Volume Up): 111
+        let isVolumeKey = keyCode == 103 || keyCode == 111
+
+        // Debug: print all F-key presses
+        if keyCode >= 100 && keyCode <= 120 {
+            print("🔑 Key pressed: \(keyCode)")
+        }
 
         guard isVolumeKey else {
             return Unmanaged.passUnretained(event)
         }
 
+        print("🎹 F11/F12 detected! Checking if should intercept...")
+        print("   Current device: \(audioMonitor.currentDeviceName)")
+        print("   Should intercept: \(audioMonitor.shouldInterceptVolumeKeys)")
+        print("   Settings enabled: \(settings.enabled)")
+
         // Check if we should intercept
         guard audioMonitor.shouldInterceptVolumeKeys else {
+            print("   ❌ Not intercepting - wrong audio device")
             // Pass through to system
             return Unmanaged.passUnretained(event)
         }
 
         // Intercept and handle with Sonos
+        print("✅ Intercepting and consuming event")
         switch keyCode {
-        case 72: // Volume Up
-            print("Volume Up - Controlling Sonos")
+        case 111: // F12 - Volume Up
+            print("🔊 F12 (Volume Up) - Controlling Sonos")
             sonosController.volumeUp()
-        case 73: // Volume Down
-            print("Volume Down - Controlling Sonos")
+        case 103: // F11 - Volume Down
+            print("🔉 F11 (Volume Down) - Controlling Sonos")
             sonosController.volumeDown()
-        case 74: // Mute
-            print("Mute - Controlling Sonos")
-            sonosController.toggleMute()
         default:
             break
         }
 
-        // Return nil to consume the event (don't pass to system)
-        return Unmanaged.passUnretained(CGEvent(source: nil)!)
+        // Consume the event by returning the same event but flagged
+        // This prevents it from reaching other apps
+        event.flags = []
+        return Unmanaged.passUnretained(event)
     }
 }
