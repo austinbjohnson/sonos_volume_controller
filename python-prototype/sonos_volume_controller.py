@@ -247,15 +247,22 @@ class PreferencesWindow:
         y_pos -= 35
 
         # Audio device dropdown
-        audio_dropdown = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(30, y_pos, 450, 26))
+        audio_dropdown = NSPopUpButton.alloc().initWithFrame_pullsDown_(NSMakeRect(30, y_pos, 450, 26), False)
         audio_devices = self.get_all_audio_devices()
+
+        # Remove default item if it exists
+        audio_dropdown.removeAllItems()
+
         for device in audio_devices:
             audio_dropdown.addItemWithTitle_(device)
 
         # Select current trigger device
         if self.app.trigger_device in audio_devices:
             audio_dropdown.selectItemWithTitle_(self.app.trigger_device)
+        elif len(audio_devices) > 0:
+            audio_dropdown.selectItemAtIndex_(0)
 
+        audio_dropdown.setEnabled_(True)
         audio_dropdown.setTarget_(self)
         audio_dropdown.setAction_(objc.selector(self.trigger_device_changed_, signature=b'v@:@'))
         view.addSubview_(audio_dropdown)
@@ -308,7 +315,11 @@ class PreferencesWindow:
         y_pos -= 35
 
         # Sonos speaker dropdown
-        sonos_dropdown = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(30, y_pos, 450, 26))
+        sonos_dropdown = NSPopUpButton.alloc().initWithFrame_pullsDown_(NSMakeRect(30, y_pos, 450, 26), False)
+
+        # Remove default item if it exists
+        sonos_dropdown.removeAllItems()
+
         sonos_dropdown.addItemWithTitle_("(None - Manual Selection)")
 
         for device in self.app.sonos_devices:
@@ -318,7 +329,10 @@ class PreferencesWindow:
         default_speaker = self.app.defaults.stringForKey_('default_sonos_speaker') or ""
         if default_speaker:
             sonos_dropdown.selectItemWithTitle_(default_speaker)
+        else:
+            sonos_dropdown.selectItemAtIndex_(0)  # Select "(None - Manual Selection)"
 
+        sonos_dropdown.setEnabled_(True)
         sonos_dropdown.setTarget_(self)
         sonos_dropdown.setAction_(objc.selector(self.default_speaker_changed_, signature=b'v@:@'))
         view.addSubview_(sonos_dropdown)
