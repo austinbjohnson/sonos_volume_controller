@@ -98,10 +98,10 @@ class PreferencesWindow:
         view.setBoxType_(0)  # NSBoxPrimary
         view.setBorderType_(0)  # NSNoBorder
 
-        y_pos = 350
+        y_pos = 360
 
         # Enable/Disable checkbox
-        enable_checkbox = NSButton.alloc().initWithFrame_(NSMakeRect(20, y_pos, 300, 25))
+        enable_checkbox = NSButton.alloc().initWithFrame_(NSMakeRect(30, y_pos, 300, 25))
         enable_checkbox.setButtonType_(3)  # NSSwitchButton
         enable_checkbox.setTitle_("Enable Sonos Control")
         enable_checkbox.setState_(1 if self.app.enabled else 0)
@@ -110,10 +110,10 @@ class PreferencesWindow:
         view.addSubview_(enable_checkbox)
         self.enable_checkbox = enable_checkbox
 
-        y_pos -= 50
+        y_pos -= 60
 
         # Volume Step label
-        volume_label = NSTextField.alloc().initWithFrame_(NSMakeRect(20, y_pos, 200, 20))
+        volume_label = NSTextField.alloc().initWithFrame_(NSMakeRect(30, y_pos, 200, 20))
         volume_label.setStringValue_("Volume Step Size:")
         volume_label.setBezeled_(False)
         volume_label.setDrawsBackground_(False)
@@ -121,10 +121,10 @@ class PreferencesWindow:
         volume_label.setSelectable_(False)
         view.addSubview_(volume_label)
 
-        y_pos -= 30
+        y_pos -= 35
 
         # Volume Step slider
-        volume_slider = NSSlider.alloc().initWithFrame_(NSMakeRect(20, y_pos, 300, 25))
+        volume_slider = NSSlider.alloc().initWithFrame_(NSMakeRect(30, y_pos, 350, 25))
         volume_slider.setMinValue_(1)
         volume_slider.setMaxValue_(20)
         volume_slider.setIntValue_(self.app.volume_step)
@@ -134,7 +134,7 @@ class PreferencesWindow:
         self.volume_slider = volume_slider
 
         # Volume step value label
-        volume_value_label = NSTextField.alloc().initWithFrame_(NSMakeRect(330, y_pos, 50, 20))
+        volume_value_label = NSTextField.alloc().initWithFrame_(NSMakeRect(390, y_pos + 2, 60, 20))
         volume_value_label.setStringValue_(f"{self.app.volume_step}%")
         volume_value_label.setBezeled_(False)
         volume_value_label.setDrawsBackground_(False)
@@ -143,10 +143,10 @@ class PreferencesWindow:
         view.addSubview_(volume_value_label)
         self.volume_value_label = volume_value_label
 
-        y_pos -= 50
+        y_pos -= 60
 
-        # Hotkey section
-        hotkey_label = NSTextField.alloc().initWithFrame_(NSMakeRect(20, y_pos, 200, 20))
+        # Hotkey section header
+        hotkey_label = NSTextField.alloc().initWithFrame_(NSMakeRect(30, y_pos, 250, 20))
         hotkey_label.setStringValue_("Volume Control Hotkeys:")
         hotkey_label.setBezeled_(False)
         hotkey_label.setDrawsBackground_(False)
@@ -154,32 +154,71 @@ class PreferencesWindow:
         hotkey_label.setSelectable_(False)
         view.addSubview_(hotkey_label)
 
-        y_pos -= 30
-
-        # Current hotkey display
-        hotkey_text = NSTextField.alloc().initWithFrame_(NSMakeRect(20, y_pos, 300, 24))
-        hotkey_text.setStringValue_(self.get_current_hotkey_display())
-        hotkey_text.setBezeled_(True)
-        hotkey_text.setDrawsBackground_(True)
-        hotkey_text.setEditable_(False)
-        hotkey_text.setSelectable_(False)
-        view.addSubview_(hotkey_text)
-        self.hotkey_text = hotkey_text
-
-        # Record button
-        record_button = NSButton.alloc().initWithFrame_(NSMakeRect(330, y_pos - 2, 120, 28))
-        record_button.setTitle_("Record Hotkeys")
-        record_button.setBezelStyle_(1)  # NSRoundedBezelStyle
-        record_button.setTarget_(self)
-        record_button.setAction_(objc.selector(self.record_hotkey_, signature=b'v@:@'))
-        view.addSubview_(record_button)
-        self.record_button = record_button
-
         y_pos -= 40
 
+        # Volume Down hotkey
+        down_label = NSTextField.alloc().initWithFrame_(NSMakeRect(30, y_pos + 4, 110, 20))
+        down_label.setStringValue_("Volume Down:")
+        down_label.setBezeled_(False)
+        down_label.setDrawsBackground_(False)
+        down_label.setEditable_(False)
+        down_label.setSelectable_(False)
+        view.addSubview_(down_label)
+
+        hotkey_down = self.app.defaults.stringForKey_('hotkey_down') or "f11"
+        down_text = NSTextField.alloc().initWithFrame_(NSMakeRect(140, y_pos, 150, 24))
+        down_text.setStringValue_(hotkey_down.upper())
+        down_text.setBezeled_(True)
+        down_text.setDrawsBackground_(True)
+        down_text.setEditable_(False)
+        down_text.setSelectable_(False)
+        down_text.setAlignment_(1)  # Center
+        view.addSubview_(down_text)
+        self.down_text = down_text
+
+        down_button = NSButton.alloc().initWithFrame_(NSMakeRect(300, y_pos - 2, 100, 28))
+        down_button.setTitle_("Record")
+        down_button.setBezelStyle_(1)
+        down_button.setTarget_(self)
+        down_button.setAction_(objc.selector(self.record_down_hotkey_, signature=b'v@:@'))
+        view.addSubview_(down_button)
+        self.down_button = down_button
+
+        y_pos -= 45
+
+        # Volume Up hotkey
+        up_label = NSTextField.alloc().initWithFrame_(NSMakeRect(30, y_pos + 4, 110, 20))
+        up_label.setStringValue_("Volume Up:")
+        up_label.setBezeled_(False)
+        up_label.setDrawsBackground_(False)
+        up_label.setEditable_(False)
+        up_label.setSelectable_(False)
+        view.addSubview_(up_label)
+
+        hotkey_up = self.app.defaults.stringForKey_('hotkey_up') or "f12"
+        up_text = NSTextField.alloc().initWithFrame_(NSMakeRect(140, y_pos, 150, 24))
+        up_text.setStringValue_(hotkey_up.upper())
+        up_text.setBezeled_(True)
+        up_text.setDrawsBackground_(True)
+        up_text.setEditable_(False)
+        up_text.setSelectable_(False)
+        up_text.setAlignment_(1)  # Center
+        view.addSubview_(up_text)
+        self.up_text = up_text
+
+        up_button = NSButton.alloc().initWithFrame_(NSMakeRect(300, y_pos - 2, 100, 28))
+        up_button.setTitle_("Record")
+        up_button.setBezelStyle_(1)
+        up_button.setTarget_(self)
+        up_button.setAction_(objc.selector(self.record_up_hotkey_, signature=b'v@:@'))
+        view.addSubview_(up_button)
+        self.up_button = up_button
+
+        y_pos -= 50
+
         # Info label
-        info_label = NSTextField.alloc().initWithFrame_(NSMakeRect(20, y_pos, 500, 40))
-        info_label.setStringValue_("Click 'Record Hotkeys' then press two keys:\nFirst for volume down, then for volume up.")
+        info_label = NSTextField.alloc().initWithFrame_(NSMakeRect(30, y_pos, 500, 30))
+        info_label.setStringValue_("Click a 'Record' button and press the desired key for that action.\nChanges apply immediately.")
         info_label.setBezeled_(False)
         info_label.setDrawsBackground_(False)
         info_label.setEditable_(False)
@@ -194,10 +233,10 @@ class PreferencesWindow:
         view.setBoxType_(0)
         view.setBorderType_(0)
 
-        y_pos = 350
+        y_pos = 360
 
         # Trigger Device label
-        trigger_label = NSTextField.alloc().initWithFrame_(NSMakeRect(20, y_pos, 400, 20))
+        trigger_label = NSTextField.alloc().initWithFrame_(NSMakeRect(30, y_pos, 500, 20))
         trigger_label.setStringValue_("Trigger Audio Device (activates Sonos control):")
         trigger_label.setBezeled_(False)
         trigger_label.setDrawsBackground_(False)
@@ -205,10 +244,10 @@ class PreferencesWindow:
         trigger_label.setSelectable_(False)
         view.addSubview_(trigger_label)
 
-        y_pos -= 30
+        y_pos -= 35
 
         # Audio device dropdown
-        audio_dropdown = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(20, y_pos, 400, 26))
+        audio_dropdown = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(30, y_pos, 450, 26))
         audio_devices = self.get_all_audio_devices()
         for device in audio_devices:
             audio_dropdown.addItemWithTitle_(device)
@@ -222,10 +261,10 @@ class PreferencesWindow:
         view.addSubview_(audio_dropdown)
         self.audio_dropdown = audio_dropdown
 
-        y_pos -= 50
+        y_pos -= 60
 
         # Current device label
-        current_label = NSTextField.alloc().initWithFrame_(NSMakeRect(20, y_pos, 400, 20))
+        current_label = NSTextField.alloc().initWithFrame_(NSMakeRect(30, y_pos, 500, 20))
         current_label.setStringValue_(f"Current Active Device: {self.app.current_device}")
         current_label.setBezeled_(False)
         current_label.setDrawsBackground_(False)
@@ -234,11 +273,11 @@ class PreferencesWindow:
         view.addSubview_(current_label)
         self.current_device_label = current_label
 
-        y_pos -= 30
+        y_pos -= 35
 
         # Status indicator
         status_text = "✅ Active (Sonos control enabled)" if self.app.should_intercept() else "⚪ Inactive (using different device or disabled)"
-        status_label = NSTextField.alloc().initWithFrame_(NSMakeRect(20, y_pos, 400, 20))
+        status_label = NSTextField.alloc().initWithFrame_(NSMakeRect(30, y_pos, 500, 20))
         status_label.setStringValue_(status_text)
         status_label.setBezeled_(False)
         status_label.setDrawsBackground_(False)
@@ -255,10 +294,10 @@ class PreferencesWindow:
         view.setBoxType_(0)
         view.setBorderType_(0)
 
-        y_pos = 350
+        y_pos = 360
 
         # Default speaker label
-        default_label = NSTextField.alloc().initWithFrame_(NSMakeRect(20, y_pos, 400, 20))
+        default_label = NSTextField.alloc().initWithFrame_(NSMakeRect(30, y_pos, 500, 20))
         default_label.setStringValue_("Default Sonos Speaker (auto-select on startup):")
         default_label.setBezeled_(False)
         default_label.setDrawsBackground_(False)
@@ -266,10 +305,10 @@ class PreferencesWindow:
         default_label.setSelectable_(False)
         view.addSubview_(default_label)
 
-        y_pos -= 30
+        y_pos -= 35
 
         # Sonos speaker dropdown
-        sonos_dropdown = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(20, y_pos, 400, 26))
+        sonos_dropdown = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(30, y_pos, 450, 26))
         sonos_dropdown.addItemWithTitle_("(None - Manual Selection)")
 
         for device in self.app.sonos_devices:
@@ -285,21 +324,21 @@ class PreferencesWindow:
         view.addSubview_(sonos_dropdown)
         self.sonos_dropdown = sonos_dropdown
 
-        y_pos -= 40
+        y_pos -= 50
 
         # Refresh button
-        refresh_button = NSButton.alloc().initWithFrame_(NSMakeRect(20, y_pos, 150, 28))
+        refresh_button = NSButton.alloc().initWithFrame_(NSMakeRect(30, y_pos, 150, 28))
         refresh_button.setTitle_("Refresh Devices")
         refresh_button.setBezelStyle_(1)
         refresh_button.setTarget_(self)
         refresh_button.setAction_(objc.selector(self.refresh_sonos_, signature=b'v@:@'))
         view.addSubview_(refresh_button)
 
-        y_pos -= 50
+        y_pos -= 60
 
         # Current speaker
         current_speaker = self.app.selected_sonos.player_name if self.app.selected_sonos else "(None)"
-        current_speaker_label = NSTextField.alloc().initWithFrame_(NSMakeRect(20, y_pos, 400, 20))
+        current_speaker_label = NSTextField.alloc().initWithFrame_(NSMakeRect(30, y_pos, 500, 20))
         current_speaker_label.setStringValue_(f"Currently Controlling: {current_speaker}")
         current_speaker_label.setBezeled_(False)
         current_speaker_label.setDrawsBackground_(False)
@@ -308,10 +347,10 @@ class PreferencesWindow:
         view.addSubview_(current_speaker_label)
         self.current_speaker_label = current_speaker_label
 
-        y_pos -= 30
+        y_pos -= 35
 
         # Device count
-        device_count_label = NSTextField.alloc().initWithFrame_(NSMakeRect(20, y_pos, 400, 20))
+        device_count_label = NSTextField.alloc().initWithFrame_(NSMakeRect(30, y_pos, 500, 20))
         device_count_label.setStringValue_(f"Discovered Devices: {len(self.app.sonos_devices)}")
         device_count_label.setBezeled_(False)
         device_count_label.setDrawsBackground_(False)
@@ -321,12 +360,6 @@ class PreferencesWindow:
         self.device_count_label = device_count_label
 
         return view
-
-    def get_current_hotkey_display(self):
-        """Get display string for current hotkeys"""
-        down_key = self.app.defaults.stringForKey_('hotkey_down') or "f11"
-        up_key = self.app.defaults.stringForKey_('hotkey_up') or "f12"
-        return f"Down: {down_key.upper()}  |  Up: {up_key.upper()}"
 
     def get_all_audio_devices(self):
         """Get list of all available audio output devices"""
@@ -411,16 +444,15 @@ class PreferencesWindow:
         Thread(target=update_ui, daemon=True).start()
 
     @objc.python_method
-    def record_hotkey_(self, sender):
-        """Start recording hotkeys"""
+    def record_down_hotkey_(self, sender):
+        """Record Volume Down hotkey"""
         if self.is_recording_hotkey:
             return
 
         self.is_recording_hotkey = True
-        self.recorded_keys = []
-        self.record_button.setTitle_("Recording...")
-        self.record_button.setEnabled_(False)
-        self.hotkey_text.setStringValue_("Press key for Volume Down...")
+        self.down_button.setTitle_("Press key...")
+        self.down_button.setEnabled_(False)
+        self.down_text.setStringValue_("...")
 
         def on_press(key):
             try:
@@ -428,43 +460,78 @@ class PreferencesWindow:
             except:
                 key_str = str(key).replace('Key.', '')
 
-            self.recorded_keys.append(key_str)
+            # Save the new hotkey
+            self.app.defaults.setObject_forKey_(key_str, 'hotkey_down')
+            self.app.defaults.synchronize()
 
-            if len(self.recorded_keys) == 1:
-                self.hotkey_text.setStringValue_(f"Down: {key_str.upper()} | Now press key for Volume Up...")
-            elif len(self.recorded_keys) == 2:
-                self.hotkey_text.setStringValue_(f"Down: {self.recorded_keys[0].upper()}  |  Up: {self.recorded_keys[1].upper()}")
-                self.finish_recording()
-                return False  # Stop listener
+            # Update UI
+            self.down_text.setStringValue_(key_str.upper())
+            self.down_button.setTitle_("Record")
+            self.down_button.setEnabled_(True)
+            self.is_recording_hotkey = False
+
+            # Restart hotkey listener with new keys
+            self.app.restart_hotkey_listener()
+
+            print(f"Volume Down hotkey updated to: {key_str.upper()}")
+
+            rumps.notification(
+                "Hotkey Updated",
+                None,
+                f"Volume Down set to: {key_str.upper()}",
+                sound=False
+            )
+
+            return False  # Stop listener
 
         # Start keyboard listener
         listener = keyboard.Listener(on_press=on_press)
         listener.start()
 
     @objc.python_method
-    def finish_recording(self):
-        """Finish recording hotkeys"""
-        self.is_recording_hotkey = False
-        self.record_button.setTitle_("Record Hotkeys")
-        self.record_button.setEnabled_(True)
+    def record_up_hotkey_(self, sender):
+        """Record Volume Up hotkey"""
+        if self.is_recording_hotkey:
+            return
 
-        if len(self.recorded_keys) == 2:
-            # Save hotkeys
-            self.app.defaults.setObject_forKey_(self.recorded_keys[0], 'hotkey_down')
-            self.app.defaults.setObject_forKey_(self.recorded_keys[1], 'hotkey_up')
+        self.is_recording_hotkey = True
+        self.up_button.setTitle_("Press key...")
+        self.up_button.setEnabled_(False)
+        self.up_text.setStringValue_("...")
+
+        def on_press(key):
+            try:
+                key_str = key.char if hasattr(key, 'char') else str(key).replace('Key.', '')
+            except:
+                key_str = str(key).replace('Key.', '')
+
+            # Save the new hotkey
+            self.app.defaults.setObject_forKey_(key_str, 'hotkey_up')
             self.app.defaults.synchronize()
+
+            # Update UI
+            self.up_text.setStringValue_(key_str.upper())
+            self.up_button.setTitle_("Record")
+            self.up_button.setEnabled_(True)
+            self.is_recording_hotkey = False
 
             # Restart hotkey listener with new keys
             self.app.restart_hotkey_listener()
 
-            print(f"Hotkeys updated: Down={self.recorded_keys[0]}, Up={self.recorded_keys[1]}")
+            print(f"Volume Up hotkey updated to: {key_str.upper()}")
 
             rumps.notification(
-                "Hotkeys Updated",
+                "Hotkey Updated",
                 None,
-                f"Volume Down: {self.recorded_keys[0].upper()}, Volume Up: {self.recorded_keys[1].upper()}",
+                f"Volume Up set to: {key_str.upper()}",
                 sound=False
             )
+
+            return False  # Stop listener
+
+        # Start keyboard listener
+        listener = keyboard.Listener(on_press=on_press)
+        listener.start()
 
 
 class SonosVolumeController(rumps.App):
