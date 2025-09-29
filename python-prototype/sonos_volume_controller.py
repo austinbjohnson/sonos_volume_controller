@@ -166,6 +166,11 @@ class PreferencesWindow:
         view.addSubview_(down_label)
 
         hotkey_down = self.app.defaults.stringForKey_('hotkey_down') or "f11"
+        # Filter out invalid values like "title"
+        if hotkey_down.lower() in ["title", "", "none", "null"]:
+            hotkey_down = "f11"
+            self.app.defaults.setObject_forKey_("f11", 'hotkey_down')
+            self.app.defaults.synchronize()
         down_text = NSTextField.alloc().initWithFrame_(NSMakeRect(140, y_pos, 150, 24))
         down_text.setStringValue_(hotkey_down.upper())
         down_text.setBezeled_(True)
@@ -196,6 +201,11 @@ class PreferencesWindow:
         view.addSubview_(up_label)
 
         hotkey_up = self.app.defaults.stringForKey_('hotkey_up') or "f12"
+        # Filter out invalid values like "title"
+        if hotkey_up.lower() in ["title", "", "none", "null"]:
+            hotkey_up = "f12"
+            self.app.defaults.setObject_forKey_("f12", 'hotkey_up')
+            self.app.defaults.synchronize()
         up_text = NSTextField.alloc().initWithFrame_(NSMakeRect(140, y_pos, 150, 24))
         up_text.setStringValue_(hotkey_up.upper())
         up_text.setBezeled_(True)
@@ -615,9 +625,18 @@ class SonosVolumeController(rumps.App):
         self.volume_item = rumps.MenuItem("Volume: --", callback=None)
         self.device_item = rumps.MenuItem(f"Current Device: {self.current_device}", callback=None)
 
-        # Get current hotkey display
+        # Get current hotkey display and validate
         hotkey_down = self.defaults.stringForKey_('hotkey_down') or "f11"
         hotkey_up = self.defaults.stringForKey_('hotkey_up') or "f12"
+
+        # Filter out invalid values
+        if hotkey_down.lower() in ["title", "", "none", "null"]:
+            hotkey_down = "f11"
+            self.defaults.setObject_forKey_("f11", 'hotkey_down')
+        if hotkey_up.lower() in ["title", "", "none", "null"]:
+            hotkey_up = "f12"
+            self.defaults.setObject_forKey_("f12", 'hotkey_up')
+        self.defaults.synchronize()
 
         self.menu = [
             self.volume_item,
@@ -688,9 +707,15 @@ class SonosVolumeController(rumps.App):
 
     def start_volume_key_listener(self):
         """Start listening for hotkey combinations"""
-        # Get custom hotkeys from preferences
+        # Get custom hotkeys from preferences and validate
         hotkey_down = self.defaults.stringForKey_('hotkey_down') or "f11"
         hotkey_up = self.defaults.stringForKey_('hotkey_up') or "f12"
+
+        # Filter out invalid values
+        if hotkey_down.lower() in ["title", "", "none", "null"]:
+            hotkey_down = "f11"
+        if hotkey_up.lower() in ["title", "", "none", "null"]:
+            hotkey_up = "f12"
 
         def on_activate_volume_up():
             if self.should_intercept():
