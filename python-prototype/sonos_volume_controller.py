@@ -454,39 +454,55 @@ class PreferencesWindow:
         self.down_button.setEnabled_(False)
         self.down_text.setStringValue_("...")
 
-        def on_press(key):
-            try:
-                key_str = key.char if hasattr(key, 'char') else str(key).replace('Key.', '')
-            except:
-                key_str = str(key).replace('Key.', '')
+        def listen_for_key():
+            def on_press(key):
+                try:
+                    key_str = key.char if hasattr(key, 'char') else str(key).replace('Key.', '')
+                except:
+                    key_str = str(key).replace('Key.', '')
 
-            # Save the new hotkey
-            self.app.defaults.setObject_forKey_(key_str, 'hotkey_down')
-            self.app.defaults.synchronize()
+                # Save the new hotkey
+                self.app.defaults.setObject_forKey_(key_str, 'hotkey_down')
+                self.app.defaults.synchronize()
 
-            # Update UI
-            self.down_text.setStringValue_(key_str.upper())
-            self.down_button.setTitle_("Record")
-            self.down_button.setEnabled_(True)
-            self.is_recording_hotkey = False
+                # Update UI on main thread
+                def update_ui():
+                    self.down_text.setStringValue_(key_str.upper())
+                    self.down_button.setTitle_("Record")
+                    self.down_button.setEnabled_(True)
+                    self.is_recording_hotkey = False
 
-            # Restart hotkey listener with new keys
-            self.app.restart_hotkey_listener()
+                    # Restart hotkey listener with new keys
+                    self.app.restart_hotkey_listener()
 
-            print(f"Volume Down hotkey updated to: {key_str.upper()}")
+                    print(f"Volume Down hotkey updated to: {key_str.upper()}")
 
-            rumps.notification(
-                "Hotkey Updated",
-                None,
-                f"Volume Down set to: {key_str.upper()}",
-                sound=False
-            )
+                    rumps.notification(
+                        "Hotkey Updated",
+                        None,
+                        f"Volume Down set to: {key_str.upper()}",
+                        sound=False
+                    )
 
-            return False  # Stop listener
+                # Schedule UI update on main thread
+                from AppKit import NSThread
+                if NSThread.isMainThread():
+                    update_ui()
+                else:
+                    NSApp.performSelectorOnMainThread_withObject_waitUntilDone_(
+                        objc.selector(lambda s, o: update_ui(), signature=b'v@:@'),
+                        None,
+                        False
+                    )
 
-        # Start keyboard listener
-        listener = keyboard.Listener(on_press=on_press)
-        listener.start()
+                return False  # Stop listener
+
+            # Start keyboard listener (non-blocking)
+            with keyboard.Listener(on_press=on_press) as listener:
+                listener.join()
+
+        # Run listener in background thread
+        Thread(target=listen_for_key, daemon=True).start()
 
     @objc.python_method
     def record_up_hotkey_(self, sender):
@@ -499,39 +515,55 @@ class PreferencesWindow:
         self.up_button.setEnabled_(False)
         self.up_text.setStringValue_("...")
 
-        def on_press(key):
-            try:
-                key_str = key.char if hasattr(key, 'char') else str(key).replace('Key.', '')
-            except:
-                key_str = str(key).replace('Key.', '')
+        def listen_for_key():
+            def on_press(key):
+                try:
+                    key_str = key.char if hasattr(key, 'char') else str(key).replace('Key.', '')
+                except:
+                    key_str = str(key).replace('Key.', '')
 
-            # Save the new hotkey
-            self.app.defaults.setObject_forKey_(key_str, 'hotkey_up')
-            self.app.defaults.synchronize()
+                # Save the new hotkey
+                self.app.defaults.setObject_forKey_(key_str, 'hotkey_up')
+                self.app.defaults.synchronize()
 
-            # Update UI
-            self.up_text.setStringValue_(key_str.upper())
-            self.up_button.setTitle_("Record")
-            self.up_button.setEnabled_(True)
-            self.is_recording_hotkey = False
+                # Update UI on main thread
+                def update_ui():
+                    self.up_text.setStringValue_(key_str.upper())
+                    self.up_button.setTitle_("Record")
+                    self.up_button.setEnabled_(True)
+                    self.is_recording_hotkey = False
 
-            # Restart hotkey listener with new keys
-            self.app.restart_hotkey_listener()
+                    # Restart hotkey listener with new keys
+                    self.app.restart_hotkey_listener()
 
-            print(f"Volume Up hotkey updated to: {key_str.upper()}")
+                    print(f"Volume Up hotkey updated to: {key_str.upper()}")
 
-            rumps.notification(
-                "Hotkey Updated",
-                None,
-                f"Volume Up set to: {key_str.upper()}",
-                sound=False
-            )
+                    rumps.notification(
+                        "Hotkey Updated",
+                        None,
+                        f"Volume Up set to: {key_str.upper()}",
+                        sound=False
+                    )
 
-            return False  # Stop listener
+                # Schedule UI update on main thread
+                from AppKit import NSThread
+                if NSThread.isMainThread():
+                    update_ui()
+                else:
+                    NSApp.performSelectorOnMainThread_withObject_waitUntilDone_(
+                        objc.selector(lambda s, o: update_ui(), signature=b'v@:@'),
+                        None,
+                        False
+                    )
 
-        # Start keyboard listener
-        listener = keyboard.Listener(on_press=on_press)
-        listener.start()
+                return False  # Stop listener
+
+            # Start keyboard listener (non-blocking)
+            with keyboard.Listener(on_press=on_press) as listener:
+                listener.join()
+
+        # Run listener in background thread
+        Thread(target=listen_for_key, daemon=True).start()
 
 
 class SonosVolumeController(rumps.App):
