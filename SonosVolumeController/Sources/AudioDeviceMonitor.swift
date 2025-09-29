@@ -20,6 +20,71 @@ class AudioDeviceMonitor {
         return currentDeviceName == settings.triggerDeviceName
     }
 
+    func getAllAudioDevices() -> [String] {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        var dataSize: UInt32 = 0
+        var status = AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0,
+            nil,
+            &dataSize
+        )
+
+        guard status == noErr else { return [] }
+
+        let deviceCount = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
+        var deviceIDs = [AudioDeviceID](repeating: 0, count: deviceCount)
+
+        status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0,
+            nil,
+            &dataSize,
+            &deviceIDs
+        )
+
+        guard status == noErr else { return [] }
+
+        // Get names and filter to output devices only
+        var deviceNames: [String] = []
+        for deviceID in deviceIDs {
+            if isOutputDevice(deviceID: deviceID) {
+                let name = getDeviceName(deviceID: deviceID)
+                if !name.isEmpty && name != "Unknown" {
+                    deviceNames.append(name)
+                }
+            }
+        }
+
+        return deviceNames.sorted()
+    }
+
+    private func isOutputDevice(deviceID: AudioDeviceID) -> Bool {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreams,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        var dataSize: UInt32 = 0
+        let status = AudioObjectGetPropertyDataSize(
+            deviceID,
+            &propertyAddress,
+            0,
+            nil,
+            &dataSize
+        )
+
+        return status == noErr && dataSize > 0
+    }
+
     private func updateCurrentDevice() {
         var propertyAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,

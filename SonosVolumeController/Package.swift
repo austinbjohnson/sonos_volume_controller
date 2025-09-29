@@ -15,10 +15,7 @@ let package = Package(
         .executableTarget(
             name: "SonosVolumeController",
             dependencies: [],
-            path: "Sources",
-            swiftSettings: [
-                .enableUpcomingFeature("BareSlashRegexLiterals")
-            ]
+            path: "Sources"
         )
     ]
 )

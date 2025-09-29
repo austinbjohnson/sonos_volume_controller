@@ -1,0 +1,75 @@
+# Development Guidelines for Sonos Volume Controller
+
+## Process Management
+
+### ❌ NEVER use `killall`
+**Why:** Too risky - can kill other processes with similar names system-wide.
+
+### ✅ SAFE alternatives for stopping the app:
+
+1. **Best: Use specific PIDs**
+   ```bash
+   # Find PIDs for this project only
+   ps aux | grep "\.build/arm64-apple-macosx/debug/SonosVolumeController" | grep -v grep | awk '{print $2}'
+
+   # Kill specific PID
+   kill <PID>
+   ```
+
+2. **Use background shell IDs**
+   - When using `run_in_background: true`, use `KillShell` tool with the returned ID
+
+3. **Targeted pkill** (OK but less precise)
+   ```bash
+   pkill -f "\.build/arm64-apple-macosx/debug/SonosVolumeController"
+   ```
+
+## Swift Development
+
+### Building and Running
+- Build: `swift build`
+- Run: `swift run` or `.build/arm64-apple-macosx/debug/SonosVolumeController`
+- Always run from project directory: `/Users/ajohnson/Code/abj_volumeController/SonosVolumeController`
+
+### Concurrency
+- Use `@MainActor` for AppDelegate and UI-related classes
+- Mark Sonos controller as `@unchecked Sendable` for background operations
+
+### Key Files
+- `Sources/main.swift` - App entry point with menu bar setup
+- `Sources/VolumeKeyMonitor.swift` - F11/F12 hotkey monitoring (keycodes 103/111)
+- `Sources/SonosController.swift` - UPnP/SSDP Sonos discovery and control
+- `Sources/AudioDeviceMonitor.swift` - CoreAudio device detection
+- `Sources/AppSettings.swift` - UserDefaults persistence
+
+## Testing
+
+### Check if app is running
+```bash
+ps aux | grep "\.build.*SonosVolumeController" | grep -v grep
+```
+
+### Test Sonos discovery (Python)
+```bash
+cd python-prototype
+python3 -c "import soco; print(list(soco.discover()))"
+```
+
+## Python Prototype
+
+### Location
+`python-prototype/sonos_volume_controller.py`
+
+### Running
+```bash
+cd python-prototype
+python3 sonos_volume_controller.py
+```
+
+### Known Issues
+- Hotkey recording can freeze (threaded but still blocking)
+- "title" value can appear in dropdowns (needs validation)
+
+## Branch Strategy
+- `main` - Stable Python version
+- `swift-development` - Swift implementation work
