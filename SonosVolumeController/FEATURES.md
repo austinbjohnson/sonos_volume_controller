@@ -8,6 +8,7 @@
 
 ## Features
 - **Speaker grouping functionality**: Make it easy to group speakers with the default speaker as the audio source. The default speaker (as set in preferences) should be the coordinator when grouping other speakers. Lookup 2025 Sonos office documentation for implementation details.
+- **Trigger device cache management**: Add ability to refresh trigger sources and cache them persistently. Users should be able to manually delete cached devices that are no longer relevant (similar to WiFi network history - devices remain in cache even when not currently available, but can be manually removed).
 
 ## Enhancements
 - None currently
