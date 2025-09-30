@@ -29,8 +29,8 @@ class MenuBarContentViewController: NSViewController {
     }
 
     override func loadView() {
-        // Main container - wider for better layout
-        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 540))
+        // Main container - wider and taller to fit all speakers
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 650))
         self.view = containerView
 
         // Single glass effect view
@@ -200,11 +200,14 @@ class MenuBarContentViewController: NSViewController {
         // Scroll view for speaker cards
         let scrollView = NSScrollView()
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.backgroundColor = .clear
         scrollView.drawsBackground = false
+        scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        scrollView.automaticallyAdjustsContentInsets = false
         container.addSubview(scrollView)
 
         // Container for speaker cards
@@ -212,7 +215,7 @@ class MenuBarContentViewController: NSViewController {
         speakerCardsContainer.orientation = .vertical
         speakerCardsContainer.spacing = 8
         speakerCardsContainer.translatesAutoresizingMaskIntoConstraints = false
-        speakerCardsContainer.edgeInsets = NSEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
+        speakerCardsContainer.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 8, right: 0)
 
         populateSpeakers()
         scrollView.documentView = speakerCardsContainer
@@ -238,12 +241,12 @@ class MenuBarContentViewController: NSViewController {
 
         NSLayoutConstraint.activate([
             speakersTitle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
-            speakersTitle.topAnchor.constraint(equalTo: previousDivider.bottomAnchor, constant: 16),
+            speakersTitle.topAnchor.constraint(equalTo: previousDivider.bottomAnchor, constant: 12),
 
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
-            scrollView.topAnchor.constraint(equalTo: speakersTitle.bottomAnchor, constant: 12),
-            scrollView.heightAnchor.constraint(equalToConstant: 160),
+            scrollView.topAnchor.constraint(equalTo: speakersTitle.bottomAnchor, constant: 0),
+            scrollView.heightAnchor.constraint(equalToConstant: 310),
 
             speakerCardsContainer.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
 
@@ -273,8 +276,9 @@ class MenuBarContentViewController: NSViewController {
         icon.contentTintColor = isActive ? .controlAccentColor : .tertiaryLabelColor
         icon.translatesAutoresizingMaskIntoConstraints = false
 
-        // Speaker name
-        let nameLabel = NSTextField(labelWithString: device.name)
+        // Speaker name with default indicator
+        let displayName = isActive ? "\(device.name) (Default)" : device.name
+        let nameLabel = NSTextField(labelWithString: displayName)
         nameLabel.font = .systemFont(ofSize: 13, weight: isActive ? .semibold : .regular)
         nameLabel.textColor = isActive ? .labelColor : .secondaryLabelColor
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -331,8 +335,23 @@ class MenuBarContentViewController: NSViewController {
 
         let currentSpeaker = appDelegate?.settings.selectedSonosDevice
 
-        for device in devices {
-            let card = createSpeakerCard(device: device, isActive: device.name == currentSpeaker)
+        // Sort devices: default speaker first, then alphabetically
+        let sortedDevices = devices.sorted { device1, device2 in
+            let isDevice1Current = device1.name == currentSpeaker
+            let isDevice2Current = device2.name == currentSpeaker
+
+            if isDevice1Current && !isDevice2Current {
+                return true  // device1 comes first
+            } else if !isDevice1Current && isDevice2Current {
+                return false  // device2 comes first
+            } else {
+                return device1.name.localizedCaseInsensitiveCompare(device2.name) == .orderedAscending
+            }
+        }
+
+        for device in sortedDevices {
+            let isActive = device.name == currentSpeaker
+            let card = createSpeakerCard(device: device, isActive: isActive)
             speakerCardsContainer.addArrangedSubview(card)
         }
     }
@@ -344,42 +363,30 @@ class MenuBarContentViewController: NSViewController {
         let dividers = container.subviews.compactMap { $0 as? NSBox }
         let previousDivider = dividers.last!
 
-        // Refresh button with label
-        let refreshStack = NSStackView()
-        refreshStack.orientation = .vertical
-        refreshStack.spacing = 4
-        refreshStack.alignment = .centerX
-        refreshStack.translatesAutoresizingMaskIntoConstraints = false
+        // Preferences button with label
+        let prefsStack = NSStackView()
+        prefsStack.orientation = .vertical
+        prefsStack.spacing = 4
+        prefsStack.alignment = .centerX
+        prefsStack.translatesAutoresizingMaskIntoConstraints = false
 
-        let refreshButton = NSButton()
-        refreshButton.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: "Refresh")
-        refreshButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        refreshButton.bezelStyle = .inline
-        refreshButton.isBordered = false
-        refreshButton.contentTintColor = .secondaryLabelColor
-        refreshButton.target = self
-        refreshButton.action = #selector(refreshDevices)
-        refreshButton.translatesAutoresizingMaskIntoConstraints = false
-
-        let refreshLabel = NSTextField(labelWithString: "Refresh")
-        refreshLabel.font = .systemFont(ofSize: 10)
-        refreshLabel.textColor = .tertiaryLabelColor
-
-        refreshStack.addArrangedSubview(refreshButton)
-        refreshStack.addArrangedSubview(refreshLabel)
-        container.addSubview(refreshStack)
-
-        // Preferences button
         let prefsButton = NSButton()
         prefsButton.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Preferences")
-        prefsButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        prefsButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 20, weight: .medium)
         prefsButton.bezelStyle = .inline
         prefsButton.isBordered = false
         prefsButton.contentTintColor = .secondaryLabelColor
         prefsButton.target = self
         prefsButton.action = #selector(openPreferences)
         prefsButton.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(prefsButton)
+
+        NSLayoutConstraint.activate([
+            prefsButton.widthAnchor.constraint(equalToConstant: 44),
+            prefsButton.heightAnchor.constraint(equalToConstant: 44)
+        ])
+
+        prefsStack.addArrangedSubview(prefsButton)
+        container.addSubview(prefsStack)
 
         // Quit button with label
         let quitStack = NSStackView()
@@ -390,34 +397,29 @@ class MenuBarContentViewController: NSViewController {
 
         let quitButton = NSButton()
         quitButton.image = NSImage(systemSymbolName: "power.circle", accessibilityDescription: "Quit")
-        quitButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        quitButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 20, weight: .medium)
         quitButton.bezelStyle = .inline
         quitButton.isBordered = false
-        quitButton.contentTintColor = .systemRed.withAlphaComponent(0.8)
+        quitButton.contentTintColor = .secondaryLabelColor
         quitButton.target = self
         quitButton.action = #selector(quit)
         quitButton.translatesAutoresizingMaskIntoConstraints = false
 
-        let quitLabel = NSTextField(labelWithString: "Quit")
-        quitLabel.font = .systemFont(ofSize: 10)
-        quitLabel.textColor = .tertiaryLabelColor
+        NSLayoutConstraint.activate([
+            quitButton.widthAnchor.constraint(equalToConstant: 44),
+            quitButton.heightAnchor.constraint(equalToConstant: 44)
+        ])
 
         quitStack.addArrangedSubview(quitButton)
-        quitStack.addArrangedSubview(quitLabel)
         container.addSubview(quitStack)
 
         NSLayoutConstraint.activate([
-            refreshStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 50),
-            refreshStack.topAnchor.constraint(equalTo: previousDivider.bottomAnchor, constant: 12),
-            refreshStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+            prefsStack.trailingAnchor.constraint(equalTo: container.centerXAnchor, constant: -40),
+            prefsStack.topAnchor.constraint(equalTo: previousDivider.bottomAnchor, constant: 16),
+            prefsStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
 
-            prefsButton.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            prefsButton.centerYAnchor.constraint(equalTo: refreshStack.centerYAnchor, constant: -6),
-            prefsButton.widthAnchor.constraint(equalToConstant: 40),
-            prefsButton.heightAnchor.constraint(equalToConstant: 40),
-
-            quitStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -50),
-            quitStack.centerYAnchor.constraint(equalTo: refreshStack.centerYAnchor),
+            quitStack.leadingAnchor.constraint(equalTo: container.centerXAnchor, constant: 40),
+            quitStack.topAnchor.constraint(equalTo: previousDivider.bottomAnchor, constant: 16),
         ])
     }
 
@@ -476,13 +478,6 @@ class MenuBarContentViewController: NSViewController {
     @objc private func groupSpeakers() {
         // Placeholder for future grouping functionality
         print("Speaker grouping will be available in a future update")
-    }
-
-    @objc private func refreshDevices() {
-        appDelegate?.sonosController.discoverDevices(forceRefreshTopology: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            self.refresh()
-        }
     }
 
     @objc private func openPreferences() {
