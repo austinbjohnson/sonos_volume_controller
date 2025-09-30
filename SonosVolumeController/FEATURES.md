@@ -12,7 +12,7 @@
 - **Sonos-style speaker cards**: Redesign speaker list UI to match Sonos native app style - dark rounded cards per speaker/group, individual volume sliders on each card, cleaner visual hierarchy.
 
 ## Enhancements
-- None currently
+- **Simplify trigger source UI**: Replace radio button list with read-only info display showing the current trigger device. Now that "Any Device" is the default and works well, the selection UI could be streamlined to just show what's active (with option to change in preferences if needed)
 
 ## Bugs
 - **Speakers list spacing**: Adjust spacing/layout in the speakers section of the menu bar popover
@@ -33,4 +33,5 @@
 - ✅ Changed default hotkeys to Cmd+Shift+9/0 for better ergonomics (PR #20)
 - ✅ Fixed hotkeys not working in installed app - reverted to F11/F12 defaults, fixed CGEventFlags conversion, added network entitlements, improved permission flow with auto-restart (PR #22)
 - ✅ First launch onboarding with welcome banner - automatically shows popover when no speaker is selected, plus shows HUD notification when user tries to use hotkeys without a speaker selected (PR #24)
-- ✅ Trigger device picker in menu bar - select which audio device activates Sonos hotkeys, defaults to "Any Device" for universal compatibility (PR #25) 
+- ✅ Trigger device picker in menu bar - select which audio device activates Sonos hotkeys, defaults to "Any Device" for universal compatibility (PR #25)
+- ✅ Hierarchical group UI with expandable member controls - groups display as primary cards with drill-down capability to control individual speakers within groups (PR #27) 

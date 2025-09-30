@@ -5,12 +5,17 @@ class SonosController: @unchecked Sendable {
     private let settings: AppSettings
     private var devices: [SonosDevice] = []
     private var groups: [SonosGroup] = []
-    private var selectedDevice: SonosDevice?
+    private var _selectedDevice: SonosDevice?
     private var selectedGroup: SonosGroup?
 
     // Topology cache - persists during app session
     private var topologyCache: [String: String] = [:]  // UUID -> Coordinator UUID
     private var hasLoadedTopology = false
+
+    // Expose selected device
+    var selectedDevice: SonosDevice? {
+        return _selectedDevice
+    }
 
     // Expose devices for menu population
     var discoveredDevices: [SonosDevice] {
@@ -44,7 +49,8 @@ class SonosController: @unchecked Sendable {
             if members.count == 1 {
                 return coordinator.name
             } else {
-                return "\(coordinator.name) + \(members.count - 1)"
+                // Join all member names: "Living Room + Kitchen Move"
+                return members.map { $0.name }.joined(separator: " + ")
             }
         }
 
@@ -454,8 +460,8 @@ class SonosController: @unchecked Sendable {
     }
 
     func selectDevice(name: String) {
-        selectedDevice = devices.first { $0.name == name }
-        if let device = selectedDevice {
+        _selectedDevice = devices.first { $0.name == name }
+        if let device = _selectedDevice {
             settings.selectedSonosDevice = device.name
 
             var info = "✅ Selected: \(device.name)"
@@ -473,13 +479,13 @@ class SonosController: @unchecked Sendable {
         }
     }
 
-    // Refresh selectedDevice reference to pick up updated topology info
+    // Refresh _selectedDevice reference to pick up updated topology info
     private func refreshSelectedDevice() {
-        guard let currentDevice = selectedDevice else { return }
+        guard let currentDevice = _selectedDevice else { return }
 
         // Re-find the device in the updated devices array to get current topology info
         if let updatedDevice = devices.first(where: { $0.name == currentDevice.name }) {
-            selectedDevice = updatedDevice
+            _selectedDevice = updatedDevice
             if updatedDevice.channelMapSet != nil {
                 print("Refreshed selected device: \(updatedDevice.name) [STEREO PAIR]")
             } else {
@@ -530,7 +536,7 @@ class SonosController: @unchecked Sendable {
     }
 
     func getCurrentVolume(completion: @escaping (Int?) -> Void) {
-        guard let device = selectedDevice else {
+        guard let device = _selectedDevice else {
             completion(nil)
             return
         }
@@ -549,7 +555,7 @@ class SonosController: @unchecked Sendable {
 
     func volumeUp() {
         print("📢 volumeUp() called")
-        guard let device = selectedDevice else {
+        guard let device = _selectedDevice else {
             print("⚠️ No device selected!")
             showNoSpeakerSelectedNotification()
             return
@@ -566,7 +572,7 @@ class SonosController: @unchecked Sendable {
 
     func volumeDown() {
         print("📢 volumeDown() called")
-        guard let device = selectedDevice else {
+        guard let device = _selectedDevice else {
             print("⚠️ No device selected!")
             showNoSpeakerSelectedNotification()
             return
@@ -591,7 +597,7 @@ class SonosController: @unchecked Sendable {
     }
 
     func getVolume(completion: @escaping (Int) -> Void) {
-        guard let device = selectedDevice else {
+        guard let device = _selectedDevice else {
             print("❌ No Sonos device selected")
             completion(50) // Default
             return
@@ -608,7 +614,7 @@ class SonosController: @unchecked Sendable {
     }
 
     func setVolume(_ volume: Int) {
-        guard let device = selectedDevice else {
+        guard let device = _selectedDevice else {
             print("❌ No Sonos device selected")
             return
         }
@@ -648,7 +654,7 @@ class SonosController: @unchecked Sendable {
     }
 
     func toggleMute() {
-        guard let device = selectedDevice else {
+        guard let device = _selectedDevice else {
             print("No Sonos device selected")
             return
         }
@@ -660,7 +666,7 @@ class SonosController: @unchecked Sendable {
     }
 
     private func changeVolume(by delta: Int) {
-        guard let device = selectedDevice else {
+        guard let device = _selectedDevice else {
             print("❌ No Sonos device selected")
             return
         }
