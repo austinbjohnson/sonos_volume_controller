@@ -110,6 +110,17 @@ class VolumeKeyMonitor {
         // Check if we should intercept
         guard audioMonitor.shouldInterceptVolumeKeys else {
             print("   ❌ Not intercepting - wrong audio device")
+
+            // Show notification explaining why volume control didn't work
+            // Capture trigger device name before entering Task to avoid data race
+            let triggerDevice = settings.triggerDeviceName
+            Task { @MainActor in
+                VolumeHUD.shared.showError(
+                    title: "Wrong Audio Device",
+                    message: "Switch to \(triggerDevice) to control Sonos"
+                )
+            }
+
             // Pass through to system
             return Unmanaged.passUnretained(event)
         }
