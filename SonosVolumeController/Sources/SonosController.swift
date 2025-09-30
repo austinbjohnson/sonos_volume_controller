@@ -32,6 +32,11 @@ class SonosController: @unchecked Sendable {
     func discoverDevices(forceRefreshTopology: Bool = false, completion: (@Sendable () -> Void)? = nil) {
         print("Discovering Sonos devices...")
 
+        // Notify UI that discovery is starting
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: NSNotification.Name("SonosDiscoveryStarted"), object: nil)
+        }
+
         // Clear cache if forced refresh is requested
         if forceRefreshTopology {
             print("Clearing topology cache for fresh discovery")
@@ -48,11 +53,12 @@ class SonosController: @unchecked Sendable {
     }
 
     private func performSSDPDiscovery(completion: (@Sendable () -> Void)? = nil) {
+        // Increased MX from 1 to 3 to give devices more time to respond
         let ssdpMessage = """
         M-SEARCH * HTTP/1.1\r
         HOST: 239.255.255.250:1900\r
         MAN: "ssdp:discover"\r
-        MX: 1\r
+        MX: 3\r
         ST: urn:schemas-upnp-org:device:ZonePlayer:1\r
         \r
 
@@ -60,12 +66,26 @@ class SonosController: @unchecked Sendable {
 
         do {
             let socket = try Socket()
+
+            // Send multiple discovery packets to catch devices that might miss the first one
+            print("📡 Sending discovery packet 1/3...")
             try socket.send(ssdpMessage, to: "239.255.255.250", port: 1900)
 
-            // Listen for responses
-            let timeout = DispatchTime.now() + .seconds(3)
+            Thread.sleep(forTimeInterval: 0.5)
+
+            print("📡 Sending discovery packet 2/3...")
+            try socket.send(ssdpMessage, to: "239.255.255.250", port: 1900)
+
+            Thread.sleep(forTimeInterval: 0.5)
+
+            print("📡 Sending discovery packet 3/3...")
+            try socket.send(ssdpMessage, to: "239.255.255.250", port: 1900)
+
+            // Listen for responses with extended timeout (increased from 3 to 5 seconds)
+            let timeout = DispatchTime.now() + .seconds(5)
             var foundDevices: [SonosDevice] = []
 
+            print("👂 Listening for responses...")
             while DispatchTime.now() < timeout {
                 if let response = try? socket.receive(timeout: 1.0) {
                     if let device = parseSSDPResponse(response.data, from: response.address) {

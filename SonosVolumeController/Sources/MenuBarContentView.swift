@@ -18,6 +18,7 @@ class MenuBarContentViewController: NSViewController {
     private var selectedSpeakerCards: Set<String> = []
     private var groupButton: NSButton!
     private var powerButton: NSButton!
+    private var isLoadingDevices: Bool = false
 
     init(appDelegate: AppDelegate?) {
         self.appDelegate = appDelegate
@@ -62,6 +63,21 @@ class MenuBarContentViewController: NSViewController {
             self,
             selector: #selector(volumeDidChange(_:)),
             name: NSNotification.Name("SonosVolumeDidChange"),
+            object: nil
+        )
+
+        // Observe device discovery events
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(discoveryStarted),
+            name: NSNotification.Name("SonosDiscoveryStarted"),
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(devicesDiscovered),
+            name: NSNotification.Name("SonosDevicesDiscovered"),
             object: nil
         )
     }
@@ -229,6 +245,11 @@ class MenuBarContentViewController: NSViewController {
         speakerCardsContainer.translatesAutoresizingMaskIntoConstraints = false
         speakerCardsContainer.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 8, right: 0)
 
+        // Show loading indicator if no devices discovered yet
+        if appDelegate?.sonosController.discoveredDevices.isEmpty != false {
+            isLoadingDevices = true
+        }
+
         populateSpeakers()
         scrollView.documentView = speakerCardsContainer
 
@@ -336,7 +357,31 @@ class MenuBarContentViewController: NSViewController {
     private func populateSpeakers() {
         speakerCardsContainer.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
-        guard let devices = appDelegate?.sonosController.discoveredDevices else {
+        // Show loading indicator if discovery is in progress
+        if isLoadingDevices {
+            let loadingStack = NSStackView()
+            loadingStack.orientation = .vertical
+            loadingStack.spacing = 12
+            loadingStack.alignment = .centerX
+
+            let spinner = NSProgressIndicator()
+            spinner.style = .spinning
+            spinner.controlSize = .regular
+            spinner.startAnimation(nil)
+
+            let loadingLabel = NSTextField(labelWithString: "Discovering speakers...")
+            loadingLabel.alignment = .center
+            loadingLabel.textColor = .secondaryLabelColor
+            loadingLabel.font = .systemFont(ofSize: 13)
+
+            loadingStack.addArrangedSubview(spinner)
+            loadingStack.addArrangedSubview(loadingLabel)
+
+            speakerCardsContainer.addArrangedSubview(loadingStack)
+            return
+        }
+
+        guard let devices = appDelegate?.sonosController.discoveredDevices, !devices.isEmpty else {
             let label = NSTextField(labelWithString: "No speakers found")
             label.alignment = .center
             label.textColor = .tertiaryLabelColor
@@ -466,6 +511,18 @@ class MenuBarContentViewController: NSViewController {
 
         volumeSlider.doubleValue = Double(volume)
         volumeLabel.stringValue = "\(volume)%"
+    }
+
+    @objc private func discoveryStarted() {
+        // Discovery started, show loading indicator
+        isLoadingDevices = true
+        populateSpeakers()
+    }
+
+    @objc private func devicesDiscovered() {
+        // Discovery completed, hide loading indicator
+        isLoadingDevices = false
+        populateSpeakers()
     }
 
     @objc private func selectSpeaker(_ gesture: NSClickGestureRecognizer) {
