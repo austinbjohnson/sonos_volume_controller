@@ -50,6 +50,7 @@ class MenuBarContentViewController: NSViewController {
         setupHeaderSection(in: contentView)
         setupVolumeSection(in: contentView)
         setupSpeakersSection(in: contentView)
+        setupTriggerDeviceSection(in: contentView)
         setupActionsSection(in: contentView)
 
         NSLayoutConstraint.activate([
@@ -427,6 +428,98 @@ class MenuBarContentViewController: NSViewController {
             let card = createSpeakerCard(device: device, isActive: isActive)
             speakerCardsContainer.addArrangedSubview(card)
         }
+    }
+
+    // MARK: - Trigger Device Section
+
+    private func setupTriggerDeviceSection(in container: NSView) {
+        // Section title
+        let triggerTitle = NSTextField(labelWithString: "Audio Trigger")
+        triggerTitle.font = .systemFont(ofSize: 13, weight: .medium)
+        triggerTitle.textColor = .secondaryLabelColor
+        triggerTitle.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(triggerTitle)
+
+        // Description
+        let description = NSTextField(wrappingLabelWithString: "Hotkeys work when this device is active:")
+        description.font = .systemFont(ofSize: 11, weight: .regular)
+        description.textColor = .tertiaryLabelColor
+        description.maximumNumberOfLines = 2
+        description.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(description)
+
+        // Radio buttons container
+        let radioContainer = NSStackView()
+        radioContainer.orientation = .vertical
+        radioContainer.spacing = 8
+        radioContainer.alignment = .leading
+        radioContainer.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(radioContainer)
+
+        // Get current trigger device setting
+        guard let settings = appDelegate?.settings else { return }
+        let currentTrigger = settings.triggerDeviceName
+
+        // "Any Device" option (recommended)
+        let anyDeviceButton = NSButton()
+        anyDeviceButton.setButtonType(.radio)
+        anyDeviceButton.title = "Any Device (recommended)"
+        anyDeviceButton.font = .systemFont(ofSize: 12, weight: .regular)
+        anyDeviceButton.state = currentTrigger.isEmpty ? .on : .off
+        anyDeviceButton.target = self
+        anyDeviceButton.action = #selector(triggerDeviceChanged(_:))
+        anyDeviceButton.identifier = NSUserInterfaceItemIdentifier("")  // Empty = any device
+        radioContainer.addArrangedSubview(anyDeviceButton)
+
+        // Get all audio devices
+        guard let audioMonitor = appDelegate?.audioMonitor else { return }
+        let audioDevices = audioMonitor.getAllAudioDevices()
+
+        // Create radio button for each audio device
+        for device in audioDevices {
+            let deviceButton = NSButton()
+            deviceButton.setButtonType(.radio)
+            deviceButton.title = device
+            deviceButton.font = .systemFont(ofSize: 12, weight: .regular)
+            deviceButton.state = (device == currentTrigger) ? .on : .off
+            deviceButton.target = self
+            deviceButton.action = #selector(triggerDeviceChanged(_:))
+            deviceButton.identifier = NSUserInterfaceItemIdentifier(device)
+            radioContainer.addArrangedSubview(deviceButton)
+        }
+
+        // Divider
+        let divider4 = createDivider()
+        container.addSubview(divider4)
+
+        // Find the previous divider to anchor to
+        let previousDividers = container.subviews.compactMap { $0 as? NSBox }
+        let previousDivider = previousDividers[previousDividers.count - 2]
+
+        NSLayoutConstraint.activate([
+            triggerTitle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            triggerTitle.topAnchor.constraint(equalTo: previousDivider.bottomAnchor, constant: 12),
+
+            description.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            description.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+            description.topAnchor.constraint(equalTo: triggerTitle.bottomAnchor, constant: 4),
+
+            radioContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            radioContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+            radioContainer.topAnchor.constraint(equalTo: description.bottomAnchor, constant: 8),
+
+            divider4.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            divider4.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+            divider4.topAnchor.constraint(equalTo: radioContainer.bottomAnchor, constant: 16),
+            divider4.heightAnchor.constraint(equalToConstant: 1)
+        ])
+    }
+
+    @objc private func triggerDeviceChanged(_ sender: NSButton) {
+        guard let settings = appDelegate?.settings else { return }
+        let deviceName = sender.identifier?.rawValue ?? ""
+        settings.triggerDeviceName = deviceName
+        print("Trigger device changed to: \(deviceName.isEmpty ? "Any Device" : deviceName)")
     }
 
     // MARK: - Actions Section

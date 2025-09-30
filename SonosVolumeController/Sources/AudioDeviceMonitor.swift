@@ -17,6 +17,13 @@ class AudioDeviceMonitor {
 
     var shouldInterceptVolumeKeys: Bool {
         guard settings.enabled else { return false }
+
+        // If trigger device is empty, always intercept (works with any audio device)
+        if settings.triggerDeviceName.isEmpty {
+            return true
+        }
+
+        // Otherwise, only intercept when current device matches trigger device
         return currentDeviceName == settings.triggerDeviceName
     }
 

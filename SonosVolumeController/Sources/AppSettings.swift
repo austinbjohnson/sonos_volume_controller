@@ -28,11 +28,11 @@ class AppSettings {
 
     var triggerDeviceName: String {
         get {
-            defaults.string(forKey: Keys.triggerDevice) ?? "DELL U2723QE"
+            defaults.string(forKey: Keys.triggerDevice) ?? ""  // Empty = always intercept
         }
         set {
             defaults.set(newValue, forKey: Keys.triggerDevice)
-            print("Trigger device set to: \(newValue)")
+            print("Trigger device set to: \(newValue.isEmpty ? "Any Device" : newValue)")
         }
     }
 
