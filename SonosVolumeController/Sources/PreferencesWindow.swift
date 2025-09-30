@@ -133,8 +133,9 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
         view.addSubview(downLabel)
 
         let downKeyCode = appDelegate?.settings.volumeDownKeyCode ?? 103
-        let downKeyName = appDelegate?.settings.keyName(for: downKeyCode) ?? "F11"
-        let downText = createTextField(downKeyName, frame: NSRect(x: 140, y: yPos, width: 150, height: 24))
+        let downModifiers = appDelegate?.settings.volumeDownModifiers ?? 0
+        let downKeyCombo = appDelegate?.settings.keyComboName(for: downKeyCode, modifiers: downModifiers) ?? "F11"
+        let downText = createTextField(downKeyCombo, frame: NSRect(x: 140, y: yPos, width: 150, height: 24))
         downText.alignment = .center
         view.addSubview(downText)
         volumeDownTextField = downText
@@ -153,8 +154,9 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
         view.addSubview(upLabel)
 
         let upKeyCode = appDelegate?.settings.volumeUpKeyCode ?? 111
-        let upKeyName = appDelegate?.settings.keyName(for: upKeyCode) ?? "F12"
-        let upText = createTextField(upKeyName, frame: NSRect(x: 140, y: yPos, width: 150, height: 24))
+        let upModifiers = appDelegate?.settings.volumeUpModifiers ?? 0
+        let upKeyCombo = appDelegate?.settings.keyComboName(for: upKeyCode, modifiers: upModifiers) ?? "F12"
+        let upText = createTextField(upKeyCombo, frame: NSRect(x: 140, y: yPos, width: 150, height: 24))
         upText.alignment = .center
         view.addSubview(upText)
         volumeUpTextField = upText
@@ -414,7 +416,7 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
         sender.title = "Listening..."
         volumeDownTextField?.stringValue = "Press a key..."
 
-        keyRecorder.startRecording { [weak self] keyCode in
+        keyRecorder.startRecording { [weak self] keyCode, modifiers in
             guard let self = self else { return }
 
             self.isRecordingDown = false
@@ -422,12 +424,13 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
 
             // Update settings
             self.appDelegate?.settings.volumeDownKeyCode = keyCode
+            self.appDelegate?.settings.volumeDownModifiers = modifiers
 
             // Update display
-            let keyName = self.appDelegate?.settings.keyName(for: keyCode) ?? "Key \(keyCode)"
-            self.volumeDownTextField?.stringValue = keyName
+            let keyCombo = self.appDelegate?.settings.keyComboName(for: keyCode, modifiers: modifiers) ?? "Key \(keyCode)"
+            self.volumeDownTextField?.stringValue = keyCombo
 
-            print("✅ Volume down key set to: \(keyName) (code: \(keyCode))")
+            print("✅ Volume down key set to: \(keyCombo) (code: \(keyCode), modifiers: \(modifiers))")
         }
     }
 
@@ -438,7 +441,7 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
         sender.title = "Listening..."
         volumeUpTextField?.stringValue = "Press a key..."
 
-        keyRecorder.startRecording { [weak self] keyCode in
+        keyRecorder.startRecording { [weak self] keyCode, modifiers in
             guard let self = self else { return }
 
             self.isRecordingUp = false
@@ -446,12 +449,13 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
 
             // Update settings
             self.appDelegate?.settings.volumeUpKeyCode = keyCode
+            self.appDelegate?.settings.volumeUpModifiers = modifiers
 
             // Update display
-            let keyName = self.appDelegate?.settings.keyName(for: keyCode) ?? "Key \(keyCode)"
-            self.volumeUpTextField?.stringValue = keyName
+            let keyCombo = self.appDelegate?.settings.keyComboName(for: keyCode, modifiers: modifiers) ?? "Key \(keyCode)"
+            self.volumeUpTextField?.stringValue = keyCombo
 
-            print("✅ Volume up key set to: \(keyName) (code: \(keyCode))")
+            print("✅ Volume up key set to: \(keyCombo) (code: \(keyCode), modifiers: \(modifiers))")
         }
     }
 

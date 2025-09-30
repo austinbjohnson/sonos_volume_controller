@@ -74,11 +74,24 @@ class VolumeKeyMonitor {
         }
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        let eventFlags = event.flags
+
+        // Extract relevant modifier flags from event
+        let relevantEventFlags = eventFlags.rawValue & (CGEventFlags.maskCommand.rawValue |
+                                                         CGEventFlags.maskAlternate.rawValue |
+                                                         CGEventFlags.maskShift.rawValue |
+                                                         CGEventFlags.maskControl.rawValue)
 
         // Get custom hotkeys from settings
         let volumeDownKey = settings.volumeDownKeyCode
         let volumeUpKey = settings.volumeUpKeyCode
-        let isVolumeKey = keyCode == volumeDownKey || keyCode == volumeUpKey
+        let volumeDownModifiers = settings.volumeDownModifiers
+        let volumeUpModifiers = settings.volumeUpModifiers
+
+        // Check if this matches our volume hotkeys (key code + modifiers)
+        let isVolumeDownKey = (keyCode == volumeDownKey) && (relevantEventFlags == volumeDownModifiers)
+        let isVolumeUpKey = (keyCode == volumeUpKey) && (relevantEventFlags == volumeUpModifiers)
+        let isVolumeKey = isVolumeDownKey || isVolumeUpKey
 
         // Debug: print key presses for common keys
         if keyCode >= 100 && keyCode <= 120 {
@@ -103,10 +116,10 @@ class VolumeKeyMonitor {
 
         // Intercept and handle with Sonos
         print("✅ Intercepting event")
-        if keyCode == volumeUpKey {
+        if isVolumeUpKey {
             print("🔊 Volume Up - Controlling Sonos")
             sonosController.volumeUp()
-        } else if keyCode == volumeDownKey {
+        } else if isVolumeDownKey {
             print("🔉 Volume Down - Controlling Sonos")
             sonosController.volumeDown()
         }

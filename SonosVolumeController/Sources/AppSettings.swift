@@ -1,4 +1,5 @@
 import Foundation
+import Cocoa
 
 class AppSettings {
     private let defaults = UserDefaults.standard
@@ -10,6 +11,8 @@ class AppSettings {
         static let volumeStep = "volumeStep"
         static let volumeDownKeyCode = "volumeDownKeyCode"
         static let volumeUpKeyCode = "volumeUpKeyCode"
+        static let volumeDownModifiers = "volumeDownModifiers"
+        static let volumeUpModifiers = "volumeUpModifiers"
     }
 
     var enabled: Bool {
@@ -71,6 +74,24 @@ class AppSettings {
         }
     }
 
+    var volumeDownModifiers: UInt {
+        get {
+            UInt(defaults.integer(forKey: Keys.volumeDownModifiers))
+        }
+        set {
+            defaults.set(Int(newValue), forKey: Keys.volumeDownModifiers)
+        }
+    }
+
+    var volumeUpModifiers: UInt {
+        get {
+            UInt(defaults.integer(forKey: Keys.volumeUpModifiers))
+        }
+        set {
+            defaults.set(Int(newValue), forKey: Keys.volumeUpModifiers)
+        }
+    }
+
     init() {
         // Set default enabled state to true on first launch
         if defaults.object(forKey: Keys.enabled) == nil {
@@ -101,8 +122,35 @@ class AppSettings {
             // Arrow keys
             123: "←", 124: "→", 125: "↓", 126: "↑",
             // Special keys
-            36: "Return", 48: "Tab", 49: "Space", 51: "Delete", 53: "Escape"
+            36: "Return", 48: "Tab", 49: "Space", 51: "Delete", 53: "Escape",
+            // Number keys
+            18: "1", 19: "2", 20: "3", 21: "4", 23: "5",
+            22: "6", 26: "7", 28: "8", 25: "9", 29: "0"
         ]
         return keyMap[keyCode] ?? "Key \(keyCode)"
+    }
+
+    /// Get human-readable key combination string
+    func keyComboName(for keyCode: Int, modifiers: UInt) -> String {
+        var parts: [String] = []
+
+        // Add modifier symbols
+        if modifiers & NSEvent.ModifierFlags.control.rawValue != 0 {
+            parts.append("⌃")
+        }
+        if modifiers & NSEvent.ModifierFlags.option.rawValue != 0 {
+            parts.append("⌥")
+        }
+        if modifiers & NSEvent.ModifierFlags.shift.rawValue != 0 {
+            parts.append("⇧")
+        }
+        if modifiers & NSEvent.ModifierFlags.command.rawValue != 0 {
+            parts.append("⌘")
+        }
+
+        // Add key name
+        parts.append(keyName(for: keyCode))
+
+        return parts.joined()
     }
 }
