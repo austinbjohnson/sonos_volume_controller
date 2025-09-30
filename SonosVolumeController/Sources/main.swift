@@ -122,6 +122,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                 } else {
                     print("⚠️ No default speaker configured")
+
+                    // First launch - show popover to guide user to select a speaker
+                    print("👋 First launch detected - showing onboarding popover")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        guard let button = self.statusItem.button else { return }
+                        self.menuBarPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+                    }
                 }
 
                 print("✅ Sonos discovery and topology loaded")
