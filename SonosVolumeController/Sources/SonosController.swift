@@ -307,6 +307,55 @@ class SonosController: @unchecked Sendable {
         changeVolume(by: -settings.volumeStep)
     }
 
+    func getVolume(completion: @escaping (Int) -> Void) {
+        guard let device = selectedDevice else {
+            print("❌ No Sonos device selected")
+            completion(50) // Default
+            return
+        }
+
+        // Find the coordinator for this device
+        let targetDevice: SonosDevice
+        if let coordinatorUUID = device.coordinatorUUID,
+           let coordinator = devices.first(where: { $0.uuid == coordinatorUUID }) {
+            targetDevice = coordinator
+        } else {
+            targetDevice = device
+        }
+
+        sendSonosCommand(to: targetDevice, action: "GetVolume") { volumeStr in
+            if let volume = Int(volumeStr) {
+                completion(volume)
+            } else {
+                completion(50) // Default
+            }
+        }
+    }
+
+    func setVolume(_ volume: Int) {
+        guard let device = selectedDevice else {
+            print("❌ No Sonos device selected")
+            return
+        }
+
+        // Find the coordinator for this device
+        let targetDevice: SonosDevice
+        if let coordinatorUUID = device.coordinatorUUID,
+           let coordinator = devices.first(where: { $0.uuid == coordinatorUUID }) {
+            targetDevice = coordinator
+        } else {
+            targetDevice = device
+        }
+
+        let clampedVolume = max(0, min(100, volume))
+        sendSonosCommand(to: targetDevice, action: "SetVolume", arguments: ["DesiredVolume": String(clampedVolume)])
+
+        // Show HUD with new volume
+        Task { @MainActor in
+            VolumeHUD.shared.show(speaker: device.name, volume: clampedVolume)
+        }
+    }
+
     func toggleMute() {
         guard let device = selectedDevice else {
             print("No Sonos device selected")

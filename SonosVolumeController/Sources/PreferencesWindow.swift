@@ -1,5 +1,6 @@
 import Cocoa
 
+@available(macOS 26.0, *)
 @MainActor
 class PreferencesWindow: NSObject, NSWindowDelegate {
     private var window: NSWindow?
