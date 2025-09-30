@@ -177,8 +177,8 @@ class MenuBarContentViewController: NSViewController {
         volumeSlider.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(volumeSlider)
 
-        // Fetch current volume from Sonos (will enable slider when loaded)
-        updateVolumeFromSonos()
+        // Volume will be fetched after device discovery completes (via notification)
+        // Don't fetch here as it would return default 50 before discovery finishes
 
         // Volume percentage label
         volumeLabel = NSTextField(labelWithString: "—")
@@ -591,7 +591,7 @@ class MenuBarContentViewController: NSViewController {
         speakerNameLabel.stringValue = appDelegate?.settings.selectedSonosDevice ?? "No Speaker"
         updateStatus()
         populateSpeakers()
-        updateVolumeFromSonos()
+        // Don't fetch volume here - it will be updated via notification after device selection
     }
 
     private func updateVolumeFromSonos() {
