@@ -711,8 +711,69 @@ class MenuBarContentViewController: NSViewController {
     }
 
     @objc private func groupSpeakers() {
-        // Placeholder for future grouping functionality
-        print("Speaker grouping will be available in a future update")
+        guard selectedSpeakerCards.count > 1 else {
+            print("⚠️ Need at least 2 speakers to create a group")
+            return
+        }
+
+        // Get the actual device objects
+        guard let controller = appDelegate?.sonosController else { return }
+        let selectedDevices = controller.discoveredDevices.filter { selectedSpeakerCards.contains($0.name) }
+
+        guard selectedDevices.count == selectedSpeakerCards.count else {
+            print("⚠️ Could not find all selected devices")
+            return
+        }
+
+        print("🎵 Creating group with \(selectedDevices.count) speakers:")
+        for device in selectedDevices {
+            print("  - \(device.name)")
+        }
+
+        // Disable button during operation
+        groupButton.isEnabled = false
+        groupButton.title = "Grouping..."
+
+        // Create the group
+        controller.createGroup(devices: selectedDevices) { [weak self] success in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+
+                if success {
+                    print("✅ Group created successfully!")
+
+                    // Clear selections
+                    self.selectedSpeakerCards.removeAll()
+
+                    // Reset button
+                    self.groupButton.title = "Group Selected"
+                    self.groupButton.isEnabled = false
+
+                    // Refresh UI to show new groups
+                    self.populateSpeakers()
+
+                    // Update volume slider if one of the grouped speakers was selected
+                    if let selectedDevice = self.appDelegate?.settings.selectedSonosDevice,
+                       selectedDevices.contains(where: { $0.name == selectedDevice }) {
+                        self.updateVolumeFromSonos()
+                    }
+                } else {
+                    print("❌ Failed to create group")
+
+                    // Show error HUD
+                    Task { @MainActor in
+                        VolumeHUD.shared.showError(
+                            title: "Grouping Failed",
+                            message: "Could not create speaker group"
+                        )
+                    }
+
+                    // Re-enable button
+                    self.groupButton.isEnabled = true
+                    self.groupButton.title = "Group \(self.selectedSpeakerCards.count) Speakers"
+                }
+            }
+        }
     }
 
     @objc private func openPreferences() {
