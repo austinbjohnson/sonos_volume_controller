@@ -2,7 +2,7 @@ import Cocoa
 
 @available(macOS 26.0, *)
 @MainActor
-class MenuBarContentViewController: NSViewController {
+class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegate {
     private weak var appDelegate: AppDelegate?
 
     // Single glass container
@@ -341,6 +341,8 @@ class MenuBarContentViewController: NSViewController {
 
         // Click gesture for main selection
         let clickGesture = NSClickGestureRecognizer(target: self, action: #selector(selectSpeaker(_:)))
+        clickGesture.delaysPrimaryMouseButtonEvents = false // Don't delay button clicks
+        clickGesture.delegate = self
         card.addGestureRecognizer(clickGesture)
         card.identifier = NSUserInterfaceItemIdentifier(device.name)
 
@@ -682,21 +684,25 @@ class MenuBarContentViewController: NSViewController {
         populateSpeakers()
     }
 
+    // NSGestureRecognizerDelegate - prevent gesture from starting if clicking on checkbox
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: NSGestureRecognizer) -> Bool {
+        guard let clickGesture = gestureRecognizer as? NSClickGestureRecognizer,
+              let card = clickGesture.view else { return true }
+
+        // Check if click location is on a button (checkbox)
+        let clickLocation = clickGesture.location(in: card)
+        for subview in card.subviews {
+            if subview is NSButton && subview.frame.contains(clickLocation) {
+                // Don't start gesture - let the button handle it
+                return false
+            }
+        }
+        return true
+    }
+
     @objc private func selectSpeaker(_ gesture: NSClickGestureRecognizer) {
         guard let card = gesture.view,
               let deviceName = card.identifier?.rawValue else { return }
-
-        // Check if click was on the checkbox - if so, ignore it
-        let clickLocation = gesture.location(in: card)
-        for subview in card.subviews {
-            if subview is NSButton {
-                let checkboxFrame = subview.frame
-                if checkboxFrame.contains(clickLocation) {
-                    // Click was on checkbox, let it handle the event
-                    return
-                }
-            }
-        }
 
         appDelegate?.sonosController.selectDevice(name: deviceName)
         appDelegate?.settings.selectedSonosDevice = deviceName
