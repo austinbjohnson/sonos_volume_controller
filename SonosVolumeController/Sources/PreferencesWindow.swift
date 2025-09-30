@@ -396,14 +396,14 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
     }
 
     @objc private func refreshSonos(_ sender: NSButton) {
-        print("Refreshing Sonos devices...")
-        appDelegate?.sonosController.discoverDevices()
+        print("Refreshing Sonos devices and topology...")
+        appDelegate?.sonosController.discoverDevices(forceRefreshTopology: true)
 
         // Refresh UI after a delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             // For now, just show a message that devices were refreshed
             // In a proper implementation, we'd update the dropdown in place
-            print("Sonos devices refreshed - please reopen preferences to see updates")
+            print("Sonos devices and topology refreshed - please reopen preferences to see updates")
         }
     }
 

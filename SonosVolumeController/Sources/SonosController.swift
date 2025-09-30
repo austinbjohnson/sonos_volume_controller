@@ -6,6 +6,10 @@ class SonosController: @unchecked Sendable {
     private var devices: [SonosDevice] = []
     private var selectedDevice: SonosDevice?
 
+    // Topology cache - persists during app session
+    private var topologyCache: [String: String] = [:]  // UUID -> Coordinator UUID
+    private var hasLoadedTopology = false
+
     // Expose devices for menu population
     var discoveredDevices: [SonosDevice] {
         return devices
@@ -23,8 +27,15 @@ class SonosController: @unchecked Sendable {
         self.settings = settings
     }
 
-    func discoverDevices() {
+    func discoverDevices(forceRefreshTopology: Bool = false) {
         print("Discovering Sonos devices...")
+
+        // Clear cache if forced refresh is requested
+        if forceRefreshTopology {
+            print("Clearing topology cache for fresh discovery")
+            topologyCache.removeAll()
+            hasLoadedTopology = false
+        }
 
         // Use SSDP (Simple Service Discovery Protocol) to find Sonos devices
         let queue = DispatchQueue(label: "sonos.discovery")
@@ -73,14 +84,38 @@ class SonosController: @unchecked Sendable {
                     }
                 }
 
+                // Apply cached topology if available
+                if !self.topologyCache.isEmpty {
+                    uniqueDevices = uniqueDevices.map { device in
+                        if let coordinatorUUID = self.topologyCache[device.uuid] {
+                            return SonosDevice(
+                                name: device.name,
+                                ipAddress: device.ipAddress,
+                                uuid: device.uuid,
+                                isCoordinator: device.uuid == coordinatorUUID,
+                                coordinatorUUID: coordinatorUUID
+                            )
+                        }
+                        return device
+                    }
+                    print("Applied cached topology to \(uniqueDevices.count) devices")
+                }
+
                 self.devices = uniqueDevices
                 print("Found \(foundDevices.count) Sonos devices (\(uniqueDevices.count) unique)")
                 for device in uniqueDevices {
-                    print("  - \(device.name) at \(device.ipAddress)")
+                    let role = device.isCoordinator ? " (Coordinator)" : ""
+                    print("  - \(device.name) at \(device.ipAddress)\(role)")
                 }
 
-                // Fetch group topology to identify coordinators
-                self.updateGroupTopology()
+                // Only fetch topology if not cached
+                if !self.hasLoadedTopology {
+                    print("Fetching initial group topology...")
+                    self.updateGroupTopology()
+                    self.hasLoadedTopology = true
+                } else {
+                    print("Using cached topology (refresh to update)")
+                }
 
                 // Post notification so menu can update
                 NotificationCenter.default.post(name: NSNotification.Name("SonosDevicesDiscovered"), object: nil)
@@ -167,6 +202,10 @@ class SonosController: @unchecked Sendable {
                 }
             }
         }
+
+        // Store in cache for future use
+        topologyCache = groupInfo
+        print("Cached topology for \(groupInfo.count) devices")
 
         // Update devices with coordinator information
         devices = devices.map { device in
