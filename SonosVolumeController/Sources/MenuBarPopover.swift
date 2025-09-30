@@ -2,7 +2,7 @@ import Cocoa
 
 @available(macOS 26.0, *)
 @MainActor
-class MenuBarPopover: NSPopover {
+class MenuBarPopover: NSPopover, NSPopoverDelegate {
     private weak var appDelegate: AppDelegate?
     private var menuContentViewController: MenuBarContentViewController?
 
@@ -22,6 +22,9 @@ class MenuBarPopover: NSPopover {
         behavior = .transient  // Closes when clicking outside
         animates = true
 
+        // Set delegate to handle close events
+        self.delegate = self
+
         // Create content view controller
         menuContentViewController = MenuBarContentViewController(appDelegate: appDelegate)
         self.contentViewController = menuContentViewController
@@ -37,5 +40,12 @@ class MenuBarPopover: NSPopover {
 
     func refresh() {
         menuContentViewController?.refresh()
+    }
+
+    // MARK: - NSPopoverDelegate
+
+    func popoverShouldClose(_ popover: NSPopover) -> Bool {
+        // Allow popover to close when clicking outside
+        return true
     }
 }
