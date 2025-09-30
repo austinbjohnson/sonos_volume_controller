@@ -170,19 +170,20 @@ class MenuBarContentViewController: NSViewController {
         volumeSlider = NSSlider()
         volumeSlider.minValue = 0
         volumeSlider.maxValue = 100
-        volumeSlider.doubleValue = 50 // Default until we fetch actual
+        volumeSlider.doubleValue = 0
+        volumeSlider.isEnabled = false // Disabled until volume is loaded
         volumeSlider.target = self
         volumeSlider.action = #selector(volumeChanged(_:))
         volumeSlider.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(volumeSlider)
 
-        // Fetch current volume from Sonos
+        // Fetch current volume from Sonos (will enable slider when loaded)
         updateVolumeFromSonos()
 
         // Volume percentage label
-        volumeLabel = NSTextField(labelWithString: "50%")
+        volumeLabel = NSTextField(labelWithString: "—")
         volumeLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
-        volumeLabel.textColor = .labelColor
+        volumeLabel.textColor = .secondaryLabelColor
         volumeLabel.alignment = .right
         volumeLabel.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(volumeLabel)
@@ -500,17 +501,24 @@ class MenuBarContentViewController: NSViewController {
     @objc private func volumeChanged(_ sender: NSSlider) {
         let volume = Int(sender.doubleValue)
         volumeLabel.stringValue = "\(volume)%"
+        volumeLabel.textColor = .labelColor
         // Set the actual Sonos volume
         appDelegate?.sonosController.setVolume(volume)
     }
 
     @objc private func volumeDidChange(_ notification: Notification) {
-        // Update slider when volume changes via hotkeys
+        // Update slider when volume changes via hotkeys or initial load
         guard let userInfo = notification.userInfo,
               let volume = userInfo["volume"] as? Int else { return }
 
         volumeSlider.doubleValue = Double(volume)
         volumeLabel.stringValue = "\(volume)%"
+        volumeLabel.textColor = .labelColor
+
+        // Enable slider now that we have actual volume
+        if !volumeSlider.isEnabled {
+            volumeSlider.isEnabled = true
+        }
     }
 
     @objc private func discoveryStarted() {
@@ -589,8 +597,16 @@ class MenuBarContentViewController: NSViewController {
     private func updateVolumeFromSonos() {
         appDelegate?.sonosController.getVolume { [weak self] volume in
             DispatchQueue.main.async {
-                self?.volumeSlider.doubleValue = Double(volume)
-                self?.volumeLabel.stringValue = "\(volume)%"
+                guard let self = self else { return }
+
+                self.volumeSlider.doubleValue = Double(volume)
+                self.volumeLabel.stringValue = "\(volume)%"
+                self.volumeLabel.textColor = .labelColor
+
+                // Enable slider now that we have actual volume
+                if !self.volumeSlider.isEnabled {
+                    self.volumeSlider.isEnabled = true
+                }
             }
         }
     }
