@@ -142,11 +142,14 @@ class MenuBarContentViewController: NSViewController {
         volumeSlider = NSSlider()
         volumeSlider.minValue = 0
         volumeSlider.maxValue = 100
-        volumeSlider.doubleValue = 50 // Placeholder volume
+        volumeSlider.doubleValue = 50 // Default until we fetch actual
         volumeSlider.target = self
         volumeSlider.action = #selector(volumeChanged(_:))
         volumeSlider.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(volumeSlider)
+
+        // Fetch current volume from Sonos
+        updateVolumeFromSonos()
 
         // Volume percentage label
         volumeLabel = NSTextField(labelWithString: "50%")
@@ -438,7 +441,8 @@ class MenuBarContentViewController: NSViewController {
     @objc private func volumeChanged(_ sender: NSSlider) {
         let volume = Int(sender.doubleValue)
         volumeLabel.stringValue = "\(volume)%"
-        // Volume control is connected to the actual Sonos controller elsewhere
+        // Set the actual Sonos volume
+        appDelegate?.sonosController.setVolume(volume)
     }
 
     @objc private func selectSpeaker(_ gesture: NSClickGestureRecognizer) {
@@ -450,6 +454,9 @@ class MenuBarContentViewController: NSViewController {
 
         speakerNameLabel.stringValue = deviceName
         populateSpeakers()
+
+        // Update volume slider for the newly selected speaker
+        updateVolumeFromSonos()
     }
 
     @objc private func speakerSelectionChanged(_ sender: NSButton) {
@@ -503,5 +510,15 @@ class MenuBarContentViewController: NSViewController {
         speakerNameLabel.stringValue = appDelegate?.settings.selectedSonosDevice ?? "No Speaker"
         updateStatus()
         populateSpeakers()
+        updateVolumeFromSonos()
+    }
+
+    private func updateVolumeFromSonos() {
+        appDelegate?.sonosController.getVolume { [weak self] volume in
+            DispatchQueue.main.async {
+                self?.volumeSlider.doubleValue = Double(volume)
+                self?.volumeLabel.stringValue = "\(volume)%"
+            }
+        }
     }
 }
