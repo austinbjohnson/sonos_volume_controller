@@ -7,8 +7,9 @@
 - [ ] App Store submission
 
 ## Features
-- **Speaker grouping functionality**: Make it easy to group speakers with the default speaker as the audio source. The default speaker (as set in preferences) should be the coordinator when grouping other speakers. Lookup 2025 Sonos office documentation for implementation details.
+- **Real-time group topology updates**: Subscribe to Sonos topology events to automatically refresh group information when changed from another app (Sonos app, Alexa, etc.). Follow Sonos best practices for ZoneGroupTopology event subscription and handling `groupCoordinatorChanged` events.
 - **Trigger device cache management**: Add ability to refresh trigger sources and cache them persistently. Users should be able to manually delete cached devices that are no longer relevant (similar to WiFi network history - devices remain in cache even when not currently available, but can be manually removed).
+- **Sonos-style speaker cards**: Redesign speaker list UI to match Sonos native app style - dark rounded cards per speaker/group, individual volume sliders on each card, cleaner visual hierarchy.
 
 ## Enhancements
 - None currently
