@@ -58,7 +58,7 @@ class AppSettings {
     var volumeDownKeyCode: Int {
         get {
             let value = defaults.integer(forKey: Keys.volumeDownKeyCode)
-            return value == 0 ? 103 : value  // Default to F11 (103)
+            return value == 0 ? 25 : value  // Default to 9 (25)
         }
         set {
             defaults.set(newValue, forKey: Keys.volumeDownKeyCode)
@@ -68,7 +68,7 @@ class AppSettings {
     var volumeUpKeyCode: Int {
         get {
             let value = defaults.integer(forKey: Keys.volumeUpKeyCode)
-            return value == 0 ? 111 : value  // Default to F12 (111)
+            return value == 0 ? 29 : value  // Default to 0 (29)
         }
         set {
             defaults.set(newValue, forKey: Keys.volumeUpKeyCode)
@@ -77,7 +77,9 @@ class AppSettings {
 
     var volumeDownModifiers: UInt {
         get {
-            UInt(defaults.integer(forKey: Keys.volumeDownModifiers))
+            let value = defaults.integer(forKey: Keys.volumeDownModifiers)
+            // Default to Cmd+Shift
+            return value == 0 ? (NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.shift.rawValue) : UInt(value)
         }
         set {
             defaults.set(Int(newValue), forKey: Keys.volumeDownModifiers)
@@ -86,7 +88,9 @@ class AppSettings {
 
     var volumeUpModifiers: UInt {
         get {
-            UInt(defaults.integer(forKey: Keys.volumeUpModifiers))
+            let value = defaults.integer(forKey: Keys.volumeUpModifiers)
+            // Default to Cmd+Shift
+            return value == 0 ? (NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.shift.rawValue) : UInt(value)
         }
         set {
             defaults.set(Int(newValue), forKey: Keys.volumeUpModifiers)
@@ -111,12 +115,20 @@ class AppSettings {
         if defaults.object(forKey: Keys.volumeStep) == nil {
             defaults.set(5, forKey: Keys.volumeStep)
         }
-        // Set default hotkeys (F11/F12) on first launch
+        // Set default hotkeys (Cmd+Shift+9/0) on first launch
         if defaults.object(forKey: Keys.volumeDownKeyCode) == nil {
-            defaults.set(103, forKey: Keys.volumeDownKeyCode)  // F11
+            defaults.set(25, forKey: Keys.volumeDownKeyCode)  // 9
         }
         if defaults.object(forKey: Keys.volumeUpKeyCode) == nil {
-            defaults.set(111, forKey: Keys.volumeUpKeyCode)  // F12
+            defaults.set(29, forKey: Keys.volumeUpKeyCode)  // 0
+        }
+        if defaults.object(forKey: Keys.volumeDownModifiers) == nil {
+            let cmdShift = Int(NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.shift.rawValue)
+            defaults.set(cmdShift, forKey: Keys.volumeDownModifiers)
+        }
+        if defaults.object(forKey: Keys.volumeUpModifiers) == nil {
+            let cmdShift = Int(NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.shift.rawValue)
+            defaults.set(cmdShift, forKey: Keys.volumeUpModifiers)
         }
     }
 
