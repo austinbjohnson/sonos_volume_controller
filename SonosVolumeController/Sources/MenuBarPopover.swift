@@ -65,30 +65,10 @@ class MenuBarPopover: NSPopover, NSPopoverDelegate {
     // MARK: - Event Monitoring
 
     private func startMonitoring() {
-        // Monitor left mouse down events to detect clicks outside popover
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-            guard let self = self, self.isShown else { return event }
-
-            // Check if click is outside the popover's content view
-            if let contentView = self.contentViewController?.view,
-               let window = contentView.window {
-                // Get mouse location in screen coordinates
-                let mouseLocation = NSEvent.mouseLocation
-
-                // Convert to popover window coordinates
-                let clickInWindow = window.convertPoint(fromScreen: mouseLocation)
-
-                // Convert to content view coordinates
-                let clickInView = contentView.convert(clickInWindow, from: nil)
-
-                // If click is outside the content view, close the popover
-                if !contentView.bounds.contains(clickInView) {
-                    self.close()
-                    return nil // Consume the event
-                }
-            }
-
-            return event
+        // Monitor for clicks outside the popover using global event monitor
+        // Global monitor is required for .accessory apps that don't gain focus
+        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            self?.close()
         }
     }
 
