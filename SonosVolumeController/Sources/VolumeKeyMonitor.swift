@@ -75,11 +75,12 @@ class VolumeKeyMonitor {
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
 
-        // F11/F12 key codes on macOS
-        // F11 (Volume Down): 103, F12 (Volume Up): 111
-        let isVolumeKey = keyCode == 103 || keyCode == 111
+        // Get custom hotkeys from settings
+        let volumeDownKey = settings.volumeDownKeyCode
+        let volumeUpKey = settings.volumeUpKeyCode
+        let isVolumeKey = keyCode == volumeDownKey || keyCode == volumeUpKey
 
-        // Debug: print all F-key presses
+        // Debug: print key presses for common keys
         if keyCode >= 100 && keyCode <= 120 {
             print("🔑 Key pressed: \(keyCode)")
         }
@@ -88,7 +89,7 @@ class VolumeKeyMonitor {
             return Unmanaged.passUnretained(event)
         }
 
-        print("🎹 F11/F12 detected! Checking if should intercept...")
+        print("🎹 Volume hotkey detected! Checking if should intercept...")
         print("   Current device: \(audioMonitor.currentDeviceName)")
         print("   Should intercept: \(audioMonitor.shouldInterceptVolumeKeys)")
         print("   Settings enabled: \(settings.enabled)")
@@ -102,15 +103,12 @@ class VolumeKeyMonitor {
 
         // Intercept and handle with Sonos
         print("✅ Intercepting event")
-        switch keyCode {
-        case 111: // F12 - Volume Up
-            print("🔊 F12 (Volume Up) - Controlling Sonos")
+        if keyCode == volumeUpKey {
+            print("🔊 Volume Up - Controlling Sonos")
             sonosController.volumeUp()
-        case 103: // F11 - Volume Down
-            print("🔉 F11 (Volume Down) - Controlling Sonos")
+        } else if keyCode == volumeDownKey {
+            print("🔉 Volume Down - Controlling Sonos")
             sonosController.volumeDown()
-        default:
-            break
         }
 
         // Pass through - we've handled it but can't truly suppress F-keys

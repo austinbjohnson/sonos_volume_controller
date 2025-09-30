@@ -4,6 +4,11 @@ import Cocoa
 class PreferencesWindow: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private weak var appDelegate: AppDelegate?
+    private let keyRecorder = KeyRecorder()
+    private var volumeDownTextField: NSTextField?
+    private var volumeUpTextField: NSTextField?
+    private var isRecordingDown = false
+    private var isRecordingUp = false
 
     init(appDelegate: AppDelegate) {
         self.appDelegate = appDelegate
@@ -126,13 +131,18 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
         let downLabel = createLabel("Volume Down:", frame: NSRect(x: 30, y: yPos + 4, width: 110, height: 20))
         view.addSubview(downLabel)
 
-        let downText = createTextField("F11", frame: NSRect(x: 140, y: yPos, width: 150, height: 24))
+        let downKeyCode = appDelegate?.settings.volumeDownKeyCode ?? 103
+        let downKeyName = appDelegate?.settings.keyName(for: downKeyCode) ?? "F11"
+        let downText = createTextField(downKeyName, frame: NSRect(x: 140, y: yPos, width: 150, height: 24))
         downText.alignment = .center
         view.addSubview(downText)
+        volumeDownTextField = downText
 
         let downButton = NSButton(frame: NSRect(x: 300, y: yPos - 2, width: 100, height: 28))
         downButton.title = "Record"
         downButton.bezelStyle = .rounded
+        downButton.target = self
+        downButton.action = #selector(recordVolumeDownKey(_:))
         view.addSubview(downButton)
 
         yPos -= 45
@@ -141,21 +151,26 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
         let upLabel = createLabel("Volume Up:", frame: NSRect(x: 30, y: yPos + 4, width: 110, height: 20))
         view.addSubview(upLabel)
 
-        let upText = createTextField("F12", frame: NSRect(x: 140, y: yPos, width: 150, height: 24))
+        let upKeyCode = appDelegate?.settings.volumeUpKeyCode ?? 111
+        let upKeyName = appDelegate?.settings.keyName(for: upKeyCode) ?? "F12"
+        let upText = createTextField(upKeyName, frame: NSRect(x: 140, y: yPos, width: 150, height: 24))
         upText.alignment = .center
         view.addSubview(upText)
+        volumeUpTextField = upText
 
         let upButton = NSButton(frame: NSRect(x: 300, y: yPos - 2, width: 100, height: 28))
         upButton.title = "Record"
         upButton.bezelStyle = .rounded
+        upButton.target = self
+        upButton.action = #selector(recordVolumeUpKey(_:))
         view.addSubview(upButton)
 
         yPos -= 50
 
         // Info label
         let infoLabel = createLabel(
-            "Hotkeys are currently hardcoded to F11 (down) / F12 (up).\nCustomizable hotkeys coming in future update.",
-            frame: NSRect(x: 30, y: yPos, width: 500, height: 40)
+            "Click 'Record' and press any key to set a custom hotkey.",
+            frame: NSRect(x: 30, y: yPos, width: 500, height: 20)
         )
         infoLabel.textColor = .secondaryLabelColor
         infoLabel.font = NSFont.systemFont(ofSize: 11)
@@ -388,6 +403,54 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
             // For now, just show a message that devices were refreshed
             // In a proper implementation, we'd update the dropdown in place
             print("Sonos devices refreshed - please reopen preferences to see updates")
+        }
+    }
+
+    @objc private func recordVolumeDownKey(_ sender: NSButton) {
+        guard !isRecordingDown else { return }
+
+        isRecordingDown = true
+        sender.title = "Listening..."
+        volumeDownTextField?.stringValue = "Press a key..."
+
+        keyRecorder.startRecording { [weak self] keyCode in
+            guard let self = self else { return }
+
+            self.isRecordingDown = false
+            sender.title = "Record"
+
+            // Update settings
+            self.appDelegate?.settings.volumeDownKeyCode = keyCode
+
+            // Update display
+            let keyName = self.appDelegate?.settings.keyName(for: keyCode) ?? "Key \(keyCode)"
+            self.volumeDownTextField?.stringValue = keyName
+
+            print("✅ Volume down key set to: \(keyName) (code: \(keyCode))")
+        }
+    }
+
+    @objc private func recordVolumeUpKey(_ sender: NSButton) {
+        guard !isRecordingUp else { return }
+
+        isRecordingUp = true
+        sender.title = "Listening..."
+        volumeUpTextField?.stringValue = "Press a key..."
+
+        keyRecorder.startRecording { [weak self] keyCode in
+            guard let self = self else { return }
+
+            self.isRecordingUp = false
+            sender.title = "Record"
+
+            // Update settings
+            self.appDelegate?.settings.volumeUpKeyCode = keyCode
+
+            // Update display
+            let keyName = self.appDelegate?.settings.keyName(for: keyCode) ?? "Key \(keyCode)"
+            self.volumeUpTextField?.stringValue = keyName
+
+            print("✅ Volume up key set to: \(keyName) (code: \(keyCode))")
         }
     }
 
