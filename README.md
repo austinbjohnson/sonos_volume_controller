@@ -80,6 +80,4 @@ sonos_volume_controller/
 
 This is a personal project, but suggestions and issues are welcome!
 
-## License
-
-MIT License - see LICENSE file for details
+The official sonos api docs used are here: https://docs.sonos.com/docs/control-sonos-players
