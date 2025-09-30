@@ -306,6 +306,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     }
 
     private func createSpeakerCard(device: SonosController.SonosDevice, isActive: Bool) -> NSView {
+        // Check if device is in a multi-speaker group
+        let isInGroup = device.groupCoordinatorUUID != nil &&
+                       appDelegate?.sonosController.discoveredGroups.first(where: {
+                           $0.coordinatorUUID == device.groupCoordinatorUUID && $0.members.count > 1
+                       }) != nil
+        let isGroupCoordinator = device.isGroupCoordinator && isInGroup
+
         let card = NSView()
         card.wantsLayer = true
         card.layer?.backgroundColor = isActive ?
@@ -314,21 +321,73 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         card.layer?.cornerRadius = 10
         card.translatesAutoresizingMaskIntoConstraints = false
 
+        // Add left border for grouped (non-coordinator) devices
+        if isInGroup && !isGroupCoordinator {
+            let groupIndicator = NSView()
+            groupIndicator.wantsLayer = true
+            groupIndicator.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.6).cgColor
+            groupIndicator.layer?.cornerRadius = 1.5
+            groupIndicator.translatesAutoresizingMaskIntoConstraints = false
+            card.addSubview(groupIndicator)
+
+            NSLayoutConstraint.activate([
+                groupIndicator.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 4),
+                groupIndicator.topAnchor.constraint(equalTo: card.topAnchor, constant: 8),
+                groupIndicator.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -8),
+                groupIndicator.widthAnchor.constraint(equalToConstant: 3)
+            ])
+        }
+
         // Speaker icon
         let icon = NSImageView()
-        icon.image = NSImage(systemSymbolName: "hifispeaker.fill", accessibilityDescription: "Speaker")
+        let iconName = isGroupCoordinator ? "person.3.fill" : "hifispeaker.fill"
+        icon.image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Speaker")
         icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        icon.contentTintColor = isActive ? .controlAccentColor : .tertiaryLabelColor
+        icon.contentTintColor = isGroupCoordinator ? .systemBlue : (isActive ? .controlAccentColor : .tertiaryLabelColor)
         icon.translatesAutoresizingMaskIntoConstraints = false
 
-        // Speaker name with default indicator
-        let displayName = isActive ? "\(device.name) (Default)" : device.name
+        // Build display name with group info
+        var displayName = device.name
+        if isActive {
+            displayName += " (Default)"
+        }
+
+        // Create a stack for name + group info
+        let textStack = NSStackView()
+        textStack.orientation = .vertical
+        textStack.spacing = 2
+        textStack.alignment = .leading
+        textStack.translatesAutoresizingMaskIntoConstraints = false
+
         let nameLabel = NSTextField(labelWithString: displayName)
         nameLabel.font = .systemFont(ofSize: 13, weight: isActive ? .semibold : .regular)
         nameLabel.textColor = isActive ? .labelColor : .secondaryLabelColor
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
+        textStack.addArrangedSubview(nameLabel)
 
-        // Selection checkbox for grouping (placeholder)
+        // Add group info label if in a group
+        if isInGroup {
+            let group = appDelegate?.sonosController.discoveredGroups.first(where: {
+                $0.coordinatorUUID == device.groupCoordinatorUUID
+            })
+            if let group = group {
+                let groupInfoText: String
+                if isGroupCoordinator {
+                    let memberCount = group.members.count - 1
+                    groupInfoText = memberCount == 1 ? "Group leader + 1 speaker" : "Group leader + \(memberCount) speakers"
+                } else {
+                    groupInfoText = "Grouped with \(group.coordinator.name)"
+                }
+
+                let groupLabel = NSTextField(labelWithString: groupInfoText)
+                groupLabel.font = .systemFont(ofSize: 10, weight: .regular)
+                groupLabel.textColor = .systemBlue
+                groupLabel.translatesAutoresizingMaskIntoConstraints = false
+                textStack.addArrangedSubview(groupLabel)
+            }
+        }
+
+        // Selection checkbox for grouping
         let checkbox = NSButton()
         checkbox.setButtonType(.switch)
         checkbox.controlSize = .small
@@ -346,23 +405,26 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         card.addGestureRecognizer(clickGesture)
         card.identifier = NSUserInterfaceItemIdentifier(device.name)
 
+        let leadingOffset: CGFloat = (isInGroup && !isGroupCoordinator) ? 20 : 12
+
         card.addSubview(icon)
-        card.addSubview(nameLabel)
+        card.addSubview(textStack)
         card.addSubview(checkbox)
 
         NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            icon.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: leadingOffset),
             icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 20),
             icon.heightAnchor.constraint(equalToConstant: 20),
 
-            nameLabel.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
-            nameLabel.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            textStack.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
+            textStack.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            textStack.trailingAnchor.constraint(lessThanOrEqualTo: checkbox.leadingAnchor, constant: -8),
 
             checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
             checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
 
-            card.heightAnchor.constraint(equalToConstant: 42)
+            card.heightAnchor.constraint(greaterThanOrEqualToConstant: 50)
         ])
 
         return card
@@ -411,17 +473,36 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             banner.isHidden = !(currentSpeaker?.isEmpty ?? true)
         }
 
-        // Sort devices: default speaker first, then alphabetically
+        // Sort devices: default speaker first, then group by coordinator, then alphabetically
         let sortedDevices = devices.sorted { device1, device2 in
             let isDevice1Current = device1.name == currentSpeaker
             let isDevice2Current = device2.name == currentSpeaker
 
+            // Default speaker always first
             if isDevice1Current && !isDevice2Current {
-                return true  // device1 comes first
+                return true
             } else if !isDevice1Current && isDevice2Current {
-                return false  // device2 comes first
+                return false
+            }
+
+            // Group coordinators before their members
+            let coord1 = device1.groupCoordinatorUUID ?? device1.uuid
+            let coord2 = device2.groupCoordinatorUUID ?? device2.uuid
+
+            if coord1 == coord2 {
+                // Same group - coordinator first, then members alphabetically
+                if device1.isGroupCoordinator && !device2.isGroupCoordinator {
+                    return true
+                } else if !device1.isGroupCoordinator && device2.isGroupCoordinator {
+                    return false
+                } else {
+                    return device1.name.localizedCaseInsensitiveCompare(device2.name) == .orderedAscending
+                }
             } else {
-                return device1.name.localizedCaseInsensitiveCompare(device2.name) == .orderedAscending
+                // Different groups - sort by coordinator name
+                let coord1Name = devices.first { $0.uuid == coord1 }?.name ?? ""
+                let coord2Name = devices.first { $0.uuid == coord2 }?.name ?? ""
+                return coord1Name.localizedCaseInsensitiveCompare(coord2Name) == .orderedAscending
             }
         }
 
