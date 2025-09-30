@@ -27,4 +27,5 @@
 - ✅ Wrong device HUD notification when volume hotkeys pressed on wrong audio device (PR #16)
 - ✅ Menu bar popover auto-close using global event monitor (PR #17)
 - ✅ Smooth volume HUD transitions without flicker on rapid hotkey presses (PR #18)
-- ✅ Accessibility permissions prompt on first launch with direct link to System Settings (PR #19) 
+- ✅ Accessibility permissions prompt on first launch with direct link to System Settings (PR #19)
+- ✅ Changed default hotkeys to Cmd+Shift+9/0 for better ergonomics (PR #20) 
