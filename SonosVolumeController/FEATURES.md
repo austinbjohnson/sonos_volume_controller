@@ -11,6 +11,8 @@
 
 ## Enhancements
 - **Accessibility settings prompt on first launch**: When the app first loads, the user should be prompted to enable the required accessibility settings so they don't have to dig for them in System Settings.
+- **Smooth volume HUD transitions**: Volume HUD flickers when changing volume rapidly (multiple hotkey presses). Need smoother transitions that handle rapid updates gracefully.
+- **Menu bar popover auto-close**: Make the menu bar popover close automatically when clicking away (like standard menu bar apps). Currently requires explicit close action.
 
 ## Bugs
 - None currently
