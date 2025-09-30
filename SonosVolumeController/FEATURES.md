@@ -11,7 +11,7 @@
 - **Trigger device cache management**: Add ability to refresh trigger sources and cache them persistently. Users should be able to manually delete cached devices that are no longer relevant (similar to WiFi network history - devices remain in cache even when not currently available, but can be manually removed).
 
 ## Enhancements
-- None currently
+- **Simplify trigger source UI**: Replace radio button list with read-only info display showing the current trigger device. Now that "Any Device" is the default and works well, the selection UI could be streamlined to just show what's active (with option to change in preferences if needed)
 
 ## Bugs
 - **Speakers list spacing**: Adjust spacing/layout in the speakers section of the menu bar popover

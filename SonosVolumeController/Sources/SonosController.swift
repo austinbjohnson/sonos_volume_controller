@@ -4,15 +4,49 @@ import Network
 class SonosController: @unchecked Sendable {
     private let settings: AppSettings
     private var devices: [SonosDevice] = []
-    private var selectedDevice: SonosDevice?
+    private var _selectedDevice: SonosDevice?
 
     // Topology cache - persists during app session
     private var topologyCache: [String: String] = [:]  // UUID -> Coordinator UUID
     private var hasLoadedTopology = false
 
+    // Expose selected device
+    var selectedDevice: SonosDevice? {
+        return _selectedDevice
+    }
+
     // Expose devices for menu population
     var discoveredDevices: [SonosDevice] {
         return devices
+    }
+
+    // Expose groups - build from current devices
+    var discoveredGroups: [SonosGroup] {
+        var groups: [SonosGroup] = []
+        var processedCoordinators = Set<String>()
+
+        for device in devices {
+            guard let coordUUID = device.groupCoordinatorUUID,
+                  !processedCoordinators.contains(coordUUID) else {
+                continue
+            }
+
+            // Find all members with this coordinator
+            let members = devices.filter { $0.groupCoordinatorUUID == coordUUID }
+            if let coordinator = members.first(where: { $0.isGroupCoordinator }) {
+                let group = SonosGroup(
+                    id: coordUUID,
+                    coordinatorUUID: coordUUID,
+                    coordinator: coordinator,
+                    members: members,
+                    groupVolume: nil
+                )
+                groups.append(group)
+                processedCoordinators.insert(coordUUID)
+            }
+        }
+
+        return groups
     }
 
     struct SonosDevice {
@@ -23,6 +57,23 @@ class SonosController: @unchecked Sendable {
         let groupCoordinatorUUID: String? // UUID of the group coordinator (for grouped playback)
         let channelMapSet: String?        // Present if part of a stereo pair
         let pairPartnerUUID: String?      // UUID of the other speaker in the stereo pair
+    }
+
+    struct SonosGroup {
+        let id: String
+        let coordinatorUUID: String
+        let coordinator: SonosDevice
+        let members: [SonosDevice]
+        var groupVolume: Int?
+
+        var name: String {
+            if members.count == 1 {
+                return coordinator.name
+            } else {
+                // Join all member names: "Living Room + Kitchen Move"
+                return members.map { $0.name }.joined(separator: " + ")
+            }
+        }
     }
 
     init(settings: AppSettings) {
@@ -404,8 +455,8 @@ class SonosController: @unchecked Sendable {
     }
 
     func selectDevice(name: String) {
-        selectedDevice = devices.first { $0.name == name }
-        if let device = selectedDevice {
+        _selectedDevice = devices.first { $0.name == name }
+        if let device = _selectedDevice {
             settings.selectedSonosDevice = device.name
 
             var info = "✅ Selected: \(device.name)"
@@ -423,13 +474,13 @@ class SonosController: @unchecked Sendable {
         }
     }
 
-    // Refresh selectedDevice reference to pick up updated topology info
+    // Refresh _selectedDevice reference to pick up updated topology info
     private func refreshSelectedDevice() {
-        guard let currentDevice = selectedDevice else { return }
+        guard let currentDevice = _selectedDevice else { return }
 
         // Re-find the device in the updated devices array to get current topology info
         if let updatedDevice = devices.first(where: { $0.name == currentDevice.name }) {
-            selectedDevice = updatedDevice
+            _selectedDevice = updatedDevice
             if updatedDevice.channelMapSet != nil {
                 print("Refreshed selected device: \(updatedDevice.name) [STEREO PAIR]")
             } else {
@@ -439,7 +490,7 @@ class SonosController: @unchecked Sendable {
     }
 
     func getCurrentVolume(completion: @escaping (Int?) -> Void) {
-        guard let device = selectedDevice else {
+        guard let device = _selectedDevice else {
             completion(nil)
             return
         }
@@ -452,7 +503,7 @@ class SonosController: @unchecked Sendable {
 
     func volumeUp() {
         print("📢 volumeUp() called")
-        guard selectedDevice != nil else {
+        guard _selectedDevice != nil else {
             print("⚠️ No device selected!")
             showNoSpeakerSelectedNotification()
             return
@@ -462,7 +513,7 @@ class SonosController: @unchecked Sendable {
 
     func volumeDown() {
         print("📢 volumeDown() called")
-        guard selectedDevice != nil else {
+        guard _selectedDevice != nil else {
             print("⚠️ No device selected!")
             showNoSpeakerSelectedNotification()
             return
@@ -480,7 +531,7 @@ class SonosController: @unchecked Sendable {
     }
 
     func getVolume(completion: @escaping (Int) -> Void) {
-        guard let device = selectedDevice else {
+        guard let device = _selectedDevice else {
             print("❌ No Sonos device selected")
             completion(50) // Default
             return
@@ -497,7 +548,7 @@ class SonosController: @unchecked Sendable {
     }
 
     func setVolume(_ volume: Int) {
-        guard let device = selectedDevice else {
+        guard let device = _selectedDevice else {
             print("❌ No Sonos device selected")
             return
         }
@@ -530,7 +581,7 @@ class SonosController: @unchecked Sendable {
     }
 
     func toggleMute() {
-        guard let device = selectedDevice else {
+        guard let device = _selectedDevice else {
             print("No Sonos device selected")
             return
         }
@@ -541,8 +592,33 @@ class SonosController: @unchecked Sendable {
         }
     }
 
+    // MARK: - Group Helper Methods
+
+    func getGroupForDevice(_ device: SonosDevice) -> SonosGroup? {
+        guard let coordUUID = device.groupCoordinatorUUID else { return nil }
+        return discoveredGroups.first(where: { $0.coordinatorUUID == coordUUID && $0.members.count > 1 })
+    }
+
+    // Set volume for a specific device (useful for individual speakers within a group)
+    func setVolumeForDevice(_ device: SonosDevice, volume: Int) {
+        let clampedVolume = max(0, min(100, volume))
+        print("🎚️ setVolumeForDevice(\(volume)) for \(device.name)")
+        sendSonosCommand(to: device, action: "SetVolume", arguments: ["DesiredVolume": String(clampedVolume)])
+    }
+
+    // Get volume for a specific device
+    func getVolumeForDevice(_ device: SonosDevice, completion: @escaping (Int) -> Void) {
+        sendSonosCommand(to: device, action: "GetVolume") { volumeStr in
+            if let volume = Int(volumeStr) {
+                completion(volume)
+            } else {
+                completion(50) // Default
+            }
+        }
+    }
+
     private func changeVolume(by delta: Int) {
-        guard let device = selectedDevice else {
+        guard let device = _selectedDevice else {
             print("❌ No Sonos device selected")
             return
         }

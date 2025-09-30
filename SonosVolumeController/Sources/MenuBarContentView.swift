@@ -2,7 +2,7 @@ import Cocoa
 
 @available(macOS 26.0, *)
 @MainActor
-class MenuBarContentViewController: NSViewController {
+class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegate {
     private weak var appDelegate: AppDelegate?
 
     // Single glass container
@@ -14,12 +14,15 @@ class MenuBarContentViewController: NSViewController {
     private var speakerNameLabel: NSTextField!
     private var volumeSlider: NSSlider!
     private var volumeLabel: NSTextField!
+    private var volumeTypeLabel: NSTextField!
     private var speakerCardsContainer: NSStackView!
     private var selectedSpeakerCards: Set<String> = []
     private var groupButton: NSButton!
+    private var ungroupButton: NSButton!
     private var powerButton: NSButton!
     private var isLoadingDevices: Bool = false
     private var welcomeBanner: NSView!
+    private var expandedGroups: Set<String> = []  // Track which groups are expanded
 
     init(appDelegate: AppDelegate?) {
         self.appDelegate = appDelegate
@@ -161,6 +164,13 @@ class MenuBarContentViewController: NSViewController {
     // MARK: - Volume Section
 
     private func setupVolumeSection(in container: NSView) {
+        // Volume type label (shows "Volume" or "Group Volume (X speakers)")
+        volumeTypeLabel = NSTextField(labelWithString: "Volume")
+        volumeTypeLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        volumeTypeLabel.textColor = .secondaryLabelColor
+        volumeTypeLabel.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(volumeTypeLabel)
+
         // Volume icon
         let volumeIcon = NSImageView()
         volumeIcon.image = NSImage(systemSymbolName: "speaker.wave.2.fill", accessibilityDescription: "Volume")
@@ -198,8 +208,11 @@ class MenuBarContentViewController: NSViewController {
         let previousDivider = container.subviews.compactMap { $0 as? NSBox }.first
 
         NSLayoutConstraint.activate([
+            volumeTypeLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            volumeTypeLabel.topAnchor.constraint(equalTo: previousDivider!.bottomAnchor, constant: 16),
+
             volumeIcon.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
-            volumeIcon.topAnchor.constraint(equalTo: previousDivider!.bottomAnchor, constant: 20),
+            volumeIcon.topAnchor.constraint(equalTo: volumeTypeLabel.bottomAnchor, constant: 8),
             volumeIcon.widthAnchor.constraint(equalToConstant: 22),
             volumeIcon.heightAnchor.constraint(equalToConstant: 22),
 
@@ -260,7 +273,7 @@ class MenuBarContentViewController: NSViewController {
         populateSpeakers()
         scrollView.documentView = speakerCardsContainer
 
-        // Group button (placeholder for future functionality)
+        // Group button
         groupButton = NSButton()
         groupButton.title = "Group Selected"
         groupButton.bezelStyle = .rounded
@@ -270,6 +283,17 @@ class MenuBarContentViewController: NSViewController {
         groupButton.isEnabled = false
         groupButton.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(groupButton)
+
+        // Ungroup button
+        ungroupButton = NSButton()
+        ungroupButton.title = "Ungroup Selected"
+        ungroupButton.bezelStyle = .rounded
+        ungroupButton.controlSize = .small
+        ungroupButton.target = self
+        ungroupButton.action = #selector(ungroupSpeakers)
+        ungroupButton.isEnabled = false
+        ungroupButton.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(ungroupButton)
 
         // Divider
         let divider3 = createDivider()
@@ -295,8 +319,12 @@ class MenuBarContentViewController: NSViewController {
 
             speakerCardsContainer.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
 
-            groupButton.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            // Position buttons side by side
+            groupButton.trailingAnchor.constraint(equalTo: container.centerXAnchor, constant: -6),
             groupButton.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 12),
+
+            ungroupButton.leadingAnchor.constraint(equalTo: container.centerXAnchor, constant: 6),
+            ungroupButton.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 12),
 
             divider3.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             divider3.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
@@ -305,6 +333,172 @@ class MenuBarContentViewController: NSViewController {
         ])
     }
 
+    // Create a card for a multi-speaker group
+    private func createGroupCard(group: SonosController.SonosGroup, isActive: Bool) -> NSView {
+        let card = NSView()
+        card.wantsLayer = true
+        card.layer?.backgroundColor = isActive ?
+            NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor :
+            NSColor.labelColor.withAlphaComponent(0.03).cgColor
+        card.layer?.cornerRadius = 10
+        card.translatesAutoresizingMaskIntoConstraints = false
+
+        let isExpanded = expandedGroups.contains(group.id)
+
+        // Chevron for expansion - make it a button so it's separately clickable
+        let chevronButton = NSButton()
+        chevronButton.image = NSImage(systemSymbolName: isExpanded ? "chevron.down" : "chevron.right", accessibilityDescription: "Expand")
+        chevronButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        chevronButton.contentTintColor = .secondaryLabelColor
+        chevronButton.isBordered = false
+        chevronButton.bezelStyle = .inline
+        chevronButton.target = self
+        chevronButton.action = #selector(toggleGroupExpansion(_:))
+        chevronButton.identifier = NSUserInterfaceItemIdentifier(group.id)
+        chevronButton.translatesAutoresizingMaskIntoConstraints = false
+
+        // Group icon (multiple speakers)
+        let icon = NSImageView()
+        icon.image = NSImage(systemSymbolName: "hifispeaker.2.fill", accessibilityDescription: "Group")
+        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        icon.contentTintColor = isActive ? .controlAccentColor : .systemBlue
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        // Group name
+        let displayName = isActive ? "\(group.name) (Default)" : group.name
+        let nameLabel = NSTextField(labelWithString: displayName)
+        nameLabel.font = .systemFont(ofSize: 13, weight: isActive ? .semibold : .medium)
+        nameLabel.textColor = isActive ? .labelColor : .labelColor
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        // Selection checkbox for ungrouping
+        let checkbox = NSButton()
+        checkbox.setButtonType(.switch)
+        checkbox.controlSize = .small
+        checkbox.title = ""
+        checkbox.state = selectedSpeakerCards.contains(group.id) ? .on : .off
+        checkbox.target = self
+        checkbox.action = #selector(speakerSelectionChanged(_:))
+        checkbox.identifier = NSUserInterfaceItemIdentifier(group.id)
+        checkbox.translatesAutoresizingMaskIntoConstraints = false
+
+        // Click gesture to select group as active
+        let clickGesture = NSClickGestureRecognizer(target: self, action: #selector(selectGroup(_:)))
+        clickGesture.delegate = self
+        card.addGestureRecognizer(clickGesture)
+        card.identifier = NSUserInterfaceItemIdentifier(group.id)
+
+        card.addSubview(chevronButton)
+        card.addSubview(icon)
+        card.addSubview(nameLabel)
+        card.addSubview(checkbox)
+
+        // Set card to clip content that goes outside bounds
+        card.wantsLayer = true
+        card.layer?.masksToBounds = false  // Allow chevron to visually extend
+
+        NSLayoutConstraint.activate([
+            // Position icon at same spot as individual speaker cards (12px from left)
+            icon.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 20),
+            icon.heightAnchor.constraint(equalToConstant: 20),
+
+            // Position chevron directly before the icon (overlapping into the margin)
+            chevronButton.trailingAnchor.constraint(equalTo: icon.leadingAnchor, constant: -2),
+            chevronButton.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            chevronButton.widthAnchor.constraint(equalToConstant: 16),
+            chevronButton.heightAnchor.constraint(equalToConstant: 20),
+
+            nameLabel.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
+            nameLabel.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            nameLabel.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -10),
+
+            checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+
+            card.heightAnchor.constraint(equalToConstant: 42)
+        ])
+
+        return card
+    }
+
+    // Create a card for a member within an expanded group
+    private func createMemberCard(device: SonosController.SonosDevice) -> NSView {
+        let card = NSView()
+        card.wantsLayer = true
+        card.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.02).cgColor
+        card.layer?.cornerRadius = 8
+        card.translatesAutoresizingMaskIntoConstraints = false
+
+        // Blue connection line
+        let connectionLine = NSView()
+        connectionLine.wantsLayer = true
+        connectionLine.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.6).cgColor
+        connectionLine.translatesAutoresizingMaskIntoConstraints = false
+
+        // Speaker icon
+        let icon = NSImageView()
+        icon.image = NSImage(systemSymbolName: "hifispeaker.fill", accessibilityDescription: "Speaker")
+        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
+        icon.contentTintColor = .tertiaryLabelColor
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        // Speaker name
+        let nameLabel = NSTextField(labelWithString: device.name)
+        nameLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        nameLabel.textColor = .secondaryLabelColor
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        // Volume slider for this individual speaker
+        let volumeSlider = NSSlider()
+        volumeSlider.minValue = 0
+        volumeSlider.maxValue = 100
+        volumeSlider.doubleValue = 50
+        volumeSlider.controlSize = .small
+        volumeSlider.target = self
+        volumeSlider.action = #selector(memberVolumeChanged(_:))
+        volumeSlider.identifier = NSUserInterfaceItemIdentifier(device.uuid)
+        volumeSlider.translatesAutoresizingMaskIntoConstraints = false
+
+        // Load actual volume
+        appDelegate?.sonosController.getVolumeForDevice(device) { [weak volumeSlider] volume in
+            DispatchQueue.main.async {
+                volumeSlider?.doubleValue = Double(volume)
+            }
+        }
+
+        card.addSubview(connectionLine)
+        card.addSubview(icon)
+        card.addSubview(nameLabel)
+        card.addSubview(volumeSlider)
+
+        NSLayoutConstraint.activate([
+            connectionLine.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
+            connectionLine.topAnchor.constraint(equalTo: card.topAnchor),
+            connectionLine.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+            connectionLine.widthAnchor.constraint(equalToConstant: 2),
+
+            icon.leadingAnchor.constraint(equalTo: connectionLine.trailingAnchor, constant: 12),
+            icon.topAnchor.constraint(equalTo: card.topAnchor, constant: 10),
+            icon.widthAnchor.constraint(equalToConstant: 16),
+            icon.heightAnchor.constraint(equalToConstant: 16),
+
+            nameLabel.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
+            nameLabel.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
+
+            volumeSlider.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 38),
+            volumeSlider.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            volumeSlider.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 8),
+            volumeSlider.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -10),
+
+            card.heightAnchor.constraint(equalToConstant: 62)
+        ])
+
+        return card
+    }
+
+    // Create a card for an ungrouped speaker
     private func createSpeakerCard(device: SonosController.SonosDevice, isActive: Bool) -> NSView {
         let card = NSView()
         card.wantsLayer = true
@@ -328,7 +522,7 @@ class MenuBarContentViewController: NSViewController {
         nameLabel.textColor = isActive ? .labelColor : .secondaryLabelColor
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        // Selection checkbox for grouping (placeholder)
+        // Selection checkbox for grouping
         let checkbox = NSButton()
         checkbox.setButtonType(.switch)
         checkbox.controlSize = .small
@@ -341,6 +535,7 @@ class MenuBarContentViewController: NSViewController {
 
         // Click gesture for main selection
         let clickGesture = NSClickGestureRecognizer(target: self, action: #selector(selectSpeaker(_:)))
+        clickGesture.delegate = self
         card.addGestureRecognizer(clickGesture)
         card.identifier = NSUserInterfaceItemIdentifier(device.name)
 
@@ -393,7 +588,8 @@ class MenuBarContentViewController: NSViewController {
             return
         }
 
-        guard let devices = appDelegate?.sonosController.discoveredDevices, !devices.isEmpty else {
+        guard let controller = appDelegate?.sonosController,
+              !controller.discoveredDevices.isEmpty else {
             let label = NSTextField(labelWithString: "No speakers found")
             label.alignment = .center
             label.textColor = .tertiaryLabelColor
@@ -403,31 +599,103 @@ class MenuBarContentViewController: NSViewController {
         }
 
         let currentSpeaker = appDelegate?.settings.selectedSonosDevice
+        let groups = controller.discoveredGroups
+        let devices = controller.discoveredDevices
 
         // Show/hide welcome banner based on whether a speaker is selected
         if let banner = welcomeBanner {
             banner.isHidden = !(currentSpeaker?.isEmpty ?? true)
         }
 
-        // Sort devices: default speaker first, then alphabetically
-        let sortedDevices = devices.sorted { device1, device2 in
+        // Find devices that are in multi-speaker groups
+        let devicesInGroups = Set(groups.filter { $0.members.count > 1 }.flatMap { $0.members.map { $0.uuid } })
+
+        // Sort groups: those containing default speaker first, then alphabetically
+        let sortedGroups = groups.filter { $0.members.count > 1 }.sorted { group1, group2 in
+            let isGroup1Active = group1.members.contains(where: { $0.name == currentSpeaker })
+            let isGroup2Active = group2.members.contains(where: { $0.name == currentSpeaker })
+
+            if isGroup1Active && !isGroup2Active {
+                return true
+            } else if !isGroup1Active && isGroup2Active {
+                return false
+            } else {
+                return group1.name.localizedCaseInsensitiveCompare(group2.name) == .orderedAscending
+            }
+        }
+
+        // Sort ungrouped devices: default speaker first, then alphabetically
+        let ungroupedDevices = devices.filter { !devicesInGroups.contains($0.uuid) }.sorted { device1, device2 in
             let isDevice1Current = device1.name == currentSpeaker
             let isDevice2Current = device2.name == currentSpeaker
 
             if isDevice1Current && !isDevice2Current {
-                return true  // device1 comes first
+                return true
             } else if !isDevice1Current && isDevice2Current {
-                return false  // device2 comes first
+                return false
             } else {
                 return device1.name.localizedCaseInsensitiveCompare(device2.name) == .orderedAscending
             }
         }
 
-        for device in sortedDevices {
+        // Add groups first
+        for group in sortedGroups {
+            let isActive = group.members.contains(where: { $0.name == currentSpeaker })
+            let groupCard = createGroupCard(group: group, isActive: isActive)
+            speakerCardsContainer.addArrangedSubview(groupCard)
+
+            // Force consistent width
+            NSLayoutConstraint.activate([
+                groupCard.widthAnchor.constraint(equalTo: speakerCardsContainer.widthAnchor)
+            ])
+
+            // If expanded, show member cards
+            if expandedGroups.contains(group.id) {
+                for member in group.members.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) {
+                    let memberCard = createMemberCard(device: member)
+                    // Add left padding for indentation
+                    let paddedContainer = NSView()
+                    paddedContainer.translatesAutoresizingMaskIntoConstraints = false
+                    paddedContainer.addSubview(memberCard)
+
+                    NSLayoutConstraint.activate([
+                        memberCard.leadingAnchor.constraint(equalTo: paddedContainer.leadingAnchor, constant: 20),
+                        memberCard.trailingAnchor.constraint(equalTo: paddedContainer.trailingAnchor),
+                        memberCard.topAnchor.constraint(equalTo: paddedContainer.topAnchor),
+                        memberCard.bottomAnchor.constraint(equalTo: paddedContainer.bottomAnchor)
+                    ])
+
+                    speakerCardsContainer.addArrangedSubview(paddedContainer)
+                }
+            }
+        }
+
+        // Then add ungrouped speakers
+        for device in ungroupedDevices {
             let isActive = device.name == currentSpeaker
             let card = createSpeakerCard(device: device, isActive: isActive)
             speakerCardsContainer.addArrangedSubview(card)
+
+            // Force consistent width
+            NSLayoutConstraint.activate([
+                card.widthAnchor.constraint(equalTo: speakerCardsContainer.widthAnchor)
+            ])
         }
+
+        // Update volume type label
+        updateVolumeTypeLabel()
+    }
+
+    private func updateVolumeTypeLabel() {
+        guard let device = appDelegate?.sonosController.selectedDevice,
+              let group = appDelegate?.sonosController.getGroupForDevice(device) else {
+            volumeTypeLabel.stringValue = "Volume"
+            volumeTypeLabel.textColor = .secondaryLabelColor
+            return
+        }
+
+        volumeTypeLabel.stringValue = "Group Volume (\(group.members.count) speakers)"
+        volumeTypeLabel.textColor = .systemBlue
     }
 
     // MARK: - Trigger Device Section
@@ -697,22 +965,82 @@ class MenuBarContentViewController: NSViewController {
     }
 
     @objc private func speakerSelectionChanged(_ sender: NSButton) {
-        guard let deviceName = sender.identifier?.rawValue else { return }
+        guard let identifier = sender.identifier?.rawValue else { return }
 
         if sender.state == .on {
-            selectedSpeakerCards.insert(deviceName)
+            selectedSpeakerCards.insert(identifier)
         } else {
-            selectedSpeakerCards.remove(deviceName)
+            selectedSpeakerCards.remove(identifier)
         }
 
-        groupButton.isEnabled = selectedSpeakerCards.count > 1
-        groupButton.title = selectedSpeakerCards.count > 1 ?
-            "Group \(selectedSpeakerCards.count) Speakers" : "Group Selected"
+        // Check if selected items are groups or individual speakers
+        let groups = appDelegate?.sonosController.discoveredGroups ?? []
+        let selectedGroupIds = selectedSpeakerCards.filter { id in
+            groups.contains(where: { $0.id == id && $0.members.count > 1 })
+        }
+        let selectedSpeakerCount = selectedSpeakerCards.count - selectedGroupIds.count
+
+        // Enable group button if multiple speakers selected (not groups)
+        groupButton.isEnabled = selectedSpeakerCount > 1
+        groupButton.title = selectedSpeakerCount > 1 ?
+            "Group \(selectedSpeakerCount) Speakers" : "Group Selected"
+
+        // Enable ungroup button if any groups selected
+        ungroupButton.isEnabled = !selectedGroupIds.isEmpty
+        ungroupButton.title = selectedGroupIds.count > 1 ?
+            "Ungroup \(selectedGroupIds.count) Groups" : "Ungroup Selected"
+    }
+
+    @objc private func toggleGroupExpansion(_ sender: NSButton) {
+        guard let groupId = sender.identifier?.rawValue else { return }
+
+        if expandedGroups.contains(groupId) {
+            expandedGroups.remove(groupId)
+        } else {
+            expandedGroups.insert(groupId)
+        }
+
+        // Refresh the UI to show/hide member cards
+        populateSpeakers()
+    }
+
+    @objc private func selectGroup(_ gesture: NSClickGestureRecognizer) {
+        guard let card = gesture.view,
+              let groupId = card.identifier?.rawValue,
+              let controller = appDelegate?.sonosController else { return }
+
+        // Find the group and select its coordinator as the active device
+        if let group = controller.discoveredGroups.first(where: { $0.id == groupId }) {
+            appDelegate?.sonosController.selectDevice(name: group.coordinator.name)
+            appDelegate?.settings.selectedSonosDevice = group.coordinator.name
+
+            // Update UI to show group name
+            speakerNameLabel.stringValue = group.name
+            populateSpeakers()
+
+            // Update volume slider for the group
+            updateVolumeFromSonos()
+        }
+    }
+
+    @objc private func memberVolumeChanged(_ sender: NSSlider) {
+        guard let deviceUUID = sender.identifier?.rawValue,
+              let device = appDelegate?.sonosController.discoveredDevices.first(where: { $0.uuid == deviceUUID }) else {
+            return
+        }
+
+        let volume = Int(sender.doubleValue)
+        appDelegate?.sonosController.setVolumeForDevice(device, volume: volume)
     }
 
     @objc private func groupSpeakers() {
         // Placeholder for future grouping functionality
         print("Speaker grouping will be available in a future update")
+    }
+
+    @objc private func ungroupSpeakers() {
+        // Placeholder for future ungrouping functionality
+        print("Speaker ungrouping will be available in a future update")
     }
 
     @objc private func openPreferences() {
@@ -758,5 +1086,26 @@ class MenuBarContentViewController: NSViewController {
                 }
             }
         }
+    }
+
+    // MARK: - NSGestureRecognizerDelegate
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: NSGestureRecognizer) -> Bool {
+        // Prevent gesture from firing if click is on a button (checkbox or chevron)
+        guard let clickGesture = gestureRecognizer as? NSClickGestureRecognizer,
+              let card = clickGesture.view else {
+            return true
+        }
+
+        let clickLocation = clickGesture.location(in: card)
+
+        // Check if click is on any button
+        for subview in card.subviews {
+            if subview is NSButton && subview.frame.contains(clickLocation) {
+                return false // Let button handle click
+            }
+        }
+
+        return true // Allow gesture to proceed
     }
 }
