@@ -14,6 +14,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var speakerNameLabel: NSTextField!
     private var volumeSlider: NSSlider!
     private var volumeLabel: NSTextField!
+    private var volumeTypeLabel: NSTextField!  // "Group Volume" or "Speaker Volume"
     private var speakerCardsContainer: NSStackView!
     private var selectedSpeakerCards: Set<String> = []
     private var groupButton: NSButton!
@@ -161,6 +162,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     // MARK: - Volume Section
 
     private func setupVolumeSection(in container: NSView) {
+        // Volume type label (Group Volume or Speaker Volume)
+        volumeTypeLabel = NSTextField(labelWithString: "Volume")
+        volumeTypeLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        volumeTypeLabel.textColor = .secondaryLabelColor
+        volumeTypeLabel.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(volumeTypeLabel)
+
         // Volume icon
         let volumeIcon = NSImageView()
         volumeIcon.image = NSImage(systemSymbolName: "speaker.wave.2.fill", accessibilityDescription: "Volume")
@@ -198,8 +206,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let previousDivider = container.subviews.compactMap { $0 as? NSBox }.first
 
         NSLayoutConstraint.activate([
+            volumeTypeLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            volumeTypeLabel.topAnchor.constraint(equalTo: previousDivider!.bottomAnchor, constant: 16),
+
             volumeIcon.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
-            volumeIcon.topAnchor.constraint(equalTo: previousDivider!.bottomAnchor, constant: 20),
+            volumeIcon.topAnchor.constraint(equalTo: volumeTypeLabel.bottomAnchor, constant: 8),
             volumeIcon.widthAnchor.constraint(equalToConstant: 22),
             volumeIcon.heightAnchor.constraint(equalToConstant: 22),
 
@@ -213,7 +224,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
             divider2.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             divider2.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
-            divider2.topAnchor.constraint(equalTo: volumeIcon.bottomAnchor, constant: 20),
+            divider2.topAnchor.constraint(equalTo: volumeIcon.bottomAnchor, constant: 16),
             divider2.heightAnchor.constraint(equalToConstant: 1)
         ])
     }
@@ -904,6 +915,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     }
 
     private func updateVolumeFromSonos() {
+        // Update volume type label
+        updateVolumeTypeLabel()
+
         appDelegate?.sonosController.getVolume { [weak self] volume in
             DispatchQueue.main.async {
                 guard let self = self else { return }
@@ -918,5 +932,19 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 }
             }
         }
+    }
+
+    private func updateVolumeTypeLabel() {
+        guard let selectedDeviceName = appDelegate?.settings.selectedSonosDevice,
+              let device = appDelegate?.sonosController.discoveredDevices.first(where: { $0.name == selectedDeviceName }),
+              let group = appDelegate?.sonosController.getGroupForDevice(device) else {
+            volumeTypeLabel.stringValue = "Volume"
+            volumeTypeLabel.textColor = .secondaryLabelColor
+            return
+        }
+
+        // Device is in a multi-speaker group
+        volumeTypeLabel.stringValue = "Group Volume (\(group.members.count) speakers)"
+        volumeTypeLabel.textColor = .systemBlue
     }
 }

@@ -519,36 +519,66 @@ class SonosController: @unchecked Sendable {
         }.sorted { $0.coordinator.name < $1.coordinator.name }
     }
 
+    // MARK: - Helper Methods
+
+    /// Get the group that contains the given device (only if it's a multi-speaker group)
+    func getGroupForDevice(_ device: SonosDevice) -> SonosGroup? {
+        guard let coordUUID = device.groupCoordinatorUUID else { return nil }
+
+        // Find the group and make sure it has more than 1 member
+        return groups.first(where: { $0.coordinatorUUID == coordUUID && $0.members.count > 1 })
+    }
+
     func getCurrentVolume(completion: @escaping (Int?) -> Void) {
         guard let device = selectedDevice else {
             completion(nil)
             return
         }
 
-        // For stereo pairs, query the visible speaker (it controls both)
-        sendSonosCommand(to: device, action: "GetVolume") { volumeStr in
-            completion(Int(volumeStr))
+        // Check if device is in a multi-speaker group
+        if let group = getGroupForDevice(device) {
+            // Get group volume
+            getGroupVolume(group: group, completion: completion)
+        } else {
+            // For stereo pairs or standalone, query the visible speaker (it controls both)
+            sendSonosCommand(to: device, action: "GetVolume") { volumeStr in
+                completion(Int(volumeStr))
+            }
         }
     }
 
     func volumeUp() {
         print("📢 volumeUp() called")
-        guard selectedDevice != nil else {
+        guard let device = selectedDevice else {
             print("⚠️ No device selected!")
             showNoSpeakerSelectedNotification()
             return
         }
-        changeVolume(by: settings.volumeStep)
+
+        // Check if device is in a multi-speaker group
+        if let group = getGroupForDevice(device) {
+            print("🎚️ Adjusting group volume (relative)")
+            changeGroupVolume(group: group, by: settings.volumeStep)
+        } else {
+            changeVolume(by: settings.volumeStep)
+        }
     }
 
     func volumeDown() {
         print("📢 volumeDown() called")
-        guard selectedDevice != nil else {
+        guard let device = selectedDevice else {
             print("⚠️ No device selected!")
             showNoSpeakerSelectedNotification()
             return
         }
-        changeVolume(by: -settings.volumeStep)
+
+        // Check if device is in a multi-speaker group
+        if let group = getGroupForDevice(device) {
+            print("🎚️ Adjusting group volume (relative)")
+            changeGroupVolume(group: group, by: -settings.volumeStep)
+        } else {
+            changeVolume(by: -settings.volumeStep)
+        }
     }
 
     private func showNoSpeakerSelectedNotification() {
@@ -583,18 +613,25 @@ class SonosController: @unchecked Sendable {
             return
         }
 
+        let clampedVolume = max(0, min(100, volume))
+
+        // Check if device is in a multi-speaker group
+        if let group = getGroupForDevice(device) {
+            print("🎚️ setVolume(\(clampedVolume)) for GROUP \(group.displayName)")
+            setGroupVolume(group: group, volume: clampedVolume)
+            return
+        }
+
+        // Individual speaker or stereo pair control
         // KEY INSIGHT: For stereo pairs, the visible speaker controls BOTH speakers in the pair
-        // Group coordinator is only for playback synchronization, NOT volume control
-        // So we ALWAYS send volume to the selected device directly
         let targetDevice = device
 
         if device.channelMapSet != nil {
-            print("🎚️ setVolume(\(volume)) for STEREO PAIR \(device.name)")
+            print("🎚️ setVolume(\(clampedVolume)) for STEREO PAIR \(device.name)")
         } else {
-            print("🎚️ setVolume(\(volume)) for \(device.name)")
+            print("🎚️ setVolume(\(clampedVolume)) for \(device.name)")
         }
 
-        let clampedVolume = max(0, min(100, volume))
         sendSonosCommand(to: targetDevice, action: "SetVolume", arguments: ["DesiredVolume": String(clampedVolume)])
 
         // Show HUD and notify observers
