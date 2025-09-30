@@ -454,6 +454,7 @@ class SonosController: @unchecked Sendable {
         print("📢 volumeUp() called")
         guard selectedDevice != nil else {
             print("⚠️ No device selected!")
+            showNoSpeakerSelectedNotification()
             return
         }
         changeVolume(by: settings.volumeStep)
@@ -463,9 +464,19 @@ class SonosController: @unchecked Sendable {
         print("📢 volumeDown() called")
         guard selectedDevice != nil else {
             print("⚠️ No device selected!")
+            showNoSpeakerSelectedNotification()
             return
         }
         changeVolume(by: -settings.volumeStep)
+    }
+
+    private func showNoSpeakerSelectedNotification() {
+        Task { @MainActor in
+            VolumeHUD.shared.showError(
+                title: "No Speaker Selected",
+                message: "Click the menu bar icon to select your Sonos speaker"
+            )
+        }
     }
 
     func getVolume(completion: @escaping (Int) -> Void) {

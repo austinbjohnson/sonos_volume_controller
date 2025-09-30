@@ -30,4 +30,4 @@
 - ✅ Accessibility permissions prompt on first launch with direct link to System Settings (PR #19)
 - ✅ Changed default hotkeys to Cmd+Shift+9/0 for better ergonomics (PR #20)
 - ✅ Fixed hotkeys not working in installed app - reverted to F11/F12 defaults, fixed CGEventFlags conversion, added network entitlements, improved permission flow with auto-restart (PR #22)
-- ✅ First launch onboarding - automatically shows popover with welcome banner when no speaker is selected, guiding users to select their default speaker (PR #24) 
+- ✅ First launch onboarding with welcome banner - automatically shows popover when no speaker is selected, plus shows HUD notification when user tries to use hotkeys without a speaker selected (PR #24) 
