@@ -24,15 +24,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize popover
         menuBarPopover = MenuBarPopover(appDelegate: self)
 
-        // Create status bar item with "S" icon
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        // Create status bar item with custom Sonos speaker icon
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.title = "S"
-            // Make it bold and slightly larger
-            button.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
+            // Create custom Sonos speaker icon programmatically
+            let iconImage = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+                // Speaker body (rounded rectangle)
+                let bodyRect = NSRect(x: 4, y: 1, width: 10, height: 16)
+                let bodyPath = NSBezierPath(roundedRect: bodyRect, xRadius: 1.5, yRadius: 1.5)
+                bodyPath.lineWidth = 1.2
+                NSColor.black.setStroke()
+                bodyPath.stroke()
+
+                // Speaker grille lines
+                for y in stride(from: 4.0, through: 14.0, by: 2.0) {
+                    let line = NSBezierPath()
+                    line.move(to: NSPoint(x: 5.5, y: y))
+                    line.line(to: NSPoint(x: 12.5, y: y))
+                    line.lineWidth = 0.8
+                    line.lineCapStyle = .round
+                    NSColor.black.setStroke()
+                    line.stroke()
+                }
+
+                // Small circle at bottom (Sonos indicator)
+                let circle = NSBezierPath(ovalIn: NSRect(x: 8.4, y: 14.9, width: 1.2, height: 1.2))
+                NSColor.black.setFill()
+                circle.fill()
+
+                return true
+            }
+            iconImage.isTemplate = true  // Adapts to dark/light menu bar
+            button.image = iconImage
             button.target = self
             button.action = #selector(togglePopover)
-            print("🔊 Menu bar icon: S")
+            print("🔊 Menu bar icon: Custom Sonos speaker")
         }
         print("📍 Status bar item created")
 

@@ -15,7 +15,10 @@ let package = Package(
         .executableTarget(
             name: "SonosVolumeController",
             dependencies: [],
-            path: "Sources"
+            path: "Sources",
+            resources: [
+                .copy("../Resources")
+            ]
         )
     ]
 )
