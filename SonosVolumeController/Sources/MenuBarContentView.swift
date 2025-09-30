@@ -56,6 +56,18 @@ class MenuBarContentViewController: NSViewController {
             glassView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8),
             glassView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -8)
         ])
+
+        // Observe volume changes to update slider in real-time
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(volumeDidChange(_:)),
+            name: NSNotification.Name("SonosVolumeDidChange"),
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     // MARK: - Header Section (Status + Current Speaker)
@@ -445,6 +457,15 @@ class MenuBarContentViewController: NSViewController {
         volumeLabel.stringValue = "\(volume)%"
         // Set the actual Sonos volume
         appDelegate?.sonosController.setVolume(volume)
+    }
+
+    @objc private func volumeDidChange(_ notification: Notification) {
+        // Update slider when volume changes via hotkeys
+        guard let userInfo = notification.userInfo,
+              let volume = userInfo["volume"] as? Int else { return }
+
+        volumeSlider.doubleValue = Double(volume)
+        volumeLabel.stringValue = "\(volume)%"
     }
 
     @objc private func selectSpeaker(_ gesture: NSClickGestureRecognizer) {

@@ -57,9 +57,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
-        // Discover Sonos devices
+        // Discover Sonos devices with completion handler for proper initialization
         print("🔍 Starting Sonos discovery...")
-        sonosController.discoverDevices()
+        sonosController.discoverDevices { [weak self] in
+            guard let self = self else { return }
+
+            // Auto-select default speaker AFTER topology is loaded
+            Task { @MainActor in
+                if !self.settings.selectedSonosDevice.isEmpty {
+                    print("🎵 Auto-selecting default speaker (after topology loaded): \(self.settings.selectedSonosDevice)")
+                    self.sonosController.selectDevice(name: self.settings.selectedSonosDevice)
+                }
+
+                print("✅ Sonos discovery and topology loaded")
+            }
+        }
 
         print("✅ Sonos Volume Controller started")
     }
@@ -71,13 +83,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func devicesDiscovered() {
         print("📱 Devices discovered, updating popover...")
-
-        // Auto-select default speaker if set
-        if !settings.selectedSonosDevice.isEmpty {
-            print("🎵 Auto-selecting default speaker: \(settings.selectedSonosDevice)")
-            sonosController.selectDevice(name: settings.selectedSonosDevice)
-        }
-
+        // Just refresh UI - device selection happens in completion handler
         menuBarPopover.refresh()
     }
 }

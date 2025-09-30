@@ -19,15 +19,17 @@ class SonosController: @unchecked Sendable {
         let name: String
         let ipAddress: String
         let uuid: String
-        let isCoordinator: Bool
-        let coordinatorUUID: String?  // UUID of the group coordinator
+        let isGroupCoordinator: Bool      // True if this is the group coordinator
+        let groupCoordinatorUUID: String? // UUID of the group coordinator (for grouped playback)
+        let channelMapSet: String?        // Present if part of a stereo pair
+        let pairPartnerUUID: String?      // UUID of the other speaker in the stereo pair
     }
 
     init(settings: AppSettings) {
         self.settings = settings
     }
 
-    func discoverDevices(forceRefreshTopology: Bool = false) {
+    func discoverDevices(forceRefreshTopology: Bool = false, completion: (@Sendable () -> Void)? = nil) {
         print("Discovering Sonos devices...")
 
         // Clear cache if forced refresh is requested
@@ -41,11 +43,11 @@ class SonosController: @unchecked Sendable {
         let queue = DispatchQueue(label: "sonos.discovery")
 
         queue.async { [weak self] in
-            self?.performSSDPDiscovery()
+            self?.performSSDPDiscovery(completion: completion)
         }
     }
 
-    private func performSSDPDiscovery() {
+    private func performSSDPDiscovery(completion: (@Sendable () -> Void)? = nil) {
         let ssdpMessage = """
         M-SEARCH * HTTP/1.1\r
         HOST: 239.255.255.250:1900\r
@@ -73,48 +75,35 @@ class SonosController: @unchecked Sendable {
             }
 
             DispatchQueue.main.async {
-                // Deduplicate devices by name (keeps first occurrence)
+                // Deduplicate devices by UUID (not name, since stereo pairs have duplicate names)
                 var uniqueDevices: [SonosDevice] = []
-                var seenNames = Set<String>()
+                var seenUUIDs = Set<String>()
 
                 for device in foundDevices {
-                    if !seenNames.contains(device.name) {
+                    if !seenUUIDs.contains(device.uuid) {
                         uniqueDevices.append(device)
-                        seenNames.insert(device.name)
+                        seenUUIDs.insert(device.uuid)
                     }
                 }
 
-                // Apply cached topology if available
-                if !self.topologyCache.isEmpty {
-                    uniqueDevices = uniqueDevices.map { device in
-                        if let coordinatorUUID = self.topologyCache[device.uuid] {
-                            return SonosDevice(
-                                name: device.name,
-                                ipAddress: device.ipAddress,
-                                uuid: device.uuid,
-                                isCoordinator: device.uuid == coordinatorUUID,
-                                coordinatorUUID: coordinatorUUID
-                            )
-                        }
-                        return device
-                    }
-                    print("Applied cached topology to \(uniqueDevices.count) devices")
-                }
+                // Apply cached topology if available (but we'll refresh it anyway)
+                // Just keep the devices as-is, topology will be updated in updateGroupTopology()
 
                 self.devices = uniqueDevices
                 print("Found \(foundDevices.count) Sonos devices (\(uniqueDevices.count) unique)")
                 for device in uniqueDevices {
-                    let role = device.isCoordinator ? " (Coordinator)" : ""
-                    print("  - \(device.name) at \(device.ipAddress)\(role)")
+                    print("  - \(device.name) at \(device.ipAddress)")
                 }
 
                 // Only fetch topology if not cached
                 if !self.hasLoadedTopology {
                     print("Fetching initial group topology...")
-                    self.updateGroupTopology()
+                    self.updateGroupTopology(completion: completion)
                     self.hasLoadedTopology = true
                 } else {
                     print("Using cached topology (refresh to update)")
+                    // Call completion immediately if using cached topology
+                    completion?()
                 }
 
                 // Post notification so menu can update
@@ -125,9 +114,12 @@ class SonosController: @unchecked Sendable {
         }
     }
 
-    private func updateGroupTopology() {
+    private func updateGroupTopology(completion: (@Sendable () -> Void)? = nil) {
         // Pick any device to query group topology (all devices know about all groups)
-        guard let anyDevice = devices.first else { return }
+        guard let anyDevice = devices.first else {
+            completion?()
+            return
+        }
 
         let url = URL(string: "http://\(anyDevice.ipAddress):1400/ZoneGroupTopology/Control")!
         var request = URLRequest(url: url)
@@ -161,28 +153,41 @@ class SonosController: @unchecked Sendable {
                 return
             }
 
-            self.parseGroupTopology(responseStr)
+            self.parseGroupTopology(responseStr, completion: completion)
         }.resume()
 
         _ = semaphore.wait(timeout: .now() + 3)
     }
 
-    private func parseGroupTopology(_ xml: String) {
+    private func parseGroupTopology(_ xml: String, completion: (@Sendable () -> Void)? = nil) {
         // Extract ZoneGroupState XML from SOAP response
         guard let stateRange = xml.range(of: "<ZoneGroupState>([\\s\\S]*?)</ZoneGroupState>", options: .regularExpression) else {
             print("Could not find ZoneGroupState in response")
+            DispatchQueue.main.async {
+                completion?()
+            }
             return
         }
 
         let stateXML = String(xml[stateRange])
 
-        // Parse each ZoneGroup to find coordinators
+        // Decode HTML entities to parse actual XML structure
+        let decodedXML = stateXML
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&amp;", with: "&")
+
+        // Parse each ZoneGroup to find coordinators and invisible devices
         let groupPattern = "<ZoneGroup Coordinator=\"([^\"]+)\"[^>]*>([\\s\\S]*?)</ZoneGroup>"
         let regex = try? NSRegularExpression(pattern: groupPattern, options: [])
-        let nsString = stateXML as NSString
-        let matches = regex?.matches(in: stateXML, options: [], range: NSRange(location: 0, length: nsString.length)) ?? []
+        let nsString = decodedXML as NSString
+        let matches = regex?.matches(in: decodedXML, options: [], range: NSRange(location: 0, length: nsString.length)) ?? []
 
-        var groupInfo: [String: String] = [:]  // UUID -> Coordinator UUID
+        var groupInfo: [String: String] = [:]           // UUID -> Group Coordinator UUID
+        var invisibleUUIDs: Set<String> = []            // UUIDs of invisible/satellite speakers
+        var channelMapSets: [String: String] = [:]      // UUID -> ChannelMapSet (for stereo pairs)
+        var pairPartners: [String: String] = [:]        // UUID -> Pair Partner UUID
 
         for match in matches {
             if match.numberOfRanges >= 3 {
@@ -190,7 +195,7 @@ class SonosController: @unchecked Sendable {
                 let membersXML = nsString.substring(with: match.range(at: 2))
 
                 // Find all members in this group
-                let memberPattern = "<ZoneGroupMember UUID=\"([^\"]+)\""
+                let memberPattern = "<ZoneGroupMember UUID=\"([^\"]+)\"[^>]*?"
                 let memberRegex = try? NSRegularExpression(pattern: memberPattern, options: [])
                 let memberMatches = memberRegex?.matches(in: membersXML, options: [], range: NSRange(location: 0, length: (membersXML as NSString).length)) ?? []
 
@@ -198,33 +203,100 @@ class SonosController: @unchecked Sendable {
                     if memberMatch.numberOfRanges >= 2 {
                         let memberUUID = (membersXML as NSString).substring(with: memberMatch.range(at: 1))
                         groupInfo[memberUUID] = coordinatorUUID
+
+                        // Extract the full ZoneGroupMember element
+                        if let memberElementRange = membersXML.range(of: "<ZoneGroupMember UUID=\"\(memberUUID)\"[^>]*>", options: .regularExpression) {
+                            let memberElement = String(membersXML[memberElementRange])
+
+                            // Check for invisible attribute
+                            if memberElement.contains("Invisible=\"1\"") {
+                                invisibleUUIDs.insert(memberUUID)
+                                print("Found invisible/satellite speaker: \(memberUUID)")
+                            }
+
+                            // Extract ChannelMapSet (indicates stereo pair)
+                            if let channelMapRange = memberElement.range(of: "ChannelMapSet=\"([^\"]+)\"", options: .regularExpression) {
+                                let channelMapMatch = String(memberElement[channelMapRange])
+                                if let channelMapSet = channelMapMatch.components(separatedBy: "\"").dropFirst().first {
+                                    channelMapSets[memberUUID] = channelMapSet
+
+                                    // Parse pair partner from ChannelMapSet
+                                    // Format: "UUID1:RF,RF;UUID2:LF,LF"
+                                    let pairs = channelMapSet.components(separatedBy: ";")
+                                    for pair in pairs {
+                                        let parts = pair.components(separatedBy: ":")
+                                        if let pairUUID = parts.first, pairUUID != memberUUID {
+                                            pairPartners[memberUUID] = pairUUID
+                                            print("Stereo pair: \(memberUUID) <-> \(pairUUID)")
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Store in cache for future use
-        topologyCache = groupInfo
-        print("Cached topology for \(groupInfo.count) devices")
+        // Update devices with coordinator information on main queue (thread safety)
+        DispatchQueue.main.async {
+            // Store in cache for future use
+            self.topologyCache = groupInfo
+            print("Cached topology for \(groupInfo.count) devices")
+            print("Found \(invisibleUUIDs.count) invisible/satellite speakers to filter out")
 
-        // Update devices with coordinator information
-        devices = devices.map { device in
-            if let coordinatorUUID = groupInfo[device.uuid] {
+            // Update devices with PAIR and GROUP information, filter out invisible speakers
+            self.devices = self.devices.compactMap { device in
+                // Filter out invisible/satellite speakers from device list
+                if invisibleUUIDs.contains(device.uuid) {
+                    print("Filtering out invisible speaker: \(device.name) (\(device.uuid))")
+                    return nil
+                }
+
+                // Rebuild device with topology information
+                let groupCoordUUID = groupInfo[device.uuid]
+                let channelMap = channelMapSets[device.uuid]
+                let pairPartner = pairPartners[device.uuid]
+
                 return SonosDevice(
                     name: device.name,
                     ipAddress: device.ipAddress,
                     uuid: device.uuid,
-                    isCoordinator: device.uuid == coordinatorUUID,
-                    coordinatorUUID: coordinatorUUID
+                    isGroupCoordinator: device.uuid == groupCoordUUID,
+                    groupCoordinatorUUID: groupCoordUUID,
+                    channelMapSet: channelMap,
+                    pairPartnerUUID: pairPartner
                 )
             }
-            return device
-        }
 
-        print("Updated group topology:")
-        for device in devices {
-            let role = device.isCoordinator ? "(Coordinator)" : ""
-            print("  - \(device.name) \(role)")
+            print("Updated topology (visible speakers/pairs only):")
+            for device in self.devices {
+                var info = device.name
+                if device.channelMapSet != nil {
+                    info += " [STEREO PAIR"
+                    if let partner = device.pairPartnerUUID {
+                        info += " with \(partner.suffix(4))"
+                    }
+                    info += "]"
+                }
+                if let groupCoord = device.groupCoordinatorUUID {
+                    if device.isGroupCoordinator {
+                        info += " (Group Leader)"
+                    } else {
+                        info += " (in group led by \(groupCoord.suffix(4)))"
+                    }
+                }
+                print("  - \(info)")
+            }
+
+            // Refresh selected device to pick up new coordinator information
+            self.refreshSelectedDevice()
+
+            // Notify that devices have changed (for UI updates)
+            NotificationCenter.default.post(name: NSNotification.Name("SonosDevicesDiscovered"), object: nil)
+
+            // Call completion handler
+            completion?()
         }
     }
 
@@ -250,8 +322,10 @@ class SonosController: @unchecked Sendable {
             name: deviceName,
             ipAddress: host,
             uuid: uuid ?? location,
-            isCoordinator: false,  // Will be updated later
-            coordinatorUUID: nil   // Will be updated later
+            isGroupCoordinator: false,      // Will be updated after topology loads
+            groupCoordinatorUUID: nil,      // Will be updated after topology loads
+            channelMapSet: nil,             // Will be updated after topology loads
+            pairPartnerUUID: nil            // Will be updated after topology loads
         )
     }
 
@@ -304,7 +378,34 @@ class SonosController: @unchecked Sendable {
         selectedDevice = devices.first { $0.name == name }
         if let device = selectedDevice {
             settings.selectedSonosDevice = device.name
-            print("Selected Sonos device: \(device.name)")
+
+            var info = "✅ Selected: \(device.name)"
+            if device.channelMapSet != nil {
+                info += " [STEREO PAIR]"
+            }
+            if let groupCoord = device.groupCoordinatorUUID {
+                if device.isGroupCoordinator {
+                    info += " (Group Leader)"
+                } else {
+                    info += " (in group)"
+                }
+            }
+            print(info)
+        }
+    }
+
+    // Refresh selectedDevice reference to pick up updated topology info
+    private func refreshSelectedDevice() {
+        guard let currentDevice = selectedDevice else { return }
+
+        // Re-find the device in the updated devices array to get current topology info
+        if let updatedDevice = devices.first(where: { $0.name == currentDevice.name }) {
+            selectedDevice = updatedDevice
+            if updatedDevice.channelMapSet != nil {
+                print("Refreshed selected device: \(updatedDevice.name) [STEREO PAIR]")
+            } else {
+                print("Refreshed selected device: \(updatedDevice.name)")
+            }
         }
     }
 
@@ -314,16 +415,8 @@ class SonosController: @unchecked Sendable {
             return
         }
 
-        // Query coordinator if device is part of a group
-        let targetDevice: SonosDevice
-        if let coordinatorUUID = device.coordinatorUUID,
-           let coordinator = devices.first(where: { $0.uuid == coordinatorUUID }) {
-            targetDevice = coordinator
-        } else {
-            targetDevice = device
-        }
-
-        sendSonosCommand(to: targetDevice, action: "GetVolume") { volumeStr in
+        // For stereo pairs, query the visible speaker (it controls both)
+        sendSonosCommand(to: device, action: "GetVolume") { volumeStr in
             completion(Int(volumeStr))
         }
     }
@@ -353,16 +446,8 @@ class SonosController: @unchecked Sendable {
             return
         }
 
-        // Find the coordinator for this device
-        let targetDevice: SonosDevice
-        if let coordinatorUUID = device.coordinatorUUID,
-           let coordinator = devices.first(where: { $0.uuid == coordinatorUUID }) {
-            targetDevice = coordinator
-        } else {
-            targetDevice = device
-        }
-
-        sendSonosCommand(to: targetDevice, action: "GetVolume") { volumeStr in
+        // For stereo pairs, query the visible speaker (it controls both)
+        sendSonosCommand(to: device, action: "GetVolume") { volumeStr in
             if let volume = Int(volumeStr) {
                 completion(volume)
             } else {
@@ -377,21 +462,30 @@ class SonosController: @unchecked Sendable {
             return
         }
 
-        // Find the coordinator for this device
-        let targetDevice: SonosDevice
-        if let coordinatorUUID = device.coordinatorUUID,
-           let coordinator = devices.first(where: { $0.uuid == coordinatorUUID }) {
-            targetDevice = coordinator
+        // KEY INSIGHT: For stereo pairs, the visible speaker controls BOTH speakers in the pair
+        // Group coordinator is only for playback synchronization, NOT volume control
+        // So we ALWAYS send volume to the selected device directly
+        let targetDevice = device
+
+        if device.channelMapSet != nil {
+            print("🎚️ setVolume(\(volume)) for STEREO PAIR \(device.name)")
         } else {
-            targetDevice = device
+            print("🎚️ setVolume(\(volume)) for \(device.name)")
         }
 
         let clampedVolume = max(0, min(100, volume))
         sendSonosCommand(to: targetDevice, action: "SetVolume", arguments: ["DesiredVolume": String(clampedVolume)])
 
-        // Show HUD with new volume
+        // Show HUD and notify observers
         Task { @MainActor in
             VolumeHUD.shared.show(speaker: device.name, volume: clampedVolume)
+
+            // Post notification for UI updates
+            NotificationCenter.default.post(
+                name: NSNotification.Name("SonosVolumeDidChange"),
+                object: nil,
+                userInfo: ["volume": clampedVolume]
+            )
         }
     }
 
@@ -413,14 +507,12 @@ class SonosController: @unchecked Sendable {
             return
         }
 
-        // Find the coordinator for this device (for stereo pairs/groups)
-        let targetDevice: SonosDevice
-        if let coordinatorUUID = device.coordinatorUUID,
-           let coordinator = devices.first(where: { $0.uuid == coordinatorUUID }) {
-            targetDevice = coordinator
-            print("🎚️ Changing volume by \(delta) for \(device.name) via coordinator \(coordinator.name)")
+        // For stereo pairs, the visible speaker controls BOTH speakers
+        let targetDevice = device
+
+        if device.channelMapSet != nil {
+            print("🎚️ Changing volume by \(delta) for STEREO PAIR \(device.name)")
         } else {
-            targetDevice = device
             print("🎚️ Changing volume by \(delta) for \(device.name)")
         }
 
@@ -435,9 +527,16 @@ class SonosController: @unchecked Sendable {
             print("   📊 \(currentVolume) → \(newVolume)")
             self.sendSonosCommand(to: targetDevice, action: "SetVolume", arguments: ["DesiredVolume": String(newVolume)])
 
-            // Show HUD with new volume
+            // Show HUD and notify observers
             Task { @MainActor in
                 VolumeHUD.shared.show(speaker: device.name, volume: newVolume)
+
+                // Post notification for UI updates
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("SonosVolumeDidChange"),
+                    object: nil,
+                    userInfo: ["volume": newVolume]
+                )
             }
         }
     }
