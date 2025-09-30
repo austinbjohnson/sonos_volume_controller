@@ -93,6 +93,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if !self.settings.selectedSonosDevice.isEmpty {
                     print("🎵 Auto-selecting default speaker (after topology loaded): \(self.settings.selectedSonosDevice)")
                     self.sonosController.selectDevice(name: self.settings.selectedSonosDevice)
+
+                    // Fetch and sync current volume from the selected speaker
+                    print("🔊 Fetching current volume from default speaker...")
+                    self.sonosController.getVolume { volume in
+                        print("🔊 Initial volume: \(volume)%")
+                        // Post notification to update UI
+                        DispatchQueue.main.async {
+                            NotificationCenter.default.post(
+                                name: NSNotification.Name("SonosVolumeDidChange"),
+                                object: nil,
+                                userInfo: ["volume": volume]
+                            )
+                        }
+                    }
+                } else {
+                    print("⚠️ No default speaker configured")
                 }
 
                 print("✅ Sonos discovery and topology loaded")
