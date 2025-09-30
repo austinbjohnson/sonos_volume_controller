@@ -8,6 +8,8 @@ class AppSettings {
         static let triggerDevice = "triggerDeviceName"
         static let selectedSonos = "selectedSonosDevice"
         static let volumeStep = "volumeStep"
+        static let volumeDownKeyCode = "volumeDownKeyCode"
+        static let volumeUpKeyCode = "volumeUpKeyCode"
     }
 
     var enabled: Bool {
@@ -49,6 +51,26 @@ class AppSettings {
         }
     }
 
+    var volumeDownKeyCode: Int {
+        get {
+            let value = defaults.integer(forKey: Keys.volumeDownKeyCode)
+            return value == 0 ? 103 : value  // Default to F11 (103)
+        }
+        set {
+            defaults.set(newValue, forKey: Keys.volumeDownKeyCode)
+        }
+    }
+
+    var volumeUpKeyCode: Int {
+        get {
+            let value = defaults.integer(forKey: Keys.volumeUpKeyCode)
+            return value == 0 ? 111 : value  // Default to F12 (111)
+        }
+        set {
+            defaults.set(newValue, forKey: Keys.volumeUpKeyCode)
+        }
+    }
+
     init() {
         // Set default enabled state to true on first launch
         if defaults.object(forKey: Keys.enabled) == nil {
@@ -58,5 +80,29 @@ class AppSettings {
         if defaults.object(forKey: Keys.volumeStep) == nil {
             defaults.set(5, forKey: Keys.volumeStep)
         }
+        // Set default hotkeys (F11/F12) on first launch
+        if defaults.object(forKey: Keys.volumeDownKeyCode) == nil {
+            defaults.set(103, forKey: Keys.volumeDownKeyCode)  // F11
+        }
+        if defaults.object(forKey: Keys.volumeUpKeyCode) == nil {
+            defaults.set(111, forKey: Keys.volumeUpKeyCode)  // F12
+        }
+    }
+
+    /// Get human-readable key name for a key code
+    func keyName(for keyCode: Int) -> String {
+        // Map common key codes to readable names
+        let keyMap: [Int: String] = [
+            // Function keys
+            122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6",
+            98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12",
+            // Volume keys
+            72: "Volume Up", 73: "Volume Down", 74: "Mute",
+            // Arrow keys
+            123: "←", 124: "→", 125: "↓", 126: "↑",
+            // Special keys
+            36: "Return", 48: "Tab", 49: "Space", 51: "Delete", 53: "Escape"
+        ]
+        return keyMap[keyCode] ?? "Key \(keyCode)"
     }
 }
