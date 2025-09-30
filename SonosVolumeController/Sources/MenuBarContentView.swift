@@ -686,6 +686,18 @@ class MenuBarContentViewController: NSViewController {
         guard let card = gesture.view,
               let deviceName = card.identifier?.rawValue else { return }
 
+        // Check if click was on the checkbox - if so, ignore it
+        let clickLocation = gesture.location(in: card)
+        for subview in card.subviews {
+            if subview is NSButton {
+                let checkboxFrame = subview.frame
+                if checkboxFrame.contains(clickLocation) {
+                    // Click was on checkbox, let it handle the event
+                    return
+                }
+            }
+        }
+
         appDelegate?.sonosController.selectDevice(name: deviceName)
         appDelegate?.settings.selectedSonosDevice = deviceName
 
