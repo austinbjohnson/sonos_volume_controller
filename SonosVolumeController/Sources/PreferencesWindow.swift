@@ -10,6 +10,7 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
     private var volumeUpTextField: NSTextField?
     private var isRecordingDown = false
     private var isRecordingUp = false
+    private var sonosDropdown: NSPopUpButton?
 
     init(appDelegate: AppDelegate) {
         self.appDelegate = appDelegate
@@ -274,6 +275,9 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
         sonosDropdown.action = #selector(defaultSpeakerChanged(_:))
         view.addSubview(sonosDropdown)
 
+        // Store reference for later updates
+        self.sonosDropdown = sonosDropdown
+
         yPos -= 50
 
         // Refresh button
@@ -399,13 +403,31 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
 
     @objc private func refreshSonos(_ sender: NSButton) {
         print("Refreshing Sonos devices and topology...")
-        appDelegate?.sonosController.discoverDevices(forceRefreshTopology: true)
 
-        // Refresh UI after a delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            // For now, just show a message that devices were refreshed
-            // In a proper implementation, we'd update the dropdown in place
-            print("Sonos devices and topology refreshed - please reopen preferences to see updates")
+        // Save current selection
+        let currentSelection = sonosDropdown?.selectedItem?.title
+
+        appDelegate?.sonosController.discoverDevices(forceRefreshTopology: true) { [weak self] in
+            guard let self = self else { return }
+
+            Task { @MainActor in
+                // Rebuild dropdown with new devices
+                self.sonosDropdown?.removeAllItems()
+                self.sonosDropdown?.addItem(withTitle: "(None - Manual Selection)")
+
+                if let devices = self.appDelegate?.sonosController.discoveredDevices {
+                    for device in devices {
+                        self.sonosDropdown?.addItem(withTitle: device.name)
+                    }
+                }
+
+                // Restore previous selection if it still exists
+                if let previousSelection = currentSelection {
+                    self.sonosDropdown?.selectItem(withTitle: previousSelection)
+                }
+
+                print("✅ Sonos dropdown updated with \(self.appDelegate?.sonosController.discoveredDevices.count ?? 0) devices")
+            }
         }
     }
 
