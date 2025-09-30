@@ -19,7 +19,9 @@ class MenuBarPopover: NSPopover, NSPopoverDelegate {
 
     private func setupPopover() {
         // Configure popover behavior
-        behavior = .transient  // Closes when clicking outside
+        // Use .semitransient instead of .transient for more reliable auto-close
+        // .semitransient closes when app loses focus or user interacts elsewhere
+        behavior = .semitransient
         animates = true
 
         // Set delegate to handle close events
