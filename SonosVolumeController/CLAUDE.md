@@ -29,19 +29,21 @@ Discuss with the user which task to tackle next.
 
 1. **Test**: Build with `swift build -c release` or `swift run`
 
-2. **Commit**: Write clear commit message with emoji prefix
+2. **Update FEATURES.md FIRST** (before committing):
+   - Move completed item from Features/Enhancements/Bugs to "Completed Improvements"
+   - Add entry with placeholder: `(PR #TBD)` or similar
+   - This ensures the FEATURES.md update is included in the PR
+
+3. **Commit**: Write clear commit message with emoji prefix
    ```
    🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
    Co-Authored-By: Claude <noreply@anthropic.com>
    ```
 
-3. **Create PR**: Use `gh pr create` with detailed description
-
-4. **Update FEATURES.md**:
-   - Move completed item from Features/Enhancements/Bugs to "Completed Improvements"
-   - Add PR number reference
-   - Commit update to the same branch
+4. **Create PR**: Use `gh pr create` with detailed description
+   - GitHub will automatically assign a PR number
+   - Optionally update FEATURES.md with actual PR number (but this can be done after merge too)
 
 ### 4. After Merge
 
