@@ -86,7 +86,7 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
         let loginCheckbox = NSButton(frame: NSRect(x: 30, y: yPos, width: 300, height: 25))
         loginCheckbox.setButtonType(.switch)
         loginCheckbox.title = "Run at Login"
-        loginCheckbox.state = .off  // TODO: Check actual login item status
+        loginCheckbox.state = LoginItemManager.shared.isEnabled ? .on : .off
         loginCheckbox.target = self
         loginCheckbox.action = #selector(toggleLoginItem(_:))
         view.addSubview(loginCheckbox)
@@ -321,14 +321,30 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
     @objc private func toggleLoginItem(_ sender: NSButton) {
         let enabled = sender.state == .on
 
-        if enabled {
-            // Add to login items
-            // TODO: Implement using SMAppService or LSSharedFileList
-            print("⚠️ Run at login: Not yet implemented (needs .app bundle)")
-            print("   This feature requires building as .app with proper bundle identifier")
-            sender.state = .off  // Revert for now
-        } else {
-            print("Removed from login items")
+        do {
+            try LoginItemManager.shared.setEnabled(enabled)
+            let status = LoginItemManager.shared.statusDescription
+            print("✅ Login item \(enabled ? "enabled" : "disabled"): \(status)")
+
+            // If requires approval, show alert
+            if status.contains("approval") {
+                let alert = NSAlert()
+                alert.messageText = "Approval Required"
+                alert.informativeText = "Please approve Sonos Volume Controller in System Settings > General > Login Items & Extensions"
+                alert.alertStyle = .informational
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            }
+        } catch {
+            print("❌ Failed to \(enabled ? "enable" : "disable") login item: \(error)")
+            sender.state = enabled ? .off : .on  // Revert checkbox
+
+            let alert = NSAlert()
+            alert.messageText = "Failed to Update Login Item"
+            alert.informativeText = "Error: \(error.localizedDescription)\n\nNote: This feature requires building as a .app bundle. Run './build-app.sh' to create SonosVolumeController.app"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
         }
     }
 
