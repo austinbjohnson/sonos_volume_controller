@@ -1,12 +1,5 @@
 # Feature Roadmap
 
-## In Progress
-- [ ] **Run at Login** - Implement SMAppService integration for launch at login functionality
-
-## Planned
-- [ ] **Hotkey Customization** - Allow users to record and customize volume control hotkeys (currently hardcoded to F11/F12)
-- [ ] **Menu Bar UI Redesign** - Apply Liquid Glass styling to menu bar dropdown for cohesive macOS Tahoe design
-
 ## App Store Readiness
 - [ ] Build as .app bundle
 - [ ] Code signing
@@ -15,4 +8,4 @@
 
 ## Future Ideas
 - make it so i can group speakers easily, my default speaker as set in preferences should be the audio source when grouping other speakers 
--
+- BUG - fix custom keystroke, it isn't taking key combinations (ie i tried command+9 and it just took the key for "9")
