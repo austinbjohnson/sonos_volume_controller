@@ -13,7 +13,7 @@
 - None currently
 
 ## Bugs
-- None currently
+- **Speakers list spacing**: Adjust spacing/layout in the speakers section of the menu bar popover
 
 ## Completed Improvements
 - ✅ Custom Sonos speaker icon for menu bar (replaces "S" text)
