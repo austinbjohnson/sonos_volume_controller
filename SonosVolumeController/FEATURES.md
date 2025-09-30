@@ -10,7 +10,7 @@
 - **Speaker grouping functionality**: Make it easy to group speakers with the default speaker as the audio source. The default speaker (as set in preferences) should be the coordinator when grouping other speakers. Lookup 2025 Sonos office documentation for implementation details.
 
 ## Enhancements
-- **Accessibility settings prompt on first launch**: When the app first loads, the user should be prompted to enable the required accessibility settings so they don't have to dig for them in System Settings.
+- None currently
 
 ## Bugs
 - None currently
@@ -26,4 +26,5 @@
 - ✅ Volume slider disabled with "—" until actual volume loads (PR #15)
 - ✅ Wrong device HUD notification when volume hotkeys pressed on wrong audio device (PR #16)
 - ✅ Menu bar popover auto-close using global event monitor (PR #17)
-- ✅ Smooth volume HUD transitions without flicker on rapid hotkey presses (PR #18) 
+- ✅ Smooth volume HUD transitions without flicker on rapid hotkey presses (PR #18)
+- ✅ Accessibility permissions prompt on first launch with direct link to System Settings (PR #19) 

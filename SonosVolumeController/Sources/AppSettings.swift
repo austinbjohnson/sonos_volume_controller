@@ -13,6 +13,7 @@ class AppSettings {
         static let volumeUpKeyCode = "volumeUpKeyCode"
         static let volumeDownModifiers = "volumeDownModifiers"
         static let volumeUpModifiers = "volumeUpModifiers"
+        static let hasShownAccessibilityPrompt = "hasShownAccessibilityPrompt"
     }
 
     var enabled: Bool {
@@ -89,6 +90,15 @@ class AppSettings {
         }
         set {
             defaults.set(Int(newValue), forKey: Keys.volumeUpModifiers)
+        }
+    }
+
+    var hasShownAccessibilityPrompt: Bool {
+        get {
+            defaults.bool(forKey: Keys.hasShownAccessibilityPrompt)
+        }
+        set {
+            defaults.set(newValue, forKey: Keys.hasShownAccessibilityPrompt)
         }
     }
 

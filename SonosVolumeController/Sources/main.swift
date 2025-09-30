@@ -18,6 +18,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         settings = AppSettings()
         print("✅ Settings initialized")
 
+        // Check accessibility permissions on first launch
+        checkAccessibilityPermissions()
+
         // Initialize preferences window
         preferencesWindow = PreferencesWindow(appDelegate: self)
 
@@ -127,6 +130,50 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("📱 Devices discovered, updating popover...")
         // Just refresh UI - device selection happens in completion handler
         menuBarPopover.refresh()
+    }
+
+    // MARK: - Accessibility Permissions
+
+    func checkAccessibilityPermissions() {
+        // Check if we've already shown the prompt
+        if settings.hasShownAccessibilityPrompt {
+            return
+        }
+
+        // Check if accessibility is already granted
+        let trusted = AXIsProcessTrusted()
+        if trusted {
+            return
+        }
+
+        // Show prompt and mark as shown
+        showAccessibilityPrompt()
+        settings.hasShownAccessibilityPrompt = true
+    }
+
+    private func showAccessibilityPrompt() {
+        let alert = NSAlert()
+        alert.messageText = "Accessibility Permission Required"
+        alert.informativeText = """
+        Sonos Volume Controller needs accessibility permissions to capture volume hotkeys (F11/F12).
+
+        Click "Open System Settings" to grant permission, then add this app to the list.
+        """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Later")
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            openAccessibilitySettings()
+        }
+    }
+
+    private func openAccessibilitySettings() {
+        // Open System Settings to Privacy & Security > Accessibility
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
     }
 }
 
