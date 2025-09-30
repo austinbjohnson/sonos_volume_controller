@@ -5,7 +5,6 @@ class SonosController: @unchecked Sendable {
     private let settings: AppSettings
     private var devices: [SonosDevice] = []
     private var selectedDevice: SonosDevice?
-    private let volumeStep = 5 // Volume change per key press
 
     // Expose devices for menu population
     var discoveredDevices: [SonosDevice] {
@@ -16,6 +15,8 @@ class SonosController: @unchecked Sendable {
         let name: String
         let ipAddress: String
         let uuid: String
+        let isCoordinator: Bool
+        let coordinatorUUID: String?  // UUID of the group coordinator
     }
 
     init(settings: AppSettings) {
@@ -78,11 +79,113 @@ class SonosController: @unchecked Sendable {
                     print("  - \(device.name) at \(device.ipAddress)")
                 }
 
+                // Fetch group topology to identify coordinators
+                self.updateGroupTopology()
+
                 // Post notification so menu can update
                 NotificationCenter.default.post(name: NSNotification.Name("SonosDevicesDiscovered"), object: nil)
             }
         } catch {
             print("SSDP Discovery error: \(error)")
+        }
+    }
+
+    private func updateGroupTopology() {
+        // Pick any device to query group topology (all devices know about all groups)
+        guard let anyDevice = devices.first else { return }
+
+        let url = URL(string: "http://\(anyDevice.ipAddress):1400/ZoneGroupTopology/Control")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
+        request.addValue("\"urn:schemas-upnp-org:service:ZoneGroupTopology:1#GetZoneGroupState\"", forHTTPHeaderField: "SOAPACTION")
+
+        let soapBody = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+            <s:Body>
+                <u:GetZoneGroupState xmlns:u="urn:schemas-upnp-org:service:ZoneGroupTopology:1">
+                </u:GetZoneGroupState>
+            </s:Body>
+        </s:Envelope>
+        """
+
+        request.httpBody = soapBody.data(using: .utf8)
+
+        let semaphore = DispatchSemaphore(value: 0)
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            defer { semaphore.signal() }
+
+            if let error = error {
+                print("GetZoneGroupState error: \(error)")
+                return
+            }
+
+            guard let data = data, let responseStr = String(data: data, encoding: .utf8) else {
+                return
+            }
+
+            self.parseGroupTopology(responseStr)
+        }.resume()
+
+        _ = semaphore.wait(timeout: .now() + 3)
+    }
+
+    private func parseGroupTopology(_ xml: String) {
+        // Extract ZoneGroupState XML from SOAP response
+        guard let stateRange = xml.range(of: "<ZoneGroupState>([\\s\\S]*?)</ZoneGroupState>", options: .regularExpression) else {
+            print("Could not find ZoneGroupState in response")
+            return
+        }
+
+        let stateXML = String(xml[stateRange])
+
+        // Parse each ZoneGroup to find coordinators
+        let groupPattern = "<ZoneGroup Coordinator=\"([^\"]+)\"[^>]*>([\\s\\S]*?)</ZoneGroup>"
+        let regex = try? NSRegularExpression(pattern: groupPattern, options: [])
+        let nsString = stateXML as NSString
+        let matches = regex?.matches(in: stateXML, options: [], range: NSRange(location: 0, length: nsString.length)) ?? []
+
+        var groupInfo: [String: String] = [:]  // UUID -> Coordinator UUID
+
+        for match in matches {
+            if match.numberOfRanges >= 3 {
+                let coordinatorUUID = nsString.substring(with: match.range(at: 1))
+                let membersXML = nsString.substring(with: match.range(at: 2))
+
+                // Find all members in this group
+                let memberPattern = "<ZoneGroupMember UUID=\"([^\"]+)\""
+                let memberRegex = try? NSRegularExpression(pattern: memberPattern, options: [])
+                let memberMatches = memberRegex?.matches(in: membersXML, options: [], range: NSRange(location: 0, length: (membersXML as NSString).length)) ?? []
+
+                for memberMatch in memberMatches {
+                    if memberMatch.numberOfRanges >= 2 {
+                        let memberUUID = (membersXML as NSString).substring(with: memberMatch.range(at: 1))
+                        groupInfo[memberUUID] = coordinatorUUID
+                    }
+                }
+            }
+        }
+
+        // Update devices with coordinator information
+        devices = devices.map { device in
+            if let coordinatorUUID = groupInfo[device.uuid] {
+                return SonosDevice(
+                    name: device.name,
+                    ipAddress: device.ipAddress,
+                    uuid: device.uuid,
+                    isCoordinator: device.uuid == coordinatorUUID,
+                    coordinatorUUID: coordinatorUUID
+                )
+            }
+            return device
+        }
+
+        print("Updated group topology:")
+        for device in devices {
+            let role = device.isCoordinator ? "(Coordinator)" : ""
+            print("  - \(device.name) \(role)")
         }
     }
 
@@ -100,19 +203,27 @@ class SonosController: @unchecked Sendable {
             return nil
         }
 
-        // Fetch device description to get friendly name
-        let name = fetchDeviceName(from: location) ?? host
+        // Fetch device description to get friendly name and UUID
+        let (name, uuid) = fetchDeviceInfo(from: location)
+        let deviceName = name ?? host
 
-        return SonosDevice(name: name, ipAddress: host, uuid: location)
+        return SonosDevice(
+            name: deviceName,
+            ipAddress: host,
+            uuid: uuid ?? location,
+            isCoordinator: false,  // Will be updated later
+            coordinatorUUID: nil   // Will be updated later
+        )
     }
 
-    private func fetchDeviceName(from location: String) -> String? {
-        guard let url = URL(string: location) else { return nil }
+    private func fetchDeviceInfo(from location: String) -> (name: String?, uuid: String?) {
+        guard let url = URL(string: location) else { return (nil, nil) }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 2.0
 
-        var result: String?
+        var resultName: String?
+        var resultUUID: String?
         let semaphore = DispatchSemaphore(value: 0)
 
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -123,20 +234,31 @@ class SonosController: @unchecked Sendable {
                 return
             }
 
-            // Simple XML parsing for roomName or friendlyName
+            // Parse roomName or friendlyName
             if let nameRange = xml.range(of: "<roomName>([^<]+)</roomName>", options: .regularExpression) {
                 let nameString = String(xml[nameRange])
-                result = nameString.replacingOccurrences(of: "<roomName>", with: "")
+                resultName = nameString.replacingOccurrences(of: "<roomName>", with: "")
                     .replacingOccurrences(of: "</roomName>", with: "")
             } else if let nameRange = xml.range(of: "<friendlyName>([^<]+)</friendlyName>", options: .regularExpression) {
                 let nameString = String(xml[nameRange])
-                result = nameString.replacingOccurrences(of: "<friendlyName>", with: "")
+                resultName = nameString.replacingOccurrences(of: "<friendlyName>", with: "")
                     .replacingOccurrences(of: "</friendlyName>", with: "")
+            }
+
+            // Parse UDN (Unique Device Name) which contains the UUID
+            if let udnRange = xml.range(of: "<UDN>([^<]+)</UDN>", options: .regularExpression) {
+                let udnString = String(xml[udnRange])
+                let udn = udnString.replacingOccurrences(of: "<UDN>", with: "")
+                    .replacingOccurrences(of: "</UDN>", with: "")
+                // UDN format is typically "uuid:RINCON_XXXXXXXXXXXX"
+                if let uuidPart = udn.components(separatedBy: ":").last {
+                    resultUUID = uuidPart
+                }
             }
         }.resume()
 
         _ = semaphore.wait(timeout: .now() + 3)
-        return result
+        return (resultName, resultUUID)
     }
 
     func selectDevice(name: String) {
@@ -147,13 +269,33 @@ class SonosController: @unchecked Sendable {
         }
     }
 
+    func getCurrentVolume(completion: @escaping (Int?) -> Void) {
+        guard let device = selectedDevice else {
+            completion(nil)
+            return
+        }
+
+        // Query coordinator if device is part of a group
+        let targetDevice: SonosDevice
+        if let coordinatorUUID = device.coordinatorUUID,
+           let coordinator = devices.first(where: { $0.uuid == coordinatorUUID }) {
+            targetDevice = coordinator
+        } else {
+            targetDevice = device
+        }
+
+        sendSonosCommand(to: targetDevice, action: "GetVolume") { volumeStr in
+            completion(Int(volumeStr))
+        }
+    }
+
     func volumeUp() {
         print("📢 volumeUp() called")
         guard selectedDevice != nil else {
             print("⚠️ No device selected!")
             return
         }
-        changeVolume(by: volumeStep)
+        changeVolume(by: settings.volumeStep)
     }
 
     func volumeDown() {
@@ -162,7 +304,7 @@ class SonosController: @unchecked Sendable {
             print("⚠️ No device selected!")
             return
         }
-        changeVolume(by: -volumeStep)
+        changeVolume(by: -settings.volumeStep)
     }
 
     func toggleMute() {
@@ -183,10 +325,19 @@ class SonosController: @unchecked Sendable {
             return
         }
 
-        print("🎚️ Changing volume by \(delta) for \(device.name)")
+        // Find the coordinator for this device (for stereo pairs/groups)
+        let targetDevice: SonosDevice
+        if let coordinatorUUID = device.coordinatorUUID,
+           let coordinator = devices.first(where: { $0.uuid == coordinatorUUID }) {
+            targetDevice = coordinator
+            print("🎚️ Changing volume by \(delta) for \(device.name) via coordinator \(coordinator.name)")
+        } else {
+            targetDevice = device
+            print("🎚️ Changing volume by \(delta) for \(device.name)")
+        }
 
         // Get current volume
-        sendSonosCommand(to: device, action: "GetVolume") { currentVolumeStr in
+        sendSonosCommand(to: targetDevice, action: "GetVolume") { currentVolumeStr in
             print("   Current volume string: '\(currentVolumeStr)'")
             guard let currentVolume = Int(currentVolumeStr) else {
                 print("   ❌ Failed to parse volume: '\(currentVolumeStr)'")
@@ -194,7 +345,7 @@ class SonosController: @unchecked Sendable {
             }
             let newVolume = max(0, min(100, currentVolume + delta))
             print("   📊 \(currentVolume) → \(newVolume)")
-            self.sendSonosCommand(to: device, action: "SetVolume", arguments: ["DesiredVolume": String(newVolume)])
+            self.sendSonosCommand(to: targetDevice, action: "SetVolume", arguments: ["DesiredVolume": String(newVolume)])
         }
     }
 

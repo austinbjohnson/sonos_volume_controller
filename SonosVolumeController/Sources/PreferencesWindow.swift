@@ -1,7 +1,7 @@
 import Cocoa
 
 @MainActor
-class PreferencesWindow: NSObject {
+class PreferencesWindow: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private weak var appDelegate: AppDelegate?
 
@@ -12,13 +12,21 @@ class PreferencesWindow: NSObject {
 
     func show() {
         // If window already exists, just show it
-        if let window = window {
-            window.makeKeyAndOrderFront(nil)
+        if let existingWindow = window {
+            existingWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        // Create window
+        // Create window (only once)
+        createWindow()
+
+        // Show window
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func createWindow() {
         let windowRect = NSRect(x: 0, y: 0, width: 600, height: 500)
         let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
 
@@ -31,6 +39,9 @@ class PreferencesWindow: NSObject {
 
         window?.title = "Preferences"
         window?.center()
+        window?.delegate = self
+        // Important: Release when closed to prevent leaks, but we control when it closes
+        window?.isReleasedWhenClosed = false
 
         // Create tab view
         let tabView = NSTabView(frame: NSRect(x: 20, y: 20, width: 560, height: 430))
@@ -54,10 +65,6 @@ class PreferencesWindow: NSObject {
         tabView.addTabViewItem(sonosTab)
 
         window?.contentView?.addSubview(tabView)
-
-        // Show window
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func createGeneralTab() -> NSView {
@@ -92,17 +99,18 @@ class PreferencesWindow: NSObject {
 
         yPos -= 35
 
-        // Volume Step slider (currently hardcoded to 5 in SonosController)
+        // Volume Step slider
         let volumeSlider = NSSlider(frame: NSRect(x: 30, y: yPos, width: 350, height: 25))
         volumeSlider.minValue = 1
         volumeSlider.maxValue = 20
-        volumeSlider.intValue = 5  // TODO: Make this configurable
+        volumeSlider.intValue = Int32(appDelegate?.settings.volumeStep ?? 5)
         volumeSlider.target = self
         volumeSlider.action = #selector(volumeStepChanged(_:))
         view.addSubview(volumeSlider)
 
         // Volume step value label
-        let volumeValueLabel = createLabel("5%", frame: NSRect(x: 390, y: yPos + 2, width: 60, height: 20))
+        let currentStep = appDelegate?.settings.volumeStep ?? 5
+        let volumeValueLabel = createLabel("\(currentStep)%", frame: NSRect(x: 390, y: yPos + 2, width: 60, height: 20))
         volumeValueLabel.tag = 1001 // For updating later
         view.addSubview(volumeValueLabel)
 
@@ -331,8 +339,9 @@ class PreferencesWindow: NSObject {
            let label = view.viewWithTag(1001) as? NSTextField {
             label.stringValue = "\(value)%"
         }
+        // Save to settings
+        appDelegate?.settings.volumeStep = Int(value)
         print("Volume step changed to: \(value)%")
-        // TODO: Store in settings and update SonosController
     }
 
     @objc private func triggerDeviceChanged(_ sender: NSPopUpButton) {
@@ -358,11 +367,19 @@ class PreferencesWindow: NSObject {
         print("Refreshing Sonos devices...")
         appDelegate?.sonosController.discoverDevices()
 
-        // Close and reopen window to refresh
+        // Refresh UI after a delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            self.window?.close()
-            self.window = nil
-            self.show()
+            // For now, just show a message that devices were refreshed
+            // In a proper implementation, we'd update the dropdown in place
+            print("Sonos devices refreshed - please reopen preferences to see updates")
         }
+    }
+
+    // MARK: - NSWindowDelegate
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        // Don't actually close the window, just hide it
+        window?.orderOut(nil)
+        return false
     }
 }

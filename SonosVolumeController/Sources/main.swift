@@ -64,7 +64,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
 
         // Current device status
-        let deviceItem = NSMenuItem(title: "Current Device: \(audioMonitor.currentDeviceName)", action: nil, keyEquivalent: "")
+        let selectedSpeaker = settings.selectedSonosDevice.isEmpty ? "None" : settings.selectedSonosDevice
+        let deviceItem = NSMenuItem(title: "Sonos: \(selectedSpeaker)", action: nil, keyEquivalent: "")
         deviceItem.isEnabled = false
         menu.addItem(deviceItem)
 

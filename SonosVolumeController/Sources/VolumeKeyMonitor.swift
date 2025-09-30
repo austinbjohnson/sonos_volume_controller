@@ -101,7 +101,7 @@ class VolumeKeyMonitor {
         }
 
         // Intercept and handle with Sonos
-        print("✅ Intercepting and consuming event")
+        print("✅ Intercepting event")
         switch keyCode {
         case 111: // F12 - Volume Up
             print("🔊 F12 (Volume Up) - Controlling Sonos")
@@ -113,9 +113,7 @@ class VolumeKeyMonitor {
             break
         }
 
-        // Consume the event by returning the same event but flagged
-        // This prevents it from reaching other apps
-        event.flags = []
+        // Pass through - we've handled it but can't truly suppress F-keys
         return Unmanaged.passUnretained(event)
     }
 }
