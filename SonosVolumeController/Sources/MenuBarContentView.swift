@@ -19,6 +19,7 @@ class MenuBarContentViewController: NSViewController {
     private var groupButton: NSButton!
     private var powerButton: NSButton!
     private var isLoadingDevices: Bool = false
+    private var welcomeBanner: NSView!
 
     init(appDelegate: AppDelegate?) {
         self.appDelegate = appDelegate
@@ -226,6 +227,10 @@ class MenuBarContentViewController: NSViewController {
         speakersTitle.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(speakersTitle)
 
+        // Welcome banner for first launch
+        welcomeBanner = createWelcomeBanner()
+        container.addSubview(welcomeBanner)
+
         // Scroll view for speaker cards
         let scrollView = NSScrollView()
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -277,10 +282,15 @@ class MenuBarContentViewController: NSViewController {
             speakersTitle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             speakersTitle.topAnchor.constraint(equalTo: previousDivider.bottomAnchor, constant: 12),
 
+            welcomeBanner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            welcomeBanner.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+            welcomeBanner.topAnchor.constraint(equalTo: speakersTitle.bottomAnchor, constant: 12),
+            welcomeBanner.heightAnchor.constraint(equalToConstant: 50),
+
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
-            scrollView.topAnchor.constraint(equalTo: speakersTitle.bottomAnchor, constant: -40),
-            scrollView.heightAnchor.constraint(equalToConstant: 310),
+            scrollView.topAnchor.constraint(equalTo: welcomeBanner.bottomAnchor, constant: 8),
+            scrollView.heightAnchor.constraint(equalToConstant: 250),
 
             speakerCardsContainer.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
 
@@ -393,6 +403,11 @@ class MenuBarContentViewController: NSViewController {
 
         let currentSpeaker = appDelegate?.settings.selectedSonosDevice
 
+        // Show/hide welcome banner based on whether a speaker is selected
+        if let banner = welcomeBanner {
+            banner.isHidden = !(currentSpeaker?.isEmpty ?? true)
+        }
+
         // Sort devices: default speaker first, then alphabetically
         let sortedDevices = devices.sorted { device1, device2 in
             let isDevice1Current = device1.name == currentSpeaker
@@ -488,6 +503,47 @@ class MenuBarContentViewController: NSViewController {
         divider.boxType = .separator
         divider.translatesAutoresizingMaskIntoConstraints = false
         return divider
+    }
+
+    private func createWelcomeBanner() -> NSView {
+        let banner = NSView()
+        banner.wantsLayer = true
+        banner.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor
+        banner.layer?.cornerRadius = 8
+        banner.translatesAutoresizingMaskIntoConstraints = false
+
+        // Welcome icon
+        let icon = NSImageView()
+        icon.image = NSImage(systemSymbolName: "hand.wave.fill", accessibilityDescription: "Welcome")
+        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        icon.contentTintColor = .controlAccentColor
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        // Welcome text
+        let text = NSTextField(labelWithString: "Welcome! Select your default speaker below to get started.")
+        text.font = .systemFont(ofSize: 12, weight: .medium)
+        text.textColor = .labelColor
+        text.alignment = .left
+        text.translatesAutoresizingMaskIntoConstraints = false
+
+        banner.addSubview(icon)
+        banner.addSubview(text)
+
+        NSLayoutConstraint.activate([
+            icon.leadingAnchor.constraint(equalTo: banner.leadingAnchor, constant: 12),
+            icon.centerYAnchor.constraint(equalTo: banner.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 20),
+            icon.heightAnchor.constraint(equalToConstant: 20),
+
+            text.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
+            text.trailingAnchor.constraint(equalTo: banner.trailingAnchor, constant: -12),
+            text.centerYAnchor.constraint(equalTo: banner.centerYAnchor)
+        ])
+
+        // Initially hidden - will be shown only when no speaker is selected
+        banner.isHidden = true
+
+        return banner
     }
 
     // MARK: - Actions

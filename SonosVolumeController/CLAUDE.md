@@ -108,33 +108,9 @@ gh pr create --title "Title" --body "Description"
 3. **Stereo Pairs**: Query visible speaker (it controls both in pair)
 4. **@MainActor**: VolumeHUD and UI components require main actor isolation
 
-## Session Log
-
-### Session: 2025-09-29
-
-**Completed:**
-- ✅ PR #13: Settings dropdown updates when refreshing devices
-- ✅ PR #14: Improved device discovery reliability + loading indicator
-- ✅ PR #15: Volume slider syncs with default speaker on launch
-- ✅ PR #16: Wrong device HUD notification
-- ✅ Updated FEATURES.md organization
-- ✅ Created CLAUDE.md collaboration guide
-
-**Next Priorities:**
-1. Accessibility settings prompt on first launch (Enhancement)
-2. Speaker grouping functionality (Feature)
-
-**Notes:**
-- App is fully functional as native macOS menu bar app
-- `./build-app.sh --install` workflow is working well
-- Development workflow via `swift run` is smooth
-
----
-
-## Tips for Future Sessions
+## Tips for Development
 
 - Always check `FEATURES.md` at start of session
 - Use `swift run` for quick iteration during development
 - Only use `./build-app.sh --install` when ready to test installed behavior
 - Keep PRs focused on single feature/enhancement/bug
-- Update this log at end of significant sessions
