@@ -408,7 +408,7 @@ class MenuBarContentViewController: NSViewController {
         quitStack.translatesAutoresizingMaskIntoConstraints = false
 
         let quitButton = NSButton()
-        quitButton.image = NSImage(systemSymbolName: "power.circle", accessibilityDescription: "Quit")
+        quitButton.image = NSImage(systemSymbolName: "figure.walk.departure", accessibilityDescription: "Quit")
         quitButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 20, weight: .medium)
         quitButton.bezelStyle = .inline
         quitButton.isBordered = false

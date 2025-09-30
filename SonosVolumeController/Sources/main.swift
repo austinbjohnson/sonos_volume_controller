@@ -24,15 +24,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize popover
         menuBarPopover = MenuBarPopover(appDelegate: self)
 
-        // Create status bar item with "S" icon
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        // Create status bar item with custom Sonos speaker icon
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.title = "S"
-            // Make it bold and slightly larger
-            button.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
+            // Load custom Sonos speaker icon
+            if let iconPath = Bundle.main.path(forResource: "SonosMenuBarIcon", ofType: "svg", inDirectory: "Resources"),
+               let image = NSImage(contentsOfFile: iconPath) {
+                image.isTemplate = true  // Adapts to dark/light menu bar
+                button.image = image
+                print("🔊 Menu bar icon: Custom Sonos speaker")
+            } else {
+                // Fallback to text if icon not found
+                button.title = "S"
+                button.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
+                print("🔊 Menu bar icon: S (fallback)")
+            }
             button.target = self
             button.action = #selector(togglePopover)
-            print("🔊 Menu bar icon: S")
         }
         print("📍 Status bar item created")
 
