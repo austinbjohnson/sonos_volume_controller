@@ -4,7 +4,9 @@ import Network
 class SonosController: @unchecked Sendable {
     private let settings: AppSettings
     private var devices: [SonosDevice] = []
+    private var groups: [SonosGroup] = []
     private var selectedDevice: SonosDevice?
+    private var selectedGroup: SonosGroup?
 
     // Topology cache - persists during app session
     private var topologyCache: [String: String] = [:]  // UUID -> Coordinator UUID
@@ -15,6 +17,11 @@ class SonosController: @unchecked Sendable {
         return devices
     }
 
+    // Expose groups for UI
+    var discoveredGroups: [SonosGroup] {
+        return groups
+    }
+
     struct SonosDevice {
         let name: String
         let ipAddress: String
@@ -23,6 +30,41 @@ class SonosController: @unchecked Sendable {
         let groupCoordinatorUUID: String? // UUID of the group coordinator (for grouped playback)
         let channelMapSet: String?        // Present if part of a stereo pair
         let pairPartnerUUID: String?      // UUID of the other speaker in the stereo pair
+    }
+
+    struct SonosGroup {
+        let id: String                    // Group ID (coordinator UUID)
+        let coordinatorUUID: String       // UUID of the coordinator
+        let coordinator: SonosDevice      // The coordinator device
+        let members: [SonosDevice]        // All members including coordinator
+        var groupVolume: Int?             // Cached group volume
+
+        var name: String {
+            // Generate group name based on members
+            if members.count == 1 {
+                return coordinator.name
+            } else {
+                return "\(coordinator.name) + \(members.count - 1)"
+            }
+        }
+
+        var displayName: String {
+            // More detailed display name
+            if members.count == 1 {
+                return coordinator.name
+            } else {
+                let otherNames = members.filter { $0.uuid != coordinatorUUID }.map { $0.name }
+                if otherNames.count <= 2 {
+                    return "\(coordinator.name) + " + otherNames.joined(separator: " + ")
+                } else {
+                    return "\(coordinator.name) + \(otherNames.count) speakers"
+                }
+            }
+        }
+
+        func isMember(_ device: SonosDevice) -> Bool {
+            return members.contains { $0.uuid == device.uuid }
+        }
     }
 
     init(settings: AppSettings) {
@@ -298,6 +340,9 @@ class SonosController: @unchecked Sendable {
                 )
             }
 
+            // Build groups from topology
+            self.buildGroups(from: groupInfo)
+
             print("Updated topology (visible speakers/pairs only):")
             for device in self.devices {
                 var info = device.name
@@ -316,6 +361,11 @@ class SonosController: @unchecked Sendable {
                     }
                 }
                 print("  - \(info)")
+            }
+
+            print("\nGroups detected:")
+            for group in self.groups {
+                print("  - \(group.displayName) (\(group.members.count) member(s))")
             }
 
             // Refresh selected device to pick up new coordinator information
@@ -436,6 +486,37 @@ class SonosController: @unchecked Sendable {
                 print("Refreshed selected device: \(updatedDevice.name)")
             }
         }
+    }
+
+    // Build group objects from topology information
+    private func buildGroups(from groupInfo: [String: String]) {
+        // Group devices by their coordinator UUID
+        var groupMap: [String: [SonosDevice]] = [:]
+
+        for device in devices {
+            guard let coordUUID = device.groupCoordinatorUUID else { continue }
+
+            if groupMap[coordUUID] == nil {
+                groupMap[coordUUID] = []
+            }
+            groupMap[coordUUID]?.append(device)
+        }
+
+        // Build SonosGroup objects
+        groups = groupMap.compactMap { (coordUUID, members) in
+            // Find the coordinator device
+            guard let coordinator = members.first(where: { $0.uuid == coordUUID }) else {
+                return nil
+            }
+
+            return SonosGroup(
+                id: coordUUID,
+                coordinatorUUID: coordUUID,
+                coordinator: coordinator,
+                members: members.sorted { $0.name < $1.name },
+                groupVolume: nil  // Will be fetched on demand
+            )
+        }.sorted { $0.coordinator.name < $1.coordinator.name }
     }
 
     func getCurrentVolume(completion: @escaping (Int?) -> Void) {
@@ -622,6 +703,313 @@ class SonosController: @unchecked Sendable {
                             .replacingOccurrences(of: "</Current", with: "")
                         completion(value)
                     }
+                }
+            }
+        }.resume()
+    }
+
+    // MARK: - Group Management Commands
+
+    /// Add a device to an existing group (or create a new group)
+    /// Uses AVTransport SetAVTransportURI with x-rincon URI
+    func addDeviceToGroup(device: SonosDevice, coordinatorUUID: String, completion: ((Bool) -> Void)? = nil) {
+        guard let coordinator = devices.first(where: { $0.uuid == coordinatorUUID }) else {
+            print("❌ Coordinator not found: \(coordinatorUUID)")
+            completion?(false)
+            return
+        }
+
+        print("🔗 Adding \(device.name) to group led by \(coordinator.name)")
+
+        let url = URL(string: "http://\(device.ipAddress):1400/MediaRenderer/AVTransport/Control")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
+        request.addValue("\"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI\"", forHTTPHeaderField: "SOAPACTION")
+
+        let soapBody = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+            <s:Body>
+                <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                    <InstanceID>0</InstanceID>
+                    <CurrentURI>x-rincon:\(coordinatorUUID)</CurrentURI>
+                    <CurrentURIMetaData></CurrentURIMetaData>
+                </u:SetAVTransportURI>
+            </s:Body>
+        </s:Envelope>
+        """
+
+        request.httpBody = soapBody.data(using: .utf8)
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Failed to add device to group: \(error)")
+                completion?(false)
+                return
+            }
+
+            print("✅ Successfully added \(device.name) to group")
+            completion?(true)
+
+            // Refresh topology after a short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.updateGroupTopology()
+            }
+        }.resume()
+    }
+
+    /// Remove a device from its current group (make it standalone)
+    /// Uses AVTransport BecomeGroupCoordinatorAndSource
+    func removeDeviceFromGroup(device: SonosDevice, completion: ((Bool) -> Void)? = nil) {
+        print("🔓 Removing \(device.name) from group")
+
+        let url = URL(string: "http://\(device.ipAddress):1400/MediaRenderer/AVTransport/Control")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
+        request.addValue("\"urn:schemas-upnp-org:service:AVTransport:1#BecomeCoordinatorOfStandaloneGroup\"", forHTTPHeaderField: "SOAPACTION")
+
+        let soapBody = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+            <s:Body>
+                <u:BecomeCoordinatorOfStandaloneGroup xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                    <InstanceID>0</InstanceID>
+                </u:BecomeCoordinatorOfStandaloneGroup>
+            </s:Body>
+        </s:Envelope>
+        """
+
+        request.httpBody = soapBody.data(using: .utf8)
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Failed to remove device from group: \(error)")
+                completion?(false)
+                return
+            }
+
+            print("✅ Successfully removed \(device.name) from group")
+            completion?(true)
+
+            // Refresh topology after a short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.updateGroupTopology()
+            }
+        }.resume()
+    }
+
+    /// Create a new group with specified devices
+    /// The first device becomes the coordinator
+    func createGroup(devices deviceList: [SonosDevice], completion: ((Bool) -> Void)? = nil) {
+        guard let coordinator = deviceList.first, deviceList.count > 1 else {
+            print("❌ Need at least 2 devices to create a group")
+            completion?(false)
+            return
+        }
+
+        print("🎵 Creating group with coordinator: \(coordinator.name)")
+
+        let membersToAdd = Array(deviceList.dropFirst())
+        var successCount = 0
+        let totalMembers = membersToAdd.count
+
+        // Add each member to the coordinator's group
+        for member in membersToAdd {
+            addDeviceToGroup(device: member, coordinatorUUID: coordinator.uuid) { success in
+                if success {
+                    successCount += 1
+                }
+
+                // Check if all members have been added
+                if successCount + (totalMembers - successCount) == totalMembers {
+                    let allSuccess = successCount == totalMembers
+                    print(allSuccess ? "✅ Group created successfully" : "⚠️ Group created with some failures")
+                    completion?(allSuccess)
+                }
+            }
+        }
+    }
+
+    /// Dissolve a group by ungrouping all members
+    func dissolveGroup(group: SonosGroup, completion: ((Bool) -> Void)? = nil) {
+        print("💥 Dissolving group: \(group.displayName)")
+
+        let nonCoordinatorMembers = group.members.filter { $0.uuid != group.coordinatorUUID }
+
+        guard !nonCoordinatorMembers.isEmpty else {
+            print("ℹ️ Group already standalone")
+            completion?(true)
+            return
+        }
+
+        var successCount = 0
+        let totalMembers = nonCoordinatorMembers.count
+
+        for member in nonCoordinatorMembers {
+            removeDeviceFromGroup(device: member) { success in
+                if success {
+                    successCount += 1
+                }
+
+                if successCount + (totalMembers - successCount) == totalMembers {
+                    let allSuccess = successCount == totalMembers
+                    print(allSuccess ? "✅ Group dissolved successfully" : "⚠️ Group dissolved with some failures")
+                    completion?(allSuccess)
+                }
+            }
+        }
+    }
+
+    // MARK: - Group Volume Control
+
+    /// Get the group volume (average across all members)
+    /// Must be called on the group coordinator
+    func getGroupVolume(group: SonosGroup, completion: @escaping (Int?) -> Void) {
+        let coordinator = group.coordinator
+        print("🎚️ Getting group volume for: \(group.displayName)")
+
+        let url = URL(string: "http://\(coordinator.ipAddress):1400/MediaRenderer/GroupRenderingControl/Control")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
+        request.addValue("\"urn:schemas-upnp-org:service:GroupRenderingControl:1#GetGroupVolume\"", forHTTPHeaderField: "SOAPACTION")
+
+        let soapBody = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+            <s:Body>
+                <u:GetGroupVolume xmlns:u="urn:schemas-upnp-org:service:GroupRenderingControl:1">
+                    <InstanceID>0</InstanceID>
+                </u:GetGroupVolume>
+            </s:Body>
+        </s:Envelope>
+        """
+
+        request.httpBody = soapBody.data(using: .utf8)
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Failed to get group volume: \(error)")
+                completion(nil)
+                return
+            }
+
+            guard let data = data, let responseStr = String(data: data, encoding: .utf8) else {
+                completion(nil)
+                return
+            }
+
+            // Parse volume from response
+            if let volumeRange = responseStr.range(of: "<CurrentVolume>([^<]+)</CurrentVolume>", options: .regularExpression) {
+                let volumeString = String(responseStr[volumeRange])
+                let volumeValue = volumeString.replacingOccurrences(of: "<CurrentVolume>", with: "")
+                    .replacingOccurrences(of: "</CurrentVolume>", with: "")
+                if let volume = Int(volumeValue) {
+                    print("   Group volume: \(volume)")
+                    completion(volume)
+                    return
+                }
+            }
+
+            completion(nil)
+        }.resume()
+    }
+
+    /// Set the group volume (proportionally adjusts all members)
+    /// Must be called on the group coordinator
+    func setGroupVolume(group: SonosGroup, volume: Int) {
+        let coordinator = group.coordinator
+        let clampedVolume = max(0, min(100, volume))
+        print("🎚️ Setting group volume for \(group.displayName) to \(clampedVolume)")
+
+        let url = URL(string: "http://\(coordinator.ipAddress):1400/MediaRenderer/GroupRenderingControl/Control")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
+        request.addValue("\"urn:schemas-upnp-org:service:GroupRenderingControl:1#SetGroupVolume\"", forHTTPHeaderField: "SOAPACTION")
+
+        let soapBody = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+            <s:Body>
+                <u:SetGroupVolume xmlns:u="urn:schemas-upnp-org:service:GroupRenderingControl:1">
+                    <InstanceID>0</InstanceID>
+                    <DesiredVolume>\(clampedVolume)</DesiredVolume>
+                </u:SetGroupVolume>
+            </s:Body>
+        </s:Envelope>
+        """
+
+        request.httpBody = soapBody.data(using: .utf8)
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Failed to set group volume: \(error)")
+                return
+            }
+
+            print("✅ Group volume set to \(clampedVolume)")
+
+            // Show HUD
+            Task { @MainActor in
+                VolumeHUD.shared.show(speaker: group.displayName, volume: clampedVolume)
+
+                // Post notification for UI updates
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("SonosVolumeDidChange"),
+                    object: nil,
+                    userInfo: ["volume": clampedVolume]
+                )
+            }
+        }.resume()
+    }
+
+    /// Adjust group volume by a relative amount (+/-)
+    /// Ideal for volume up/down buttons
+    func changeGroupVolume(group: SonosGroup, by delta: Int) {
+        let coordinator = group.coordinator
+        print("🎚️ Changing group volume for \(group.displayName) by \(delta)")
+
+        let url = URL(string: "http://\(coordinator.ipAddress):1400/MediaRenderer/GroupRenderingControl/Control")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
+        request.addValue("\"urn:schemas-upnp-org:service:GroupRenderingControl:1#SetRelativeGroupVolume\"", forHTTPHeaderField: "SOAPACTION")
+
+        let soapBody = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+            <s:Body>
+                <u:SetRelativeGroupVolume xmlns:u="urn:schemas-upnp-org:service:GroupRenderingControl:1">
+                    <InstanceID>0</InstanceID>
+                    <Adjustment>\(delta)</Adjustment>
+                </u:SetRelativeGroupVolume>
+            </s:Body>
+        </s:Envelope>
+        """
+
+        request.httpBody = soapBody.data(using: .utf8)
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Failed to change group volume: \(error)")
+                return
+            }
+
+            // Get the new volume to show in HUD
+            self.getGroupVolume(group: group) { newVolume in
+                guard let volume = newVolume else { return }
+
+                Task { @MainActor in
+                    VolumeHUD.shared.show(speaker: group.displayName, volume: volume)
+
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("SonosVolumeDidChange"),
+                        object: nil,
+                        userInfo: ["volume": volume]
+                    )
                 }
             }
         }.resume()
