@@ -13,7 +13,7 @@
 - None currently
 
 ## Bugs
-- None currently
+- **Volume slider stuck disabled on installed app launch**: In the installed .app version (not `swift run`), the volume slider remains disabled with "—" until a speaker is manually clicked again. The default speaker volume should load automatically on app launch.
 
 ## Completed Improvements
 - ✅ Custom Sonos speaker icon for menu bar (replaces "S" text)
