@@ -346,6 +346,11 @@ class SonosController: @unchecked Sendable {
             let newVolume = max(0, min(100, currentVolume + delta))
             print("   📊 \(currentVolume) → \(newVolume)")
             self.sendSonosCommand(to: targetDevice, action: "SetVolume", arguments: ["DesiredVolume": String(newVolume)])
+
+            // Show HUD with new volume
+            Task { @MainActor in
+                VolumeHUD.shared.show(speaker: device.name, volume: newVolume)
+            }
         }
     }
 
