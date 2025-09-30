@@ -279,7 +279,7 @@ class MenuBarContentViewController: NSViewController {
 
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
-            scrollView.topAnchor.constraint(equalTo: speakersTitle.bottomAnchor, constant: 0),
+            scrollView.topAnchor.constraint(equalTo: speakersTitle.bottomAnchor, constant: -40),
             scrollView.heightAnchor.constraint(equalToConstant: 310),
 
             speakerCardsContainer.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
