@@ -76,11 +76,21 @@ class VolumeKeyMonitor {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let eventFlags = event.flags
 
-        // Extract relevant modifier flags from event
-        let relevantEventFlags = eventFlags.rawValue & (CGEventFlags.maskCommand.rawValue |
-                                                         CGEventFlags.maskAlternate.rawValue |
-                                                         CGEventFlags.maskShift.rawValue |
-                                                         CGEventFlags.maskControl.rawValue)
+        // Convert CGEventFlags to NSEvent.ModifierFlags format for comparison with settings
+        // CGEventFlags and NSEvent.ModifierFlags have different raw values, so we need to map them
+        var convertedModifiers: UInt = 0
+        if eventFlags.contains(.maskCommand) {
+            convertedModifiers |= NSEvent.ModifierFlags.command.rawValue
+        }
+        if eventFlags.contains(.maskAlternate) {
+            convertedModifiers |= NSEvent.ModifierFlags.option.rawValue
+        }
+        if eventFlags.contains(.maskShift) {
+            convertedModifiers |= NSEvent.ModifierFlags.shift.rawValue
+        }
+        if eventFlags.contains(.maskControl) {
+            convertedModifiers |= NSEvent.ModifierFlags.control.rawValue
+        }
 
         // Get custom hotkeys from settings
         let volumeDownKey = settings.volumeDownKeyCode
@@ -89,8 +99,8 @@ class VolumeKeyMonitor {
         let volumeUpModifiers = settings.volumeUpModifiers
 
         // Check if this matches our volume hotkeys (key code + modifiers)
-        let isVolumeDownKey = (keyCode == volumeDownKey) && (relevantEventFlags == volumeDownModifiers)
-        let isVolumeUpKey = (keyCode == volumeUpKey) && (relevantEventFlags == volumeUpModifiers)
+        let isVolumeDownKey = (keyCode == volumeDownKey) && (convertedModifiers == volumeDownModifiers)
+        let isVolumeUpKey = (keyCode == volumeUpKey) && (convertedModifiers == volumeUpModifiers)
         let isVolumeKey = isVolumeDownKey || isVolumeUpKey
 
         // Debug: print key presses for common keys

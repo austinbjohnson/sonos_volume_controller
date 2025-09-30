@@ -13,7 +13,7 @@ class AppSettings {
         static let volumeUpKeyCode = "volumeUpKeyCode"
         static let volumeDownModifiers = "volumeDownModifiers"
         static let volumeUpModifiers = "volumeUpModifiers"
-        static let hasShownAccessibilityPrompt = "hasShownAccessibilityPrompt"
+        static let hasShownPermissionPrompt = "hasShownPermissionPrompt"
     }
 
     var enabled: Bool {
@@ -58,7 +58,7 @@ class AppSettings {
     var volumeDownKeyCode: Int {
         get {
             let value = defaults.integer(forKey: Keys.volumeDownKeyCode)
-            return value == 0 ? 25 : value  // Default to 9 (25)
+            return value == 0 ? 103 : value  // Default to F11 (103)
         }
         set {
             defaults.set(newValue, forKey: Keys.volumeDownKeyCode)
@@ -68,7 +68,7 @@ class AppSettings {
     var volumeUpKeyCode: Int {
         get {
             let value = defaults.integer(forKey: Keys.volumeUpKeyCode)
-            return value == 0 ? 29 : value  // Default to 0 (29)
+            return value == 0 ? 111 : value  // Default to F12 (111)
         }
         set {
             defaults.set(newValue, forKey: Keys.volumeUpKeyCode)
@@ -77,9 +77,11 @@ class AppSettings {
 
     var volumeDownModifiers: UInt {
         get {
-            let value = defaults.integer(forKey: Keys.volumeDownModifiers)
-            // Default to Cmd+Shift
-            return value == 0 ? (NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.shift.rawValue) : UInt(value)
+            // Check if the key exists in defaults
+            if defaults.object(forKey: Keys.volumeDownModifiers) == nil {
+                return 0  // Default to no modifiers
+            }
+            return UInt(defaults.integer(forKey: Keys.volumeDownModifiers))
         }
         set {
             defaults.set(Int(newValue), forKey: Keys.volumeDownModifiers)
@@ -88,21 +90,23 @@ class AppSettings {
 
     var volumeUpModifiers: UInt {
         get {
-            let value = defaults.integer(forKey: Keys.volumeUpModifiers)
-            // Default to Cmd+Shift
-            return value == 0 ? (NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.shift.rawValue) : UInt(value)
+            // Check if the key exists in defaults
+            if defaults.object(forKey: Keys.volumeUpModifiers) == nil {
+                return 0  // Default to no modifiers
+            }
+            return UInt(defaults.integer(forKey: Keys.volumeUpModifiers))
         }
         set {
             defaults.set(Int(newValue), forKey: Keys.volumeUpModifiers)
         }
     }
 
-    var hasShownAccessibilityPrompt: Bool {
+    var hasShownPermissionPrompt: Bool {
         get {
-            defaults.bool(forKey: Keys.hasShownAccessibilityPrompt)
+            defaults.bool(forKey: Keys.hasShownPermissionPrompt)
         }
         set {
-            defaults.set(newValue, forKey: Keys.hasShownAccessibilityPrompt)
+            defaults.set(newValue, forKey: Keys.hasShownPermissionPrompt)
         }
     }
 
@@ -115,20 +119,18 @@ class AppSettings {
         if defaults.object(forKey: Keys.volumeStep) == nil {
             defaults.set(5, forKey: Keys.volumeStep)
         }
-        // Set default hotkeys (Cmd+Shift+9/0) on first launch
+        // Set default hotkeys (F11/F12 with no modifiers) on first launch
         if defaults.object(forKey: Keys.volumeDownKeyCode) == nil {
-            defaults.set(25, forKey: Keys.volumeDownKeyCode)  // 9
+            defaults.set(103, forKey: Keys.volumeDownKeyCode)  // F11
         }
         if defaults.object(forKey: Keys.volumeUpKeyCode) == nil {
-            defaults.set(29, forKey: Keys.volumeUpKeyCode)  // 0
+            defaults.set(111, forKey: Keys.volumeUpKeyCode)  // F12
         }
         if defaults.object(forKey: Keys.volumeDownModifiers) == nil {
-            let cmdShift = Int(NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.shift.rawValue)
-            defaults.set(cmdShift, forKey: Keys.volumeDownModifiers)
+            defaults.set(0, forKey: Keys.volumeDownModifiers)  // No modifiers
         }
         if defaults.object(forKey: Keys.volumeUpModifiers) == nil {
-            let cmdShift = Int(NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.shift.rawValue)
-            defaults.set(cmdShift, forKey: Keys.volumeUpModifiers)
+            defaults.set(0, forKey: Keys.volumeUpModifiers)  // No modifiers
         }
     }
 

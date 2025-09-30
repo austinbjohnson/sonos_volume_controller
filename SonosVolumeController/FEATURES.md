@@ -13,7 +13,7 @@
 - None currently
 
 ## Bugs
-- **Volume slider stuck disabled on installed app launch**: In the installed .app version (not `swift run`), the volume slider remains disabled with "—" until a speaker is manually clicked again. The default speaker volume should load automatically on app launch.
+- None currently
 
 ## Completed Improvements
 - ✅ Custom Sonos speaker icon for menu bar (replaces "S" text)
@@ -28,4 +28,5 @@
 - ✅ Menu bar popover auto-close using global event monitor (PR #17)
 - ✅ Smooth volume HUD transitions without flicker on rapid hotkey presses (PR #18)
 - ✅ Accessibility permissions prompt on first launch with direct link to System Settings (PR #19)
-- ✅ Changed default hotkeys to Cmd+Shift+9/0 for better ergonomics (PR #20) 
+- ✅ Changed default hotkeys to Cmd+Shift+9/0 for better ergonomics (PR #20)
+- ✅ Fixed hotkeys not working in installed app - reverted to F11/F12 defaults, fixed CGEventFlags conversion, added network entitlements, improved permission flow with auto-restart (PR #22) 
