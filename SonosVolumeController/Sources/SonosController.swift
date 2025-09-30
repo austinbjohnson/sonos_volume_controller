@@ -131,6 +131,15 @@ class SonosController: @unchecked Sendable {
             }
         } catch {
             print("SSDP Discovery error: \(error)")
+
+            // Notify about network error (likely permissions issue)
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("SonosNetworkError"),
+                    object: nil,
+                    userInfo: ["error": error.localizedDescription]
+                )
+            }
         }
     }
 

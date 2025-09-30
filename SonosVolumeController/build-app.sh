@@ -39,13 +39,13 @@ SIGNING_IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID
 if [ -n "$SIGNING_IDENTITY" ]; then
     echo "✅ Found signing identity: $SIGNING_IDENTITY"
     codesign --force --sign "$SIGNING_IDENTITY" \
-        --entitlements Resources/entitlements.plist \
+        --entitlements Resources/SonosVolumeController.entitlements \
         --options runtime \
         --timestamp \
         SonosVolumeController.app/Contents/MacOS/SonosVolumeController
 
     codesign --force --sign "$SIGNING_IDENTITY" \
-        --entitlements Resources/entitlements.plist \
+        --entitlements Resources/SonosVolumeController.entitlements \
         --options runtime \
         --timestamp \
         --deep \
@@ -53,8 +53,10 @@ if [ -n "$SIGNING_IDENTITY" ]; then
 
     echo "✅ App signed with Developer ID"
 else
-    echo "⚠️  No Developer ID found, using ad-hoc signing (works locally only)"
-    codesign --force --sign - SonosVolumeController.app
+    echo "⚠️  No Developer ID found, using ad-hoc signing with entitlements (works locally only)"
+    codesign --force --sign - \
+        --entitlements Resources/SonosVolumeController.entitlements \
+        SonosVolumeController.app
 fi
 
 # Verify signature

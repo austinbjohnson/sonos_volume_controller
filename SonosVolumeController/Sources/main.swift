@@ -11,6 +11,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var settings: AppSettings!
     var preferencesWindow: PreferencesWindow!
     var menuBarPopover: MenuBarPopover!
+    var permissionCheckTimer: Timer?
+    var permissionCheckStartTime: Date?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("🚀 Application did finish launching")
@@ -86,6 +88,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
+        // Listen for network errors (permissions issues)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleNetworkError(_:)),
+            name: NSNotification.Name("SonosNetworkError"),
+            object: nil
+        )
+
         // Discover Sonos devices with completion handler for proper initialization
         print("🔍 Starting Sonos discovery...")
         sonosController.discoverDevices { [weak self] in
@@ -132,32 +142,62 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menuBarPopover.refresh()
     }
 
+    @objc func handleNetworkError(_ notification: Notification) {
+        // Only show alert once per session (same flag as accessibility to avoid alert spam)
+        guard !settings.hasShownPermissionPrompt else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Network Access Required"
+        alert.informativeText = """
+        Sonos Volume Controller needs local network access to discover and control your Sonos speakers.
+
+        If you denied the network permission prompt, you can grant it in:
+        System Settings > Privacy & Security > Local Network
+
+        Then restart the app.
+        """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+
+        // Mark as shown to avoid showing multiple permission-related alerts per session
+        settings.hasShownPermissionPrompt = true
+    }
+
     // MARK: - Accessibility Permissions
 
     func checkAccessibilityPermissions() {
-        // Check if we've already shown the prompt
-        if settings.hasShownAccessibilityPrompt {
-            return
-        }
-
-        // Check if accessibility is already granted
+        // Always check if accessibility is granted
         let trusted = AXIsProcessTrusted()
         if trusted {
             return
         }
 
-        // Show prompt and mark as shown
+        // Not trusted - show prompt if we haven't shown it this session
+        if settings.hasShownPermissionPrompt {
+            // Already prompted this session, just log
+            print("⚠️ Accessibility permissions not granted. Volume hotkeys will not work.")
+            print("   Grant permissions in System Settings > Privacy & Security > Accessibility")
+            return
+        }
+
+        // Show prompt and mark as shown for this session
         showAccessibilityPrompt()
-        settings.hasShownAccessibilityPrompt = true
+        settings.hasShownPermissionPrompt = true
     }
 
     private func showAccessibilityPrompt() {
         let alert = NSAlert()
-        alert.messageText = "Accessibility Permission Required"
+        alert.messageText = "Permissions Required"
         alert.informativeText = """
-        Sonos Volume Controller needs accessibility permissions to capture volume hotkeys (F11/F12).
+        Sonos Volume Controller needs two permissions to work:
 
-        Click "Open System Settings" to grant permission, then add this app to the list.
+        1. Accessibility - to capture volume hotkeys (F11/F12)
+        2. Local Network - to discover and control Sonos speakers
+
+        Click "Open System Settings" to grant accessibility permission. You'll also be prompted for network access when the app tries to discover speakers.
+
+        After granting accessibility permission, you'll need to restart the app.
         """
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Open System Settings")
@@ -166,6 +206,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
             openAccessibilitySettings()
+            // Start checking if permission was granted
+            startPermissionMonitoring()
         }
     }
 
@@ -174,6 +216,66 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    private func startPermissionMonitoring() {
+        // Stop any existing timer
+        permissionCheckTimer?.invalidate()
+
+        // Track start time
+        permissionCheckStartTime = Date()
+
+        // Check every 2 seconds for up to 2 minutes
+        permissionCheckTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self = self else { return }
+
+                // Check if permission was granted
+                if AXIsProcessTrusted() {
+                    self.permissionCheckTimer?.invalidate()
+                    self.showRestartPrompt()
+                    return
+                }
+
+                // Stop checking after 2 minutes
+                if let startTime = self.permissionCheckStartTime,
+                   Date().timeIntervalSince(startTime) > 120 {
+                    self.permissionCheckTimer?.invalidate()
+                    print("⏱️ Permission monitoring timed out")
+                }
+            }
+        }
+    }
+
+    private func showRestartPrompt() {
+        let alert = NSAlert()
+        alert.messageText = "Permission Granted!"
+        alert.informativeText = """
+        Accessibility permission has been granted.
+
+        The app needs to restart for the changes to take effect. Restart now?
+        """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Restart Now")
+        alert.addButton(withTitle: "Later")
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            // Restart the app
+            restartApp()
+        }
+    }
+
+    private func restartApp() {
+        let appPath = Bundle.main.bundlePath
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        task.arguments = [appPath]
+
+        try? task.run()
+
+        // Quit current instance
+        NSApplication.shared.terminate(nil)
     }
 }
 
