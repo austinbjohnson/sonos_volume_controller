@@ -11,7 +11,6 @@
 
 ## Enhancements
 - **Accessibility settings prompt on first launch**: When the app first loads, the user should be prompted to enable the required accessibility settings so they don't have to dig for them in System Settings.
-- **Smooth volume HUD transitions**: Volume HUD flickers when changing volume rapidly (multiple hotkey presses). Need smoother transitions that handle rapid updates gracefully.
 
 ## Bugs
 - None currently
@@ -26,4 +25,5 @@
 - ✅ Volume slider syncs with default speaker on app launch (PR #15)
 - ✅ Volume slider disabled with "—" until actual volume loads (PR #15)
 - ✅ Wrong device HUD notification when volume hotkeys pressed on wrong audio device (PR #16)
-- ✅ Menu bar popover auto-close using global event monitor (PR #17) 
+- ✅ Menu bar popover auto-close using global event monitor (PR #17)
+- ✅ Smooth volume HUD transitions without flicker on rapid hotkey presses (PR #18) 

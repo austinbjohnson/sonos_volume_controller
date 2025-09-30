@@ -7,6 +7,7 @@ class VolumeHUD {
     private var volumeLabel: NSTextField?
     private var progressFillView: NSView?
     private var speakerLabel: NSTextField?
+    private var isFadingOut = false
 
     static let shared = VolumeHUD()
 
@@ -16,6 +17,15 @@ class VolumeHUD {
         // Cancel any existing timer
         dismissTimer?.invalidate()
 
+        // If we're fading out, cancel that animation
+        if isFadingOut {
+            isFadingOut = false
+            NSAnimationContext.current.duration = 0
+            panel?.alphaValue = 1.0
+        }
+
+        let isAlreadyVisible = panel?.isVisible == true && (panel?.alphaValue ?? 0) > 0.5
+
         // If panel exists, update it; otherwise create new one
         if let existingPanel = panel, existingPanel.isVisible {
             updateContent(speaker: speaker, volume: volume)
@@ -23,13 +33,19 @@ class VolumeHUD {
             createPanel(speaker: speaker, volume: volume)
         }
 
-        // Show with fade-in animation
-        panel?.alphaValue = 0
-        panel?.orderFront(nil)
+        // Only animate fade-in if panel is not already fully visible
+        if !isAlreadyVisible {
+            panel?.alphaValue = 0
+            panel?.orderFront(nil)
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            panel?.animator().alphaValue = 1.0
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                panel?.animator().alphaValue = 1.0
+            }
+        } else {
+            // Panel already visible, just ensure it's at full opacity
+            panel?.alphaValue = 1.0
+            panel?.orderFront(nil)
         }
 
         // Auto-dismiss after 1.5 seconds
@@ -43,6 +59,13 @@ class VolumeHUD {
     func showError(title: String, message: String) {
         // Cancel any existing timer
         dismissTimer?.invalidate()
+
+        // If we're fading out, cancel that animation
+        if isFadingOut {
+            isFadingOut = false
+            NSAnimationContext.current.duration = 0
+            panel?.alphaValue = 1.0
+        }
 
         // Always create new panel for error (different layout)
         createErrorPanel(title: title, message: message)
@@ -65,11 +88,13 @@ class VolumeHUD {
     }
 
     private func hide() {
+        isFadingOut = true
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.3
             panel?.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
             Task { @MainActor in
+                self?.isFadingOut = false
                 self?.panel?.orderOut(nil)
             }
         })
