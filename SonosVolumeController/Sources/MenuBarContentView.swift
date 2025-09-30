@@ -18,6 +18,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var speakerCardsContainer: NSStackView!
     private var selectedSpeakerCards: Set<String> = []
     private var groupButton: NSButton!
+    private var ungroupButton: NSButton!
     private var powerButton: NSButton!
     private var isLoadingDevices: Bool = false
     private var welcomeBanner: NSView!
@@ -271,7 +272,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         populateSpeakers()
         scrollView.documentView = speakerCardsContainer
 
-        // Group button (placeholder for future functionality)
+        // Group button
         groupButton = NSButton()
         groupButton.title = "Group Selected"
         groupButton.bezelStyle = .rounded
@@ -281,6 +282,17 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         groupButton.isEnabled = false
         groupButton.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(groupButton)
+
+        // Ungroup button
+        ungroupButton = NSButton()
+        ungroupButton.title = "Ungroup Selected"
+        ungroupButton.bezelStyle = .rounded
+        ungroupButton.controlSize = .small
+        ungroupButton.target = self
+        ungroupButton.action = #selector(ungroupSelected)
+        ungroupButton.isEnabled = false
+        ungroupButton.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(ungroupButton)
 
         // Divider
         let divider3 = createDivider()
@@ -306,8 +318,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
             speakerCardsContainer.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
 
-            groupButton.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            groupButton.trailingAnchor.constraint(equalTo: container.centerXAnchor, constant: -6),
             groupButton.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 12),
+
+            ungroupButton.leadingAnchor.constraint(equalTo: container.centerXAnchor, constant: 6),
+            ungroupButton.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 12),
 
             divider3.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             divider3.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
@@ -390,33 +405,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     groupInfoText = "Grouped with \(group.coordinator.name)"
                 }
 
-                // Create horizontal stack for group label + ungroup button
-                let groupInfoStack = NSStackView()
-                groupInfoStack.orientation = .horizontal
-                groupInfoStack.spacing = 8
-                groupInfoStack.alignment = .centerY
-                groupInfoStack.translatesAutoresizingMaskIntoConstraints = false
-
                 let groupLabel = NSTextField(labelWithString: groupInfoText)
                 groupLabel.font = .systemFont(ofSize: 10, weight: .regular)
                 groupLabel.textColor = .systemBlue
                 groupLabel.translatesAutoresizingMaskIntoConstraints = false
-                groupInfoStack.addArrangedSubview(groupLabel)
-
-                // Add ungroup button
-                let ungroupButton = NSButton()
-                ungroupButton.title = "Ungroup"
-                ungroupButton.bezelStyle = .inline
-                ungroupButton.isBordered = true
-                ungroupButton.controlSize = .mini
-                ungroupButton.font = .systemFont(ofSize: 9, weight: .medium)
-                ungroupButton.target = self
-                ungroupButton.action = #selector(ungroupSpeaker(_:))
-                ungroupButton.identifier = NSUserInterfaceItemIdentifier(device.uuid)
-                ungroupButton.translatesAutoresizingMaskIntoConstraints = false
-                groupInfoStack.addArrangedSubview(ungroupButton)
-
-                textStack.addArrangedSubview(groupInfoStack)
+                textStack.addArrangedSubview(groupLabel)
             }
         }
 
@@ -837,43 +830,87 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             selectedSpeakerCards.remove(deviceName)
         }
 
+        // Update group button
         groupButton.isEnabled = selectedSpeakerCards.count > 1
         groupButton.title = selectedSpeakerCards.count > 1 ?
             "Group \(selectedSpeakerCards.count) Speakers" : "Group Selected"
+
+        // Update ungroup button - enabled if any selected speakers are in groups
+        updateUngroupButton()
     }
 
-    @objc private func ungroupSpeaker(_ sender: NSButton) {
-        guard let deviceUUID = sender.identifier?.rawValue,
-              let controller = appDelegate?.sonosController,
-              let device = controller.discoveredDevices.first(where: { $0.uuid == deviceUUID }) else {
-            print("⚠️ Could not find device to ungroup")
+    private func updateUngroupButton() {
+        guard let controller = appDelegate?.sonosController else {
+            ungroupButton.isEnabled = false
             return
         }
 
-        print("🔓 Ungrouping speaker: \(device.name)")
+        // Check if any selected speakers are in multi-speaker groups
+        let selectedDevices = controller.discoveredDevices.filter { selectedSpeakerCards.contains($0.name) }
+        let groupedDevices = selectedDevices.filter { controller.getGroupForDevice($0) != nil }
+
+        ungroupButton.isEnabled = !groupedDevices.isEmpty
+        ungroupButton.title = groupedDevices.count > 1 ?
+            "Ungroup \(groupedDevices.count) Speakers" : "Ungroup Selected"
+    }
+
+    @objc private func ungroupSelected() {
+        guard let controller = appDelegate?.sonosController else { return }
+
+        // Get selected devices that are in groups
+        let selectedDevices = controller.discoveredDevices.filter { selectedSpeakerCards.contains($0.name) }
+        let groupedDevices = selectedDevices.filter { controller.getGroupForDevice($0) != nil }
+
+        guard !groupedDevices.isEmpty else {
+            print("⚠️ No grouped speakers selected")
+            return
+        }
+
+        print("🔓 Ungrouping \(groupedDevices.count) speakers:")
+        for device in groupedDevices {
+            print("  - \(device.name)")
+        }
 
         // Disable button during operation
-        sender.isEnabled = false
-        sender.title = "Ungrouping..."
+        ungroupButton.isEnabled = false
+        ungroupButton.title = "Ungrouping..."
 
-        // Remove device from its group
-        controller.removeDeviceFromGroup(device: device) { [weak self] success in
-            DispatchQueue.main.async {
-                if success {
-                    print("✅ Successfully ungrouped \(device.name)")
-                    // UI will refresh automatically via topology update
-                } else {
-                    print("❌ Failed to ungroup \(device.name)")
-                    // Re-enable button
-                    sender.isEnabled = true
-                    sender.title = "Ungroup"
+        var successCount = 0
+        let totalCount = groupedDevices.count
 
-                    // Show error
-                    Task { @MainActor in
-                        VolumeHUD.shared.showError(
-                            title: "Ungroup Failed",
-                            message: "Could not ungroup \(device.name)"
-                        )
+        // Ungroup each selected grouped speaker
+        for device in groupedDevices {
+            controller.removeDeviceFromGroup(device: device) { [weak self] success in
+                DispatchQueue.main.async {
+                    if success {
+                        successCount += 1
+                    }
+
+                    // Check if all ungroup operations are complete
+                    if successCount + (totalCount - successCount) == totalCount {
+                        let allSuccess = successCount == totalCount
+                        print(allSuccess ? "✅ All speakers ungrouped" : "⚠️ Some speakers failed to ungroup")
+
+                        // Clear selections
+                        self?.selectedSpeakerCards.removeAll()
+
+                        // Reset button
+                        self?.ungroupButton.title = "Ungroup Selected"
+                        self?.ungroupButton.isEnabled = false
+                        self?.groupButton.isEnabled = false
+                        self?.groupButton.title = "Group Selected"
+
+                        // Refresh UI
+                        self?.populateSpeakers()
+
+                        if !allSuccess {
+                            Task { @MainActor in
+                                VolumeHUD.shared.showError(
+                                    title: "Ungroup Failed",
+                                    message: "Could not ungroup all speakers"
+                                )
+                            }
+                        }
                     }
                 }
             }
