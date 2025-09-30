@@ -29,21 +29,36 @@ Discuss with the user which task to tackle next.
 
 1. **Test**: Build with `swift build -c release` or `swift run`
 
-2. **Update FEATURES.md FIRST** (before committing):
+2. **Update FEATURES.md** (first time - without PR number):
    - Move completed item from Features/Enhancements/Bugs to "Completed Improvements"
-   - Add entry with placeholder: `(PR #TBD)` or similar
-   - This ensures the FEATURES.md update is included in the PR
+   - Add description of what was accomplished
+   - **Do NOT include PR number yet** (you don't have it)
+   - Example: `✅ First launch onboarding with welcome banner`
 
-3. **Commit**: Write clear commit message with emoji prefix
-   ```
+3. **Commit and push**:
+   ```bash
+   git add -A
+   git commit -m "Feature: Description
+
    🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
-   Co-Authored-By: Claude <noreply@anthropic.com>
+   Co-Authored-By: Claude <noreply@anthropic.com>"
+   git push -u origin branch-name
    ```
 
 4. **Create PR**: Use `gh pr create` with detailed description
-   - GitHub will automatically assign a PR number
-   - Optionally update FEATURES.md with actual PR number (but this can be done after merge too)
+   - GitHub will assign a PR number (e.g., #24)
+
+5. **Update FEATURES.md** (second time - add PR number):
+   - Add the PR number to your entry
+   - Example: `✅ First launch onboarding with welcome banner (PR #24)`
+   - Commit and push:
+   ```bash
+   git commit -am "Add PR number to FEATURES.md"
+   git push
+   ```
+
+This ensures the PR number is accurate in the branch before merging.
 
 ### 4. After Merge
 
