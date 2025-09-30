@@ -479,7 +479,7 @@ class MenuBarContentViewController: NSViewController {
     }
 
     @objc private func refreshDevices() {
-        appDelegate?.sonosController.discoverDevices()
+        appDelegate?.sonosController.discoverDevices(forceRefreshTopology: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             self.refresh()
         }
