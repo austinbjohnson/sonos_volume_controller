@@ -5,6 +5,7 @@ import Cocoa
 class MenuBarPopover: NSPopover, NSPopoverDelegate {
     private weak var appDelegate: AppDelegate?
     private var menuContentViewController: MenuBarContentViewController?
+    private var eventMonitor: Any?
 
     init(appDelegate: AppDelegate) {
         self.appDelegate = appDelegate
@@ -49,5 +50,52 @@ class MenuBarPopover: NSPopover, NSPopoverDelegate {
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
         // Allow popover to close when clicking outside
         return true
+    }
+
+    func popoverDidShow(_ notification: Notification) {
+        // Start monitoring for clicks outside the popover
+        startMonitoring()
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        // Stop monitoring when popover closes
+        stopMonitoring()
+    }
+
+    // MARK: - Event Monitoring
+
+    private func startMonitoring() {
+        // Monitor left mouse down events to detect clicks outside popover
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            guard let self = self, self.isShown else { return event }
+
+            // Check if click is outside the popover's content view
+            if let contentView = self.contentViewController?.view,
+               let window = contentView.window {
+                // Get mouse location in screen coordinates
+                let mouseLocation = NSEvent.mouseLocation
+
+                // Convert to popover window coordinates
+                let clickInWindow = window.convertPoint(fromScreen: mouseLocation)
+
+                // Convert to content view coordinates
+                let clickInView = contentView.convert(clickInWindow, from: nil)
+
+                // If click is outside the content view, close the popover
+                if !contentView.bounds.contains(clickInView) {
+                    self.close()
+                    return nil // Consume the event
+                }
+            }
+
+            return event
+        }
+    }
+
+    private func stopMonitoring() {
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
     }
 }
