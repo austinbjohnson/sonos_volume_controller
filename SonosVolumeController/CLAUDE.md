@@ -60,7 +60,42 @@ Discuss with the user which task to tackle next.
 
 This ensures the PR number is accurate in the branch before merging.
 
-### 4. After Merge
+### 4. Avoiding Merge Conflicts
+
+**Before starting work:**
+```bash
+# Always start from latest main
+git checkout main
+git pull
+git checkout -b feature/name
+
+# Check for related PRs
+gh pr list --state open
+```
+
+**During development:**
+```bash
+# Frequently sync with main (daily or when you see other PRs merged)
+git fetch origin main
+git rebase origin/main
+
+# If conflicts arise during rebase:
+# 1. Resolve conflicts in each file
+# 2. git add <resolved-files>
+# 3. git rebase --continue
+```
+
+**Key practices:**
+- Keep PRs small and focused - avoid long-running branches
+- Check `gh pr list` before starting related work
+- If working on UI while someone else does functionality (or vice versa), coordinate
+- When conflicts happen, preserve both functionalities:
+  - Keep new features from main
+  - Keep your improvements
+  - Remove duplicate code
+  - Test thoroughly after resolution
+
+### 5. After Merge
 
 User merges PR on GitHub, then locally:
 ```bash
