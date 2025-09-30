@@ -40,6 +40,30 @@ class VolumeHUD {
         }
     }
 
+    func showError(title: String, message: String) {
+        // Cancel any existing timer
+        dismissTimer?.invalidate()
+
+        // Always create new panel for error (different layout)
+        createErrorPanel(title: title, message: message)
+
+        // Show with fade-in animation
+        panel?.alphaValue = 0
+        panel?.orderFront(nil)
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            panel?.animator().alphaValue = 1.0
+        }
+
+        // Auto-dismiss after 2 seconds (slightly longer for error messages)
+        dismissTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.hide()
+            }
+        }
+    }
+
     private func hide() {
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.3
@@ -155,5 +179,75 @@ class VolumeHUD {
                 progressFill.animator().setFrameSize(NSSize(width: newWidth, height: 8))
             }
         }
+    }
+
+    private func createErrorPanel(title: String, message: String) {
+        // Panel dimensions
+        let width: CGFloat = 280
+        let height: CGFloat = 160
+
+        // Center on screen
+        guard let screen = NSScreen.main else { return }
+        let screenRect = screen.frame
+        let x = (screenRect.width - width) / 2
+        let y = (screenRect.height - height) / 2
+        let rect = NSRect(x: x, y: y, width: width, height: height)
+
+        // Create panel with HUD style
+        panel = NSPanel(
+            contentRect: rect,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+
+        guard let panel = panel else { return }
+
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.level = .popUpMenu
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        // Create visual effect view for Liquid Glass effect
+        let visualEffect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        visualEffect.material = .hudWindow
+        visualEffect.state = .active
+        visualEffect.blendingMode = .behindWindow
+        visualEffect.wantsLayer = true
+        visualEffect.layer?.cornerRadius = 20
+
+        // Create content container
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+
+        // Warning icon (SF Symbol) - from bottom: 94pt
+        let iconView = NSImageView(frame: NSRect(x: (width - 50) / 2, y: 94, width: 50, height: 50))
+        if let warningImage = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Warning") {
+            iconView.image = warningImage
+            iconView.contentTintColor = NSColor.systemOrange
+            iconView.imageScaling = .scaleProportionallyUpOrDown
+        }
+        contentView.addSubview(iconView)
+
+        // Title label - from bottom: 68pt
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.frame = NSRect(x: 20, y: 68, width: width - 40, height: 20)
+        titleLabel.alignment = .center
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.textColor = .white
+        contentView.addSubview(titleLabel)
+
+        // Message label - from bottom: 24pt, taller to accommodate two lines
+        let messageLabel = NSTextField(labelWithString: message)
+        messageLabel.frame = NSRect(x: 20, y: 24, width: width - 40, height: 40)
+        messageLabel.alignment = .center
+        messageLabel.font = .systemFont(ofSize: 13, weight: .regular)
+        messageLabel.textColor = .white
+        messageLabel.maximumNumberOfLines = 2
+        messageLabel.lineBreakMode = .byWordWrapping
+        contentView.addSubview(messageLabel)
+
+        visualEffect.addSubview(contentView)
+        panel.contentView = visualEffect
     }
 }
