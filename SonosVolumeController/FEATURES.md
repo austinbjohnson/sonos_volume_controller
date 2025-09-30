@@ -15,6 +15,7 @@
 - **Simplify trigger source UI**: Replace radio button list with read-only info display showing the current trigger device. Now that "Any Device" is the default and works well, the selection UI could be streamlined to just show what's active (with option to change in preferences if needed)
 
 ## Bugs
+- **Individual speaker volume controls group volume**: When adjusting volume sliders for individual speakers within an expanded group view, it controls the entire group volume instead of the individual speaker volume. (PR #28 - pending merge)
 - **Ungroup not working with group checkboxes**: Selecting a group via its checkbox and clicking "Ungroup Selected" shows "No grouped speakers selected" error. Issue: group cards use group.id (coordinator UUID) but ungroupSelected() looks for device names.
 - **Speakers list spacing**: Adjust spacing/layout in the speakers section of the menu bar popover
 
