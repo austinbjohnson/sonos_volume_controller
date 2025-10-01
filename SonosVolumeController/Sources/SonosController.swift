@@ -998,7 +998,8 @@ class SonosController: @unchecked Sendable {
     }
 
     /// Internal helper to perform the actual grouping with a specified coordinator
-    private func performGrouping(devices: [SonosDevice], coordinator: SonosDevice, completion: (@Sendable (Bool) -> Void)?) {
+    /// If retry is true and coordinator is a stereo pair, will automatically retry with a different coordinator on failure
+    private func performGrouping(devices: [SonosDevice], coordinator: SonosDevice, retry: Bool = true, completion: (@Sendable (Bool) -> Void)?) {
         print("🎵 Creating group with coordinator: \(coordinator.name)")
 
         let membersToAdd = devices.filter { $0.uuid != coordinator.uuid }
@@ -1024,6 +1025,13 @@ class SonosController: @unchecked Sendable {
             guard let self = self else { return }
             let allSuccess = successCount == membersToAdd.count
             print(allSuccess ? "✅ All members added (\(successCount)/\(membersToAdd.count))" : "⚠️ Some members failed to add (\(successCount)/\(membersToAdd.count))")
+
+            // If failed and coordinator is a stereo pair, retry with different coordinator
+            if !allSuccess && retry && coordinator.channelMapSet != nil && membersToAdd.count == 1 {
+                print("🔄 Retrying with \(membersToAdd[0].name) as coordinator (stereo pair limitation)")
+                self.performGrouping(devices: devices, coordinator: membersToAdd[0], retry: false, completion: completion)
+                return
+            }
 
             // Refresh topology once after all additions complete
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
