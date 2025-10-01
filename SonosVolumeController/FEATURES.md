@@ -36,4 +36,4 @@
 - ✅ First launch onboarding with welcome banner - automatically shows popover when no speaker is selected, plus shows HUD notification when user tries to use hotkeys without a speaker selected (PR #24)
 - ✅ Trigger device picker in menu bar - select which audio device activates Sonos hotkeys, defaults to "Any Device" for universal compatibility (PR #25)
 - ✅ Hierarchical group UI with expandable member controls - groups display as primary cards with drill-down capability to control individual speakers within groups (PR #27)
-- ✅ Fixed ungroup functionality for group checkboxes - properly handles both group IDs and device names when ungrouping 
+- ✅ Fixed ungroup functionality for group checkboxes - properly handles both group IDs and device names when ungrouping (PR #29)
