@@ -1417,11 +1417,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 } else {
                     print("❌ Failed to create group")
 
-                    // Show error HUD
+                    // Show error HUD with helpful message
                     Task { @MainActor in
                         VolumeHUD.shared.showError(
                             title: "Grouping Failed",
-                            message: "Could not create speaker group"
+                            message: "Try pausing music on stereo pairs before grouping, or select a different coordinator"
                         )
                     }
 

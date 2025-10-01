@@ -964,18 +964,32 @@ class SonosController: @unchecked Sendable {
 
             let coordinator: SonosDevice
             if playingDevices.isEmpty {
-                // No devices playing, use first device
-                coordinator = deviceList.first!
-                print("📍 No devices playing, using first device as coordinator: \(coordinator.name)")
+                // No devices playing, prefer non-stereo-pair as coordinator
+                let nonStereoPairDevices = deviceList.filter { $0.channelMapSet == nil }
+                if !nonStereoPairDevices.isEmpty {
+                    coordinator = nonStereoPairDevices.first!
+                    print("📍 No devices playing, using first non-stereo-pair as coordinator: \(coordinator.name)")
+                } else {
+                    coordinator = deviceList.first!
+                    print("📍 No devices playing, using first device as coordinator: \(coordinator.name)")
+                }
             } else if playingDevices.count == 1 {
                 // One device playing, use it as coordinator to preserve playback
                 coordinator = playingDevices.first!
                 print("🎵 One device playing, using it as coordinator to preserve audio: \(coordinator.name)")
+                if coordinator.channelMapSet != nil {
+                    print("⚠️ Coordinator is a stereo pair - grouping may fail (Sonos limitation)")
+                }
             } else {
-                // Multiple devices playing - this requires user input
-                // For now, use first playing device but log warning
-                coordinator = playingDevices.first!
-                print("⚠️ Multiple devices playing (\(playingDevices.count)), defaulting to first: \(coordinator.name)")
+                // Multiple devices playing - prefer non-stereo-pair
+                let nonStereoPairPlaying = playingDevices.filter { $0.channelMapSet == nil }
+                if !nonStereoPairPlaying.isEmpty {
+                    coordinator = nonStereoPairPlaying.first!
+                    print("⚠️ Multiple devices playing, choosing first non-stereo-pair: \(coordinator.name)")
+                } else {
+                    coordinator = playingDevices.first!
+                    print("⚠️ Multiple devices playing (\(playingDevices.count)), defaulting to first: \(coordinator.name)")
+                }
                 print("   Note: Other playing devices will stop playback")
             }
 
