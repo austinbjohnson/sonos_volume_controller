@@ -859,16 +859,93 @@ class SonosController: @unchecked Sendable {
 
     /// Create a new group with specified devices
     /// The first device becomes the coordinator
-    func createGroup(devices deviceList: [SonosDevice], completion: ((Bool) -> Void)? = nil) {
-        guard let coordinator = deviceList.first, deviceList.count > 1 else {
+    /// Get playback states for multiple devices
+    /// Returns dictionary mapping device UUID to transport state
+    func getPlaybackStates(devices: [SonosDevice], completion: @escaping ([String: String]) -> Void) {
+        var states: [String: String] = [:]
+        let dispatchGroup = DispatchGroup()
+
+        for device in devices {
+            dispatchGroup.enter()
+            getTransportState(device: device) { state in
+                if let state = state {
+                    states[device.uuid] = state
+                }
+                dispatchGroup.leave()
+            }
+        }
+
+        dispatchGroup.notify(queue: .main) {
+            completion(states)
+        }
+    }
+
+    /// Get list of devices that are currently playing
+    func getPlayingDevices(from devices: [SonosDevice], completion: @escaping ([SonosDevice]) -> Void) {
+        getPlaybackStates(devices: devices) { states in
+            let playingDevices = devices.filter { device in
+                states[device.uuid] == "PLAYING"
+            }
+            completion(playingDevices)
+        }
+    }
+
+    /// Create a group from multiple devices with smart coordinator selection
+    /// If coordinatorDevice is not specified, will choose intelligently based on playback state
+    func createGroup(devices deviceList: [SonosDevice], coordinatorDevice: SonosDevice? = nil, completion: ((Bool) -> Void)? = nil) {
+        guard deviceList.count > 1 else {
             print("❌ Need at least 2 devices to create a group")
             completion?(false)
             return
         }
 
+        // If coordinator is explicitly specified, use it
+        if let explicitCoordinator = coordinatorDevice {
+            guard deviceList.contains(where: { $0.uuid == explicitCoordinator.uuid }) else {
+                print("❌ Specified coordinator not in device list")
+                completion?(false)
+                return
+            }
+            performGrouping(devices: deviceList, coordinator: explicitCoordinator, completion: completion)
+            return
+        }
+
+        // Otherwise, intelligently select coordinator based on playback state
+        print("🔍 Checking playback states to choose coordinator...")
+        getPlaybackStates(devices: deviceList) { [weak self] states in
+            guard let self = self else { return }
+
+            // Find devices that are currently playing
+            let playingDevices = deviceList.filter { device in
+                states[device.uuid] == "PLAYING"
+            }
+
+            let coordinator: SonosDevice
+            if playingDevices.isEmpty {
+                // No devices playing, use first device
+                coordinator = deviceList.first!
+                print("📍 No devices playing, using first device as coordinator: \(coordinator.name)")
+            } else if playingDevices.count == 1 {
+                // One device playing, use it as coordinator to preserve playback
+                coordinator = playingDevices.first!
+                print("🎵 One device playing, using it as coordinator to preserve audio: \(coordinator.name)")
+            } else {
+                // Multiple devices playing - this requires user input
+                // For now, use first playing device but log warning
+                coordinator = playingDevices.first!
+                print("⚠️ Multiple devices playing (\(playingDevices.count)), defaulting to first: \(coordinator.name)")
+                print("   Note: Other playing devices will stop playback")
+            }
+
+            self.performGrouping(devices: deviceList, coordinator: coordinator, completion: completion)
+        }
+    }
+
+    /// Internal helper to perform the actual grouping with a specified coordinator
+    private func performGrouping(devices: [SonosDevice], coordinator: SonosDevice, completion: ((Bool) -> Void)?) {
         print("🎵 Creating group with coordinator: \(coordinator.name)")
 
-        let membersToAdd = Array(deviceList.dropFirst())
+        let membersToAdd = devices.filter { $0.uuid != coordinator.uuid }
         var successCount = 0
         let totalMembers = membersToAdd.count
 
@@ -917,6 +994,54 @@ class SonosController: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    /// Get the transport state of a device (PLAYING, PAUSED_PLAYBACK, STOPPED, etc.)
+    /// Uses AVTransport GetTransportInfo
+    func getTransportState(device: SonosDevice, completion: @escaping (String?) -> Void) {
+        let url = URL(string: "http://\(device.ipAddress):1400/MediaRenderer/AVTransport/Control")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
+        request.addValue("\"urn:schemas-upnp-org:service:AVTransport:1#GetTransportInfo\"", forHTTPHeaderField: "SOAPACTION")
+
+        let soapBody = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+            <s:Body>
+                <u:GetTransportInfo xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                    <InstanceID>0</InstanceID>
+                </u:GetTransportInfo>
+            </s:Body>
+        </s:Envelope>
+        """
+
+        request.httpBody = soapBody.data(using: .utf8)
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Failed to get transport state: \(error)")
+                completion(nil)
+                return
+            }
+
+            if let data = data, let responseStr = String(data: data, encoding: .utf8) {
+                // Extract CurrentTransportState value
+                if let stateRange = responseStr.range(of: "<CurrentTransportState>([^<]+)</CurrentTransportState>", options: .regularExpression) {
+                    let stateString = String(responseStr[stateRange])
+                    let state = stateString
+                        .replacingOccurrences(of: "<CurrentTransportState>", with: "")
+                        .replacingOccurrences(of: "</CurrentTransportState>", with: "")
+                    print("🎵 Transport state for \(device.name): \(state)")
+                    completion(state)
+                } else {
+                    print("⚠️ Could not parse transport state for \(device.name)")
+                    completion(nil)
+                }
+            } else {
+                completion(nil)
+            }
+        }.resume()
     }
 
     // MARK: - Group Volume Control
