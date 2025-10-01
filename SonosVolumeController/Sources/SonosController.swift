@@ -985,12 +985,14 @@ class SonosController: @unchecked Sendable {
 
         // Wait for all additions to complete
         dispatchGroup.notify(queue: .main) { [weak self] in
+            guard let self = self else { return }
             let allSuccess = successCount == membersToAdd.count
             print(allSuccess ? "✅ All members added (\(successCount)/\(membersToAdd.count))" : "⚠️ Some members failed to add (\(successCount)/\(membersToAdd.count))")
 
             // Refresh topology once after all additions complete
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                self?.updateGroupTopology {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self = self else { return }
+                self.updateGroupTopology {
                     print(allSuccess ? "✅ Group created successfully" : "⚠️ Group created with some failures")
                     completion?(allSuccess)
                 }
