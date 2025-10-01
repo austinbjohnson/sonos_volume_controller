@@ -12,6 +12,7 @@
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.
 
 ## Enhancements
+- **Improve grouped speakers expand/collapse UX**: Refine the chevron positioning and animation behavior. Currently when a group is expanded, the group card itself moves due to list positioning. Instead, the group card should remain anchored in place while the subspeakers smoothly slide into view below it, pushing other items down.
 - **Simplify trigger source UI**: Replace radio button list with read-only info display showing the current trigger device. Now that "Any Device" is the default and works well, the selection UI could be streamlined to just show what's active (with option to change in preferences if needed)
 
 ## Bugs
