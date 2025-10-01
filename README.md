@@ -1,83 +1,58 @@
 # Sonos Volume Controller
 
-Control your Sonos speakers with macOS hotkeys (F11/F12) when a specific audio device is active.
-
-## 🎯 Project Status
-
-This project has **two implementations**:
-
-### 🐍 Python Version (Fully Functional)
-📁 **Location**: [`python-prototype/`](python-prototype/)
-
-✅ Production-ready, works out of the box
-❌ Cannot be distributed via Mac App Store
-
-[**→ Python Installation Instructions**](python-prototype/README.md)
-
-### 🍎 Swift Version (In Development)
-📁 **Location**: [`SonosVolumeController/`](SonosVolumeController/)
-
-🚧 Being developed for Mac App Store distribution
-⚠️ Currently has toolchain compatibility issues
-🎯 Goal: Native macOS app with App Store distribution
-
----
+A native macOS menu bar app for controlling Sonos speakers with hotkeys. Control your Sonos volume using F11/F12 keys, with optional audio device-based triggering.
 
 ## Features
 
-- 🎯 **Conditional Interception**: Only controls Sonos when a specific audio device (e.g., your monitor) is active
-- 🎹 **Hotkey Control**: Use Fn+F11 (Down) / Fn+F12 (Up) to control volume
-- 🖥️ **Menu Bar App**: Easy access to settings and device selection
-- 🔍 **Auto-Discovery**: Automatically finds Sonos speakers on your network
-- 💾 **Pass-Through**: Normal macOS volume control works when using headphones or other audio devices
-- 📊 **Visual HUD**: On-screen volume display (Python version)
+- 🎹 **Hotkey Control**: F11/F12 for volume control with visual HUD display
+- 🎯 **Smart Triggering**: Optionally activate only when specific audio device is selected (defaults to "Any Device")
+- 🖥️ **Menu Bar Integration**: Native macOS menu bar app with popover controls
+- 🔍 **Auto-Discovery**: Automatic Sonos speaker detection on local network
+- 🎛️ **Speaker Grouping**: Create, manage, and control speaker groups
+- 📊 **Hierarchical Group UI**: Expandable group cards to control individual speakers within groups
+- ♿ **Accessibility**: First-launch permissions setup with guided onboarding
+- 🎨 **Native Design**: Custom Sonos icons and macOS-native UI
 
-## Quick Start (Python)
+## Installation
+
+### Building from Source
 
 ```bash
-# Install dependencies
-cd python-prototype
-pip3 install -r requirements.txt
+# Build release version
+swift build -c release
 
-# Run the app
-python3 sonos_volume_controller.py
+# Or build and install to /Applications
+./build-app.sh --install
 ```
 
-**Note**: You'll need to grant Accessibility permissions in System Settings.
+**Note**: On first launch, you'll be prompted to grant Accessibility permissions in System Settings.
+
+### Running in Development
+
+```bash
+swift run
+```
 
 ## Project Structure
 
 ```
 sonos_volume_controller/
-├── README.md                    # This file
-├── python-prototype/            # Python implementation (works now)
-│   ├── README.md
-│   ├── sonos_volume_controller.py
-│   └── requirements.txt
-└── SonosVolumeController/       # Swift implementation (App Store ready)
+├── README.md
+├── FEATURES.md                  # Feature roadmap and changelog
+├── DEVELOPMENT.md               # Development workflow
+├── CLAUDE.md                    # AI collaboration guide
+└── SonosVolumeController/       # Swift application
     ├── Package.swift
     ├── Sources/
-    └── build.sh
+    └── build-app.sh
 ```
-
-## Why Two Versions?
-
-**Python**: Fast prototyping, proven to work, uses great libraries (`rumps`, `soco`)
-**Swift**: Native performance, App Store distribution, better macOS integration
-
-## Roadmap
-
-- [x] Python prototype with full functionality
-- [x] Swift implementation started
-- [ ] Fix Swift toolchain issues
-- [ ] Complete Swift Sonos UPnP client
-- [ ] Match Python feature parity in Swift
-- [ ] App Store submission preparation
-- [ ] Code signing & notarization
-- [ ] Mac App Store launch
 
 ## Contributing
 
 This is a personal project, but suggestions and issues are welcome!
 
-The official sonos api docs used are here: https://docs.sonos.com/docs/control-sonos-players
+## Resources
+
+- [Official Sonos API Documentation](https://docs.sonos.com/docs/control-sonos-players)
+- [FEATURES.md](FEATURES.md) - Feature roadmap and completed improvements
+- [DEVELOPMENT.md](DEVELOPMENT.md) - Development workflow and architecture
