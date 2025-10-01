@@ -776,7 +776,16 @@ class SonosController: @unchecked Sendable {
             return
         }
 
-        print("🔗 Adding \(device.name) to group led by \(coordinator.name)")
+        print("🔗 Adding \(device.name) (UUID: \(device.uuid)) to group led by \(coordinator.name) (UUID: \(coordinatorUUID))")
+
+        // Check if devices are already grouped
+        if let deviceGroup = getGroupForDevice(device),
+           let coordGroup = getGroupForDevice(coordinator),
+           deviceGroup.id == coordGroup.id {
+            print("⚠️ Devices are already in the same group")
+            completion?(true)
+            return
+        }
 
         let url = URL(string: "http://\(device.ipAddress):1400/MediaRenderer/AVTransport/Control")!
         var request = URLRequest(url: url)
@@ -797,6 +806,9 @@ class SonosController: @unchecked Sendable {
         </s:Envelope>
         """
 
+        print("📤 Sending SetAVTransportURI to \(device.ipAddress)")
+        print("   Target URI: x-rincon:\(coordinatorUUID)")
+
         request.httpBody = soapBody.data(using: .utf8)
 
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -810,10 +822,20 @@ class SonosController: @unchecked Sendable {
             if let httpResponse = response as? HTTPURLResponse {
                 print("📡 HTTP Status: \(httpResponse.statusCode) for \(device.name)")
                 if httpResponse.statusCode != 200 {
-                    print("❌ Unexpected status code: \(httpResponse.statusCode)")
+                    print("❌ Failed to add \(device.name) to group - HTTP \(httpResponse.statusCode)")
                     if let data = data, let responseStr = String(data: data, encoding: .utf8) {
                         print("   Response: \(responseStr)")
+                        // Parse UPnP error code if available
+                        if let errorRange = responseStr.range(of: "<errorCode>([^<]+)</errorCode>", options: .regularExpression) {
+                            let errorString = String(responseStr[errorRange])
+                            let errorCode = errorString.replacingOccurrences(of: "<errorCode>", with: "").replacingOccurrences(of: "</errorCode>", with: "")
+                            print("   UPnP Error Code: \(errorCode)")
+                        }
                     }
+                    DispatchQueue.main.async {
+                        completion?(false)
+                    }
+                    return
                 }
             }
 
