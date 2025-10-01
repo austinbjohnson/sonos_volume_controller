@@ -769,14 +769,23 @@ class SonosController: @unchecked Sendable {
 
     /// Add a device to an existing group (or create a new group)
     /// Uses AVTransport SetAVTransportURI with x-rincon URI
-    func addDeviceToGroup(device: SonosDevice, coordinatorUUID: String, completion: ((Bool) -> Void)? = nil) {
+    func addDeviceToGroup(device: SonosDevice, coordinatorUUID: String, shouldRefreshTopology: Bool = true, completion: (@Sendable (Bool) -> Void)? = nil) {
         guard let coordinator = devices.first(where: { $0.uuid == coordinatorUUID }) else {
             print("❌ Coordinator not found: \(coordinatorUUID)")
             completion?(false)
             return
         }
 
-        print("🔗 Adding \(device.name) to group led by \(coordinator.name)")
+        print("🔗 Adding \(device.name) (UUID: \(device.uuid)) to group led by \(coordinator.name) (UUID: \(coordinatorUUID))")
+
+        // Check if devices are already grouped
+        if let deviceGroup = getGroupForDevice(device),
+           let coordGroup = getGroupForDevice(coordinator),
+           deviceGroup.id == coordGroup.id {
+            print("⚠️ Devices are already in the same group")
+            completion?(true)
+            return
+        }
 
         let url = URL(string: "http://\(device.ipAddress):1400/MediaRenderer/AVTransport/Control")!
         var request = URLRequest(url: url)
@@ -797,6 +806,9 @@ class SonosController: @unchecked Sendable {
         </s:Envelope>
         """
 
+        print("📤 Sending SetAVTransportURI to \(device.ipAddress)")
+        print("   Target URI: x-rincon:\(coordinatorUUID)")
+
         request.httpBody = soapBody.data(using: .utf8)
 
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -806,12 +818,42 @@ class SonosController: @unchecked Sendable {
                 return
             }
 
-            print("✅ Successfully added \(device.name) to group")
-            completion?(true)
+            // Check HTTP status code
+            if let httpResponse = response as? HTTPURLResponse {
+                print("📡 HTTP Status: \(httpResponse.statusCode) for \(device.name)")
+                if httpResponse.statusCode != 200 {
+                    print("❌ Failed to add \(device.name) to group - HTTP \(httpResponse.statusCode)")
+                    if let data = data, let responseStr = String(data: data, encoding: .utf8) {
+                        print("   Response: \(responseStr)")
+                        // Parse UPnP error code if available
+                        if let errorRange = responseStr.range(of: "<errorCode>([^<]+)</errorCode>", options: .regularExpression) {
+                            let errorString = String(responseStr[errorRange])
+                            let errorCode = errorString.replacingOccurrences(of: "<errorCode>", with: "").replacingOccurrences(of: "</errorCode>", with: "")
+                            print("   UPnP Error Code: \(errorCode)")
+                        }
+                    }
+                    DispatchQueue.main.async {
+                        completion?(false)
+                    }
+                    return
+                }
+            }
 
-            // Refresh topology after a short delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                self.updateGroupTopology()
+            print("✅ Successfully added \(device.name) to group")
+
+            // Optionally refresh topology before calling completion
+            if shouldRefreshTopology {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                    self?.updateGroupTopology {
+                        DispatchQueue.main.async {
+                            completion?(true)
+                        }
+                    }
+                }
+            } else {
+                DispatchQueue.main.async {
+                    completion?(true)
+                }
             }
         }.resume()
     }
@@ -859,29 +901,166 @@ class SonosController: @unchecked Sendable {
 
     /// Create a new group with specified devices
     /// The first device becomes the coordinator
-    func createGroup(devices deviceList: [SonosDevice], completion: ((Bool) -> Void)? = nil) {
-        guard let coordinator = deviceList.first, deviceList.count > 1 else {
+    /// Get playback states for multiple devices
+    /// Returns dictionary mapping device UUID to transport state
+    func getPlaybackStates(devices: [SonosDevice], completion: @escaping ([String: String]) -> Void) {
+        var states: [String: String] = [:]
+        let dispatchGroup = DispatchGroup()
+
+        for device in devices {
+            dispatchGroup.enter()
+            getTransportState(device: device) { state in
+                if let state = state {
+                    states[device.uuid] = state
+                }
+                dispatchGroup.leave()
+            }
+        }
+
+        dispatchGroup.notify(queue: .main) {
+            completion(states)
+        }
+    }
+
+    /// Get list of devices that are currently playing
+    func getPlayingDevices(from devices: [SonosDevice], completion: @escaping ([SonosDevice]) -> Void) {
+        getPlaybackStates(devices: devices) { states in
+            let playingDevices = devices.filter { device in
+                states[device.uuid] == "PLAYING"
+            }
+            completion(playingDevices)
+        }
+    }
+
+    /// Create a group from multiple devices with smart coordinator selection
+    /// If coordinatorDevice is not specified, will choose intelligently based on playback state
+    func createGroup(devices deviceList: [SonosDevice], coordinatorDevice: SonosDevice? = nil, completion: (@Sendable (Bool) -> Void)? = nil) {
+        guard deviceList.count > 1 else {
             print("❌ Need at least 2 devices to create a group")
             completion?(false)
             return
         }
 
+        // If coordinator is explicitly specified, use it
+        if let explicitCoordinator = coordinatorDevice {
+            guard deviceList.contains(where: { $0.uuid == explicitCoordinator.uuid }) else {
+                print("❌ Specified coordinator not in device list")
+                completion?(false)
+                return
+            }
+            performGrouping(devices: deviceList, coordinator: explicitCoordinator, completion: completion)
+            return
+        }
+
+        // Otherwise, intelligently select coordinator based on playback state
+        print("🔍 Checking playback states to choose coordinator...")
+        getPlaybackStates(devices: deviceList) { [weak self] states in
+            guard let self = self else { return }
+
+            // Find devices that are currently playing
+            let playingDevices = deviceList.filter { device in
+                states[device.uuid] == "PLAYING"
+            }
+
+            let coordinator: SonosDevice
+            if playingDevices.isEmpty {
+                // No devices playing, prefer non-stereo-pair as coordinator
+                let nonStereoPairDevices = deviceList.filter { $0.channelMapSet == nil }
+                if !nonStereoPairDevices.isEmpty {
+                    coordinator = nonStereoPairDevices.first!
+                    print("📍 No devices playing, using first non-stereo-pair as coordinator: \(coordinator.name)")
+                } else {
+                    coordinator = deviceList.first!
+                    print("📍 No devices playing, using first device as coordinator: \(coordinator.name)")
+                }
+            } else if playingDevices.count == 1 {
+                // One device playing, use it as coordinator to preserve playback
+                coordinator = playingDevices.first!
+                print("🎵 One device playing, using it as coordinator to preserve audio: \(coordinator.name)")
+                if coordinator.channelMapSet != nil {
+                    print("⚠️ Coordinator is a stereo pair - grouping may fail (Sonos limitation)")
+                }
+            } else {
+                // Multiple devices playing - prefer non-stereo-pair
+                let nonStereoPairPlaying = playingDevices.filter { $0.channelMapSet == nil }
+                if !nonStereoPairPlaying.isEmpty {
+                    coordinator = nonStereoPairPlaying.first!
+                    print("⚠️ Multiple devices playing, choosing first non-stereo-pair: \(coordinator.name)")
+                } else {
+                    coordinator = playingDevices.first!
+                    print("⚠️ Multiple devices playing (\(playingDevices.count)), defaulting to first: \(coordinator.name)")
+                }
+                print("   Note: Other playing devices will stop playback")
+            }
+
+            self.performGrouping(devices: deviceList, coordinator: coordinator, completion: completion)
+        }
+    }
+
+    /// Internal helper to perform the actual grouping with a specified coordinator
+    /// If retry is true and coordinator is a stereo pair, will automatically retry with a different coordinator on failure
+    private func performGrouping(devices: [SonosDevice], coordinator: SonosDevice, retry: Bool = true, completion: (@Sendable (Bool) -> Void)?) {
         print("🎵 Creating group with coordinator: \(coordinator.name)")
 
-        let membersToAdd = Array(deviceList.dropFirst())
+        // Check if coordinator is currently playing - we'll resume it after grouping
+        getTransportState(device: coordinator) { [weak self] initialState in
+            guard let self = self else { return }
+            let coordinatorWasPlaying = (initialState == "PLAYING")
+            if coordinatorWasPlaying {
+                print("📝 Coordinator is playing - will resume after grouping if needed")
+            }
+
+            self.performGroupingInternal(devices: devices, coordinator: coordinator, coordinatorWasPlaying: coordinatorWasPlaying, retry: retry, completion: completion)
+        }
+    }
+
+    /// Internal grouping logic after checking coordinator state
+    private func performGroupingInternal(devices: [SonosDevice], coordinator: SonosDevice, coordinatorWasPlaying: Bool, retry: Bool, completion: (@Sendable (Bool) -> Void)?) {
+        let membersToAdd = devices.filter { $0.uuid != coordinator.uuid }
+        let dispatchGroup = DispatchGroup()
+        let queue = DispatchQueue(label: "com.sonos.grouping")
         var successCount = 0
-        let totalMembers = membersToAdd.count
 
         // Add each member to the coordinator's group
         for member in membersToAdd {
-            addDeviceToGroup(device: member, coordinatorUUID: coordinator.uuid) { success in
-                if success {
-                    successCount += 1
+            dispatchGroup.enter()
+            addDeviceToGroup(device: member, coordinatorUUID: coordinator.uuid, shouldRefreshTopology: false) { success in
+                queue.async {
+                    if success {
+                        successCount += 1
+                    }
+                    dispatchGroup.leave()
                 }
+            }
+        }
 
-                // Check if all members have been added
-                if successCount + (totalMembers - successCount) == totalMembers {
-                    let allSuccess = successCount == totalMembers
+        // Wait for all additions to complete
+        dispatchGroup.notify(queue: .main) { [weak self] in
+            guard let self = self else { return }
+            let allSuccess = successCount == membersToAdd.count
+            print(allSuccess ? "✅ All members added (\(successCount)/\(membersToAdd.count))" : "⚠️ Some members failed to add (\(successCount)/\(membersToAdd.count))")
+
+            // If failed and coordinator is a stereo pair, retry with different coordinator
+            if !allSuccess && retry && coordinator.channelMapSet != nil && membersToAdd.count == 1 {
+                print("🔄 Retrying with \(membersToAdd[0].name) as coordinator (stereo pair limitation)")
+                self.performGrouping(devices: devices, coordinator: membersToAdd[0], retry: false, completion: completion)
+                return
+            }
+
+            // Refresh topology once after all additions complete
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self = self else { return }
+                self.updateGroupTopology {
+                    // If coordinator was playing, check if it's still playing and resume if needed
+                    if coordinatorWasPlaying {
+                        self.getTransportState(device: coordinator) { state in
+                            if state != "PLAYING" {
+                                print("🔄 Coordinator paused during grouping - resuming playback")
+                                self.sendPlayCommand(to: coordinator)
+                            }
+                        }
+                    }
+
                     print(allSuccess ? "✅ Group created successfully" : "⚠️ Group created with some failures")
                     completion?(allSuccess)
                 }
@@ -917,6 +1096,86 @@ class SonosController: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    /// Send Play command to a device
+    /// Uses AVTransport Play
+    private func sendPlayCommand(to device: SonosDevice) {
+        let url = URL(string: "http://\(device.ipAddress):1400/MediaRenderer/AVTransport/Control")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
+        request.addValue("\"urn:schemas-upnp-org:service:AVTransport:1#Play\"", forHTTPHeaderField: "SOAPACTION")
+
+        let soapBody = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+            <s:Body>
+                <u:Play xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                    <InstanceID>0</InstanceID>
+                    <Speed>1</Speed>
+                </u:Play>
+            </s:Body>
+        </s:Envelope>
+        """
+
+        request.httpBody = soapBody.data(using: .utf8)
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Failed to send play command: \(error)")
+                return
+            }
+            print("▶️ Play command sent to \(device.name)")
+        }.resume()
+    }
+
+    /// Get the transport state of a device (PLAYING, PAUSED_PLAYBACK, STOPPED, etc.)
+    /// Uses AVTransport GetTransportInfo
+    func getTransportState(device: SonosDevice, completion: @escaping (String?) -> Void) {
+        let url = URL(string: "http://\(device.ipAddress):1400/MediaRenderer/AVTransport/Control")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
+        request.addValue("\"urn:schemas-upnp-org:service:AVTransport:1#GetTransportInfo\"", forHTTPHeaderField: "SOAPACTION")
+
+        let soapBody = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+            <s:Body>
+                <u:GetTransportInfo xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                    <InstanceID>0</InstanceID>
+                </u:GetTransportInfo>
+            </s:Body>
+        </s:Envelope>
+        """
+
+        request.httpBody = soapBody.data(using: .utf8)
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Failed to get transport state: \(error)")
+                completion(nil)
+                return
+            }
+
+            if let data = data, let responseStr = String(data: data, encoding: .utf8) {
+                // Extract CurrentTransportState value
+                if let stateRange = responseStr.range(of: "<CurrentTransportState>([^<]+)</CurrentTransportState>", options: .regularExpression) {
+                    let stateString = String(responseStr[stateRange])
+                    let state = stateString
+                        .replacingOccurrences(of: "<CurrentTransportState>", with: "")
+                        .replacingOccurrences(of: "</CurrentTransportState>", with: "")
+                    print("🎵 Transport state for \(device.name): \(state)")
+                    completion(state)
+                } else {
+                    print("⚠️ Could not parse transport state for \(device.name)")
+                    completion(nil)
+                }
+            } else {
+                completion(nil)
+            }
+        }.resume()
     }
 
     // MARK: - Group Volume Control

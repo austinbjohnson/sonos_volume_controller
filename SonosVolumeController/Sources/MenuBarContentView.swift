@@ -393,27 +393,25 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         card.addSubview(nameLabel)
         card.addSubview(checkbox)
 
-        // Set card to clip content that goes outside bounds
-        card.wantsLayer = true
-        card.layer?.masksToBounds = false  // Allow chevron to visually extend
-
         NSLayoutConstraint.activate([
-            // Position icon at same spot as individual speaker cards (12px from left)
-            icon.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
-            icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 20),
-            icon.heightAnchor.constraint(equalToConstant: 20),
-
-            // Position chevron directly before the icon (overlapping into the margin)
-            chevronButton.trailingAnchor.constraint(equalTo: icon.leadingAnchor, constant: -2),
+            // Position chevron at left edge inside card
+            chevronButton.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
             chevronButton.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             chevronButton.widthAnchor.constraint(equalToConstant: 16),
             chevronButton.heightAnchor.constraint(equalToConstant: 20),
 
+            // Position icon after chevron
+            icon.leadingAnchor.constraint(equalTo: chevronButton.trailingAnchor, constant: 6),
+            icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 20),
+            icon.heightAnchor.constraint(equalToConstant: 20),
+
+            // Position name after icon
             nameLabel.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
             nameLabel.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             nameLabel.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -10),
 
+            // Checkbox stays on right
             checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
             checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
 
@@ -724,6 +722,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     // Add left padding for indentation
                     let paddedContainer = NSView()
                     paddedContainer.translatesAutoresizingMaskIntoConstraints = false
+                    paddedContainer.identifier = NSUserInterfaceItemIdentifier("\(group.id)_member_\(member.uuid)")
                     paddedContainer.addSubview(memberCard)
 
                     NSLayoutConstraint.activate([
@@ -1076,16 +1075,110 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     }
 
     @objc private func toggleGroupExpansion(_ sender: NSButton) {
-        guard let groupId = sender.identifier?.rawValue else { return }
-
-        if expandedGroups.contains(groupId) {
-            expandedGroups.remove(groupId)
-        } else {
-            expandedGroups.insert(groupId)
+        guard let groupId = sender.identifier?.rawValue,
+              let controller = appDelegate?.sonosController,
+              let group = controller.discoveredGroups.first(where: { $0.id == groupId }) else {
+            return
         }
 
-        // Refresh the UI to show/hide member cards
-        populateSpeakers()
+        let isExpanding = !expandedGroups.contains(groupId)
+
+        // Update expanded state
+        if isExpanding {
+            expandedGroups.insert(groupId)
+        } else {
+            expandedGroups.remove(groupId)
+        }
+
+        // Animate chevron rotation
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            sender.animator().contentTintColor = sender.contentTintColor
+        })
+
+        // Update chevron image
+        sender.image = NSImage(systemSymbolName: isExpanding ? "chevron.down" : "chevron.right", accessibilityDescription: "Expand")
+
+        if isExpanding {
+            // Expanding - insert member cards with animation
+            animateInsertMemberCards(for: group, afterGroupId: groupId)
+        } else {
+            // Collapsing - remove member cards with animation
+            animateRemoveMemberCards(for: group)
+        }
+    }
+
+    private func animateInsertMemberCards(for group: SonosController.SonosGroup, afterGroupId: String) {
+        // Find the index of the group card
+        guard let groupCardIndex = speakerCardsContainer.arrangedSubviews.firstIndex(where: {
+            $0.identifier?.rawValue == afterGroupId
+        }) else {
+            return
+        }
+
+        // Sort members alphabetically
+        let sortedMembers = group.members.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+        // Insert member cards with animation
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+
+            for (index, member) in sortedMembers.enumerated() {
+                let memberCard = createMemberCard(device: member)
+
+                // Add left padding for indentation
+                let paddedContainer = NSView()
+                paddedContainer.translatesAutoresizingMaskIntoConstraints = false
+                paddedContainer.identifier = NSUserInterfaceItemIdentifier("\(afterGroupId)_member_\(member.uuid)")
+                paddedContainer.addSubview(memberCard)
+
+                NSLayoutConstraint.activate([
+                    memberCard.leadingAnchor.constraint(equalTo: paddedContainer.leadingAnchor, constant: 20),
+                    memberCard.trailingAnchor.constraint(equalTo: paddedContainer.trailingAnchor),
+                    memberCard.topAnchor.constraint(equalTo: paddedContainer.topAnchor),
+                    memberCard.bottomAnchor.constraint(equalTo: paddedContainer.bottomAnchor)
+                ])
+
+                // Start with zero alpha for animation
+                paddedContainer.alphaValue = 0
+
+                // Insert after the group card (or after previous member cards)
+                speakerCardsContainer.insertArrangedSubview(paddedContainer, at: groupCardIndex + 1 + index)
+
+                // Animate in
+                paddedContainer.animator().alphaValue = 1
+            }
+        })
+    }
+
+    private func animateRemoveMemberCards(for group: SonosController.SonosGroup) {
+        // Find all member cards for this group
+        let memberViews = speakerCardsContainer.arrangedSubviews.filter { view in
+            guard let identifier = view.identifier?.rawValue else { return false }
+            return identifier.starts(with: "\(group.id)_member_")
+        }
+
+        guard !memberViews.isEmpty else { return }
+
+        // Animate removal
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+
+            for view in memberViews {
+                view.animator().alphaValue = 0
+            }
+        }, completionHandler: {
+            // Remove from view hierarchy after animation completes
+            for view in memberViews {
+                self.speakerCardsContainer.removeArrangedSubview(view)
+                view.removeFromSuperview()
+            }
+        })
     }
 
     @objc private func selectGroup(_ gesture: NSClickGestureRecognizer) {
@@ -1241,10 +1334,63 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Disable button during operation
         groupButton.isEnabled = false
+        groupButton.title = "Checking playback..."
+
+        // Check which devices are currently playing
+        controller.getPlayingDevices(from: selectedDevices) { [weak self] playingDevices in
+            guard let self = self else { return }
+
+            DispatchQueue.main.async {
+                // If multiple devices are playing, ask user which audio to keep
+                if playingDevices.count > 1 {
+                    self.showCoordinatorSelectionDialog(
+                        playingDevices: playingDevices,
+                        allDevices: selectedDevices
+                    )
+                } else {
+                    // Proceed with smart coordinator selection (0 or 1 playing)
+                    self.performGrouping(devices: selectedDevices, coordinator: nil)
+                }
+            }
+        }
+    }
+
+    private func showCoordinatorSelectionDialog(playingDevices: [SonosController.SonosDevice], allDevices: [SonosController.SonosDevice]) {
+        let alert = NSAlert()
+        alert.messageText = "Multiple Speakers Playing"
+        alert.informativeText = "Multiple speakers are currently playing audio. Which audio stream would you like to keep?\n\nOther speakers will sync to the selected coordinator."
+        alert.alertStyle = .informational
+
+        // Add a button for each playing device
+        for device in playingDevices {
+            alert.addButton(withTitle: device.name)
+        }
+        alert.addButton(withTitle: "Cancel")
+
+        let response = alert.runModal()
+
+        // Map response to device selection
+        if response.rawValue >= NSApplication.ModalResponse.alertFirstButtonReturn.rawValue,
+           response.rawValue < NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + playingDevices.count {
+            let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+            let chosenCoordinator = playingDevices[index]
+            print("✅ User chose coordinator: \(chosenCoordinator.name)")
+            performGrouping(devices: allDevices, coordinator: chosenCoordinator)
+        } else {
+            // User cancelled
+            print("❌ User cancelled grouping")
+            groupButton.isEnabled = true
+            groupButton.title = "Group \(selectedSpeakerCards.count) Speakers"
+        }
+    }
+
+    private func performGrouping(devices: [SonosController.SonosDevice], coordinator: SonosController.SonosDevice?) {
+        guard let controller = appDelegate?.sonosController else { return }
+
         groupButton.title = "Grouping..."
 
-        // Create the group
-        controller.createGroup(devices: selectedDevices) { [weak self] success in
+        // Create the group with optional explicit coordinator
+        controller.createGroup(devices: devices, coordinatorDevice: coordinator) { [weak self] success in
             DispatchQueue.main.async {
                 guard let self = self else { return }
 
@@ -1253,6 +1399,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
                     // Clear selections
                     self.selectedSpeakerCards.removeAll()
+
+                    // Clear expanded groups so new group appears collapsed
+                    self.expandedGroups.removeAll()
 
                     // Reset button
                     self.groupButton.title = "Group Selected"
@@ -1263,17 +1412,17 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
                     // Update volume slider if one of the grouped speakers was selected
                     if let selectedDevice = self.appDelegate?.settings.selectedSonosDevice,
-                       selectedDevices.contains(where: { $0.name == selectedDevice }) {
+                       devices.contains(where: { $0.name == selectedDevice }) {
                         self.updateVolumeFromSonos()
                     }
                 } else {
                     print("❌ Failed to create group")
 
-                    // Show error HUD
+                    // Show error HUD with helpful message
                     Task { @MainActor in
                         VolumeHUD.shared.showError(
                             title: "Grouping Failed",
-                            message: "Could not create speaker group"
+                            message: "Try pausing music on stereo pairs before grouping, or select a different coordinator"
                         )
                     }
 
