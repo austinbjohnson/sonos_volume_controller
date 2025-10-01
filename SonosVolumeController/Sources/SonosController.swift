@@ -769,7 +769,7 @@ class SonosController: @unchecked Sendable {
 
     /// Add a device to an existing group (or create a new group)
     /// Uses AVTransport SetAVTransportURI with x-rincon URI
-    func addDeviceToGroup(device: SonosDevice, coordinatorUUID: String, shouldRefreshTopology: Bool = true, completion: ((Bool) -> Void)? = nil) {
+    func addDeviceToGroup(device: SonosDevice, coordinatorUUID: String, shouldRefreshTopology: Bool = true, completion: (@Sendable (Bool) -> Void)? = nil) {
         guard let coordinator = devices.first(where: { $0.uuid == coordinatorUUID }) else {
             print("❌ Coordinator not found: \(coordinatorUUID)")
             completion?(false)
@@ -821,13 +821,17 @@ class SonosController: @unchecked Sendable {
 
             // Optionally refresh topology before calling completion
             if shouldRefreshTopology {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    self.updateGroupTopology {
-                        completion?(true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                    self?.updateGroupTopology {
+                        DispatchQueue.main.async {
+                            completion?(true)
+                        }
                     }
                 }
             } else {
-                completion?(true)
+                DispatchQueue.main.async {
+                    completion?(true)
+                }
             }
         }.resume()
     }
@@ -908,7 +912,7 @@ class SonosController: @unchecked Sendable {
 
     /// Create a group from multiple devices with smart coordinator selection
     /// If coordinatorDevice is not specified, will choose intelligently based on playback state
-    func createGroup(devices deviceList: [SonosDevice], coordinatorDevice: SonosDevice? = nil, completion: ((Bool) -> Void)? = nil) {
+    func createGroup(devices deviceList: [SonosDevice], coordinatorDevice: SonosDevice? = nil, completion: (@Sendable (Bool) -> Void)? = nil) {
         guard deviceList.count > 1 else {
             print("❌ Need at least 2 devices to create a group")
             completion?(false)
@@ -958,32 +962,37 @@ class SonosController: @unchecked Sendable {
     }
 
     /// Internal helper to perform the actual grouping with a specified coordinator
-    private func performGrouping(devices: [SonosDevice], coordinator: SonosDevice, completion: ((Bool) -> Void)?) {
+    private func performGrouping(devices: [SonosDevice], coordinator: SonosDevice, completion: (@Sendable (Bool) -> Void)?) {
         print("🎵 Creating group with coordinator: \(coordinator.name)")
 
         let membersToAdd = devices.filter { $0.uuid != coordinator.uuid }
+        let dispatchGroup = DispatchGroup()
+        let queue = DispatchQueue(label: "com.sonos.grouping")
         var successCount = 0
-        let totalMembers = membersToAdd.count
 
         // Add each member to the coordinator's group
         for member in membersToAdd {
+            dispatchGroup.enter()
             addDeviceToGroup(device: member, coordinatorUUID: coordinator.uuid, shouldRefreshTopology: false) { success in
-                if success {
-                    successCount += 1
-                }
-
-                // Check if all members have been added
-                if successCount + (totalMembers - successCount) == totalMembers {
-                    let allSuccess = successCount == totalMembers
-                    print(allSuccess ? "✅ All members added" : "⚠️ Some members failed to add")
-
-                    // Refresh topology once after all additions complete
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        self.updateGroupTopology {
-                            print(allSuccess ? "✅ Group created successfully" : "⚠️ Group created with some failures")
-                            completion?(allSuccess)
-                        }
+                queue.async {
+                    if success {
+                        successCount += 1
                     }
+                    dispatchGroup.leave()
+                }
+            }
+        }
+
+        // Wait for all additions to complete
+        dispatchGroup.notify(queue: .main) { [weak self] in
+            let allSuccess = successCount == membersToAdd.count
+            print(allSuccess ? "✅ All members added (\(successCount)/\(membersToAdd.count))" : "⚠️ Some members failed to add (\(successCount)/\(membersToAdd.count))")
+
+            // Refresh topology once after all additions complete
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                self?.updateGroupTopology {
+                    print(allSuccess ? "✅ Group created successfully" : "⚠️ Group created with some failures")
+                    completion?(allSuccess)
                 }
             }
         }
