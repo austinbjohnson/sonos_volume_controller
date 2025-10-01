@@ -30,5 +30,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Fixed ungroup functionality for group checkboxes - properly handles both group IDs and device names when ungrouping (PR #29)
-- Fixed audio dropout when grouping speakers - intelligently selects playing speaker as coordinator to preserve audio, prompts user when multiple speakers are playing
-- Improved group expand/collapse UX - smooth animations with group card anchored in place while member cards slide in/out
+- Fixed audio dropout when grouping speakers - intelligently selects playing speaker as coordinator to preserve audio, prompts user when multiple speakers are playing (PR #30)
+- Improved group expand/collapse UX - smooth animations with group card anchored in place while member cards slide in/out (PR #30)
