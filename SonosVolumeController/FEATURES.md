@@ -12,10 +12,11 @@
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.
 
 ## Enhancements
+- **Improve grouped speakers expand/collapse UX**: Refine the chevron positioning and animation behavior. Currently when a group is expanded, the group card itself moves due to list positioning. Instead, the group card should remain anchored in place while the subspeakers smoothly slide into view below it, pushing other items down.
 - **Simplify trigger source UI**: Replace radio button list with read-only info display showing the current trigger device. Now that "Any Device" is the default and works well, the selection UI could be streamlined to just show what's active (with option to change in preferences if needed)
 
 ## Bugs
-- **Individual speaker volume controls group volume**: When adjusting volume sliders for individual speakers within an expanded group view, it controls the entire group volume instead of the individual speaker volume. (TODO in MenuBarContentView.swift:1117)
+- **Individual speaker volume controls group volume**: When adjusting volume sliders for individual speakers within an expanded group view, it controls the entire group volume instead of the individual speaker volume. (PR #28 - pending merge)
 - **Ungroup not working with group checkboxes**: Selecting a group via its checkbox and clicking "Ungroup Selected" shows "No grouped speakers selected" error. Issue: group cards use group.id (coordinator UUID) but ungroupSelected() looks for device names.
 - **Speakers list spacing**: Adjust spacing/layout in the speakers section of the menu bar popover
 
