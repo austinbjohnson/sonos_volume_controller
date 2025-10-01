@@ -6,11 +6,13 @@ This document guides collaboration between Claude and the developer on the Sonos
 
 ### 1. Picking Next Task
 
-Review `FEATURES.md` and select from:
-- **Features**: Major new functionality
+Review `ROADMAP.md` and select from:
+- **Planned Features**: Major new functionality
 - **Enhancements**: Improvements to existing features
-- **Bugs**: Issues that need fixing
+- **Known Bugs**: Issues that need fixing
 - **App Store Readiness**: Tasks for App Store submission
+
+Check the "In Progress" section to see what's already being worked on to avoid conflicts.
 
 Discuss with the user which task to tackle next.
 
@@ -21,19 +23,26 @@ Discuss with the user which task to tackle next.
    - Enhancements: `enhancement/descriptive-name`
    - Bugs: `bug/descriptive-name`
 
-2. **Plan mode**: Present implementation plan before coding
+2. **Mark as In Progress**: Add to `ROADMAP.md` "In Progress" section
+   ```markdown
+   ## In Progress
+   - **Your task description** (branch: feature/task-name, @username)
+   ```
 
-3. **Track progress**: Use TodoWrite tool for multi-step tasks
+3. **Plan mode**: Present implementation plan before coding
+
+4. **Track progress**: Use TodoWrite tool for multi-step tasks
 
 ### 3. Completing Work
 
 1. **Test**: Build with `swift build -c release` or `swift run`
 
-2. **Update FEATURES.md** (first time - without PR number):
-   - Move completed item from Features/Enhancements/Bugs to "Completed Improvements"
-   - Add description of what was accomplished
+2. **Update documentation** (first time - without PR number):
+   - Add to `CHANGELOG.md` under appropriate section (Added/Changed/Fixed)
+   - Example: `- First launch onboarding with welcome banner`
+   - Remove from "In Progress" section in `ROADMAP.md`
+   - Remove from planned work section in `ROADMAP.md` if applicable
    - **Do NOT include PR number yet** (you don't have it)
-   - Example: `✅ First launch onboarding with welcome banner`
 
 3. **Commit and push**:
    ```bash
@@ -49,12 +58,12 @@ Discuss with the user which task to tackle next.
 4. **Create PR**: Use `gh pr create` with detailed description
    - GitHub will assign a PR number (e.g., #24)
 
-5. **Update FEATURES.md** (second time - add PR number):
+5. **Update CHANGELOG.md** (second time - add PR number):
    - Add the PR number to your entry
-   - Example: `✅ First launch onboarding with welcome banner (PR #24)`
+   - Example: `- First launch onboarding with welcome banner (PR #24)`
    - Commit and push:
    ```bash
-   git commit -am "Add PR number to FEATURES.md"
+   git commit -am "Add PR #24 to CHANGELOG"
    git push
    ```
 
@@ -125,7 +134,9 @@ gh pr create --title "Title" --body "Description"
 
 ## Tips for Development
 
-- Always check `FEATURES.md` at start of session
+- Always check `ROADMAP.md` at start of session
+- Check "In Progress" section before starting work to avoid conflicts
 - Use `swift run` for quick iteration during development
 - Only use `./build-app.sh --install` when ready to test installed behavior
 - Keep PRs focused on single feature/enhancement/bug
+- See `CONTRIBUTING.md` for detailed collaboration guidelines

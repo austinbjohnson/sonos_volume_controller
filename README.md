@@ -37,9 +37,11 @@ swift run
 
 ```
 sonos_volume_controller/
-├── README.md
-├── FEATURES.md                  # Feature roadmap and changelog
-├── DEVELOPMENT.md               # Development workflow
+├── README.md                    # Project overview
+├── ROADMAP.md                   # Planned features and known bugs
+├── CHANGELOG.md                 # Version history and completed work
+├── CONTRIBUTING.md              # Contribution guidelines
+├── DEVELOPMENT.md               # Development workflow and architecture
 ├── CLAUDE.md                    # AI collaboration guide
 └── SonosVolumeController/       # Swift application
     ├── Package.swift
@@ -49,10 +51,16 @@ sonos_volume_controller/
 
 ## Contributing
 
-This is a personal project, but suggestions and issues are welcome!
+This is a personal project, but suggestions and issues are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on:
+- Branch naming conventions
+- PR workflow
+- How to coordinate with other developers
+- Testing requirements
 
 ## Resources
 
 - [Official Sonos API Documentation](https://docs.sonos.com/docs/control-sonos-players)
-- [FEATURES.md](FEATURES.md) - Feature roadmap and completed improvements
+- [ROADMAP.md](ROADMAP.md) - Planned features and known bugs
+- [CHANGELOG.md](CHANGELOG.md) - Version history and completed improvements
 - [DEVELOPMENT.md](DEVELOPMENT.md) - Development workflow and architecture
+- [CONTRIBUTING.md](CONTRIBUTING.md) - Contribution guidelines
