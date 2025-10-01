@@ -653,6 +653,20 @@ class SonosController: @unchecked Sendable {
         }
     }
 
+    /// Set volume for a specific device, bypassing group logic
+    /// Used for controlling individual speakers within a group
+    /// - Parameters:
+    ///   - device: The specific device to control
+    ///   - volume: Volume level (0-100)
+    func setIndividualVolume(device: SonosDevice, volume: Int) {
+        let clampedVolume = max(0, min(100, volume))
+        print("🎚️ setIndividualVolume(\(clampedVolume)) for \(device.name)")
+
+        // Directly set volume using RenderingControl (not GroupRenderingControl)
+        // This works even when the device is part of a group
+        sendSonosCommand(to: device, action: "SetVolume", arguments: ["DesiredVolume": String(clampedVolume)])
+    }
+
     func toggleMute() {
         guard let device = _selectedDevice else {
             print("No Sonos device selected")

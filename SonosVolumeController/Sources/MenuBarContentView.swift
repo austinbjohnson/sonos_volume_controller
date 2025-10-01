@@ -1114,10 +1114,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
 
         let volume = Int(sender.doubleValue)
-        // TODO: Need to implement per-device volume control within groups
-        // For now, this sets the selected device volume
-        appDelegate?.sonosController.selectDevice(name: device.name)
-        appDelegate?.sonosController.setVolume(volume)
+        // Set individual speaker volume within the group
+        // This uses RenderingControl service directly, bypassing group volume logic
+        appDelegate?.sonosController.setIndividualVolume(device: device, volume: volume)
     }
 
     private func updateUngroupButton() {
