@@ -16,7 +16,6 @@
 
 ## Bugs
 - **Individual speaker volume controls group volume**: When adjusting volume sliders for individual speakers within an expanded group view, it controls the entire group volume instead of the individual speaker volume. (TODO in MenuBarContentView.swift:1117)
-- **Ungroup not working with group checkboxes**: Selecting a group via its checkbox and clicking "Ungroup Selected" shows "No grouped speakers selected" error. Issue: group cards use group.id (coordinator UUID) but ungroupSelected() looks for device names.
 - **Speakers list spacing**: Adjust spacing/layout in the speakers section of the menu bar popover
 
 ## Completed Improvements
@@ -36,4 +35,5 @@
 - ✅ Fixed hotkeys not working in installed app - reverted to F11/F12 defaults, fixed CGEventFlags conversion, added network entitlements, improved permission flow with auto-restart (PR #22)
 - ✅ First launch onboarding with welcome banner - automatically shows popover when no speaker is selected, plus shows HUD notification when user tries to use hotkeys without a speaker selected (PR #24)
 - ✅ Trigger device picker in menu bar - select which audio device activates Sonos hotkeys, defaults to "Any Device" for universal compatibility (PR #25)
-- ✅ Hierarchical group UI with expandable member controls - groups display as primary cards with drill-down capability to control individual speakers within groups (PR #27) 
+- ✅ Hierarchical group UI with expandable member controls - groups display as primary cards with drill-down capability to control individual speakers within groups (PR #27)
+- ✅ Fixed ungroup functionality for group checkboxes - properly handles both group IDs and device names when ungrouping 
