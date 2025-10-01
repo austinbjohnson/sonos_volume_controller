@@ -393,27 +393,25 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         card.addSubview(nameLabel)
         card.addSubview(checkbox)
 
-        // Set card to clip content that goes outside bounds
-        card.wantsLayer = true
-        card.layer?.masksToBounds = false  // Allow chevron to visually extend
-
         NSLayoutConstraint.activate([
-            // Position icon at same spot as individual speaker cards (12px from left)
-            icon.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
-            icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 20),
-            icon.heightAnchor.constraint(equalToConstant: 20),
-
-            // Position chevron directly before the icon (overlapping into the margin)
-            chevronButton.trailingAnchor.constraint(equalTo: icon.leadingAnchor, constant: -2),
+            // Position chevron at left edge inside card
+            chevronButton.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
             chevronButton.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             chevronButton.widthAnchor.constraint(equalToConstant: 16),
             chevronButton.heightAnchor.constraint(equalToConstant: 20),
 
+            // Position icon after chevron
+            icon.leadingAnchor.constraint(equalTo: chevronButton.trailingAnchor, constant: 6),
+            icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 20),
+            icon.heightAnchor.constraint(equalToConstant: 20),
+
+            // Position name after icon
             nameLabel.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
             nameLabel.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             nameLabel.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -10),
 
+            // Checkbox stays on right
             checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
             checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
 
@@ -1401,6 +1399,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
                     // Clear selections
                     self.selectedSpeakerCards.removeAll()
+
+                    // Clear expanded groups so new group appears collapsed
+                    self.expandedGroups.removeAll()
 
                     // Reset button
                     self.groupButton.title = "Group Selected"
