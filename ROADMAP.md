@@ -39,3 +39,7 @@ _When starting work on a task, add it here with your branch name and username to
 - **Individual speaker volume controls group volume**: When adjusting volume sliders for individual speakers within an expanded group view, it controls the entire group volume instead of the individual speaker volume. (TODO in MenuBarContentView.swift:1117)
 
 - **Speakers list spacing**: Adjust spacing/layout in the speakers section of the menu bar popover
+
+## Known Limitations
+
+- **Line-in audio lost when grouping with stereo pairs**: When a stereo pair is playing line-in audio and grouped with another speaker, the line-in audio stops because the non-stereo-pair becomes coordinator and line-in sources are device-specific (cannot be shared). Workaround: Manually set the stereo pair with line-in as the coordinator in the Sonos app, or use streaming sources instead of line-in when grouping.
