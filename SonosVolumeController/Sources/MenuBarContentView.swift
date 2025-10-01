@@ -1144,9 +1144,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     memberCard.bottomAnchor.constraint(equalTo: paddedContainer.bottomAnchor)
                 ])
 
-                // Start with zero height for animation
-                paddedContainer.wantsLayer = true
-                paddedContainer.layer?.opacity = 0
+                // Start with zero alpha for animation
                 paddedContainer.alphaValue = 0
 
                 // Insert after the group card (or after previous member cards)
@@ -1154,7 +1152,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
                 // Animate in
                 paddedContainer.animator().alphaValue = 1
-                paddedContainer.layer?.animator().opacity = 1
             }
         })
     }
@@ -1176,9 +1173,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
             for view in memberViews {
                 view.animator().alphaValue = 0
-                if view.wantsLayer {
-                    view.layer?.animator().opacity = 0
-                }
             }
         }, completionHandler: {
             // Remove from view hierarchy after animation completes
