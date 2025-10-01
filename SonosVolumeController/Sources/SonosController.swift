@@ -1002,6 +1002,15 @@ class SonosController: @unchecked Sendable {
     private func performGrouping(devices: [SonosDevice], coordinator: SonosDevice, retry: Bool = true, completion: (@Sendable (Bool) -> Void)?) {
         print("🎵 Creating group with coordinator: \(coordinator.name)")
 
+        // Check if coordinator is currently playing - we'll resume it after grouping
+        var coordinatorWasPlaying = false
+        getTransportState(device: coordinator) { [weak self] state in
+            coordinatorWasPlaying = (state == "PLAYING")
+            if coordinatorWasPlaying {
+                print("📝 Coordinator is playing - will resume after grouping if needed")
+            }
+        }
+
         let membersToAdd = devices.filter { $0.uuid != coordinator.uuid }
         let dispatchGroup = DispatchGroup()
         let queue = DispatchQueue(label: "com.sonos.grouping")
@@ -1037,6 +1046,16 @@ class SonosController: @unchecked Sendable {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
                 guard let self = self else { return }
                 self.updateGroupTopology {
+                    // If coordinator was playing, check if it's still playing and resume if needed
+                    if coordinatorWasPlaying {
+                        self.getTransportState(device: coordinator) { state in
+                            if state != "PLAYING" {
+                                print("🔄 Coordinator paused during grouping - resuming playback")
+                                self.sendPlayCommand(to: coordinator)
+                            }
+                        }
+                    }
+
                     print(allSuccess ? "✅ Group created successfully" : "⚠️ Group created with some failures")
                     completion?(allSuccess)
                 }
@@ -1072,6 +1091,38 @@ class SonosController: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    /// Send Play command to a device
+    /// Uses AVTransport Play
+    private func sendPlayCommand(to device: SonosDevice) {
+        let url = URL(string: "http://\(device.ipAddress):1400/MediaRenderer/AVTransport/Control")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
+        request.addValue("\"urn:schemas-upnp-org:service:AVTransport:1#Play\"", forHTTPHeaderField: "SOAPACTION")
+
+        let soapBody = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+            <s:Body>
+                <u:Play xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                    <InstanceID>0</InstanceID>
+                    <Speed>1</Speed>
+                </u:Play>
+            </s:Body>
+        </s:Envelope>
+        """
+
+        request.httpBody = soapBody.data(using: .utf8)
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Failed to send play command: \(error)")
+                return
+            }
+            print("▶️ Play command sent to \(device.name)")
+        }.resume()
     }
 
     /// Get the transport state of a device (PLAYING, PAUSED_PLAYBACK, STOPPED, etc.)
