@@ -1137,63 +1137,85 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     @objc private func ungroupSelected() {
         guard let controller = appDelegate?.sonosController else { return }
 
-        // Get selected devices that are in groups
-        let selectedDevices = controller.discoveredDevices.filter { selectedSpeakerCards.contains($0.name) }
+        // Separate selected items into groups and individual devices
+        let selectedGroupIds = selectedSpeakerCards.filter { id in
+            controller.discoveredGroups.contains(where: { $0.id == id && $0.members.count > 1 })
+        }
+
+        // For device names, get devices that are in groups
+        let deviceNames = selectedSpeakerCards.subtracting(selectedGroupIds)
+        let selectedDevices = controller.discoveredDevices.filter { deviceNames.contains($0.name) }
         let groupedDevices = selectedDevices.filter { controller.getGroupForDevice($0) != nil }
 
-        guard !groupedDevices.isEmpty else {
+        let totalOperations = selectedGroupIds.count + groupedDevices.count
+
+        guard totalOperations > 0 else {
             print("⚠️ No grouped speakers selected")
             return
         }
 
-        print("🔓 Ungrouping \(groupedDevices.count) speakers:")
-        for device in groupedDevices {
-            print("  - \(device.name)")
-        }
+        print("🔓 Ungrouping \(selectedGroupIds.count) group(s) and \(groupedDevices.count) device(s)")
 
         // Disable button during operation
         ungroupButton.isEnabled = false
         ungroupButton.title = "Ungrouping..."
 
-        var successCount = 0
-        let totalCount = groupedDevices.count
+        // Use a class wrapper to track completion count across async callbacks
+        class CompletionTracker {
+            var successCount = 0
+            var completionCount = 0
+        }
+        let tracker = CompletionTracker()
 
-        // Ungroup each selected grouped speaker
-        for device in groupedDevices {
-            controller.removeDeviceFromGroup(device: device) { [weak self] success in
-                DispatchQueue.main.async {
-                    if success {
-                        successCount += 1
-                    }
+        // Completion handler
+        let handleCompletion: (Bool) -> Void = { [weak self] success in
+            DispatchQueue.main.async {
+                tracker.completionCount += 1
+                if success {
+                    tracker.successCount += 1
+                }
 
-                    // Check if all ungroup operations are complete
-                    if successCount + (totalCount - successCount) == totalCount {
-                        let allSuccess = successCount == totalCount
-                        print(allSuccess ? "✅ All speakers ungrouped" : "⚠️ Some speakers failed to ungroup")
+                // Check if all operations are complete
+                if tracker.completionCount == totalOperations {
+                    let allSuccess = tracker.successCount == totalOperations
+                    print(allSuccess ? "✅ All items ungrouped" : "⚠️ Some items failed to ungroup (\(tracker.successCount)/\(totalOperations) successful)")
 
-                        // Clear selections
-                        self?.selectedSpeakerCards.removeAll()
+                    // Clear selections
+                    self?.selectedSpeakerCards.removeAll()
 
-                        // Reset button
-                        self?.ungroupButton.title = "Ungroup Selected"
-                        self?.ungroupButton.isEnabled = false
-                        self?.groupButton.isEnabled = false
-                        self?.groupButton.title = "Group Selected"
+                    // Reset buttons
+                    self?.ungroupButton.title = "Ungroup Selected"
+                    self?.ungroupButton.isEnabled = false
+                    self?.groupButton.isEnabled = false
+                    self?.groupButton.title = "Group Selected"
 
-                        // Refresh UI
-                        self?.populateSpeakers()
+                    // Refresh UI
+                    self?.populateSpeakers()
 
-                        if !allSuccess {
-                            Task { @MainActor in
-                                VolumeHUD.shared.showError(
-                                    title: "Ungroup Failed",
-                                    message: "Could not ungroup all speakers"
-                                )
-                            }
+                    if !allSuccess {
+                        Task { @MainActor in
+                            VolumeHUD.shared.showError(
+                                title: "Ungroup Failed",
+                                message: "Could not ungroup all items"
+                            )
                         }
                     }
                 }
             }
+        }
+
+        // Ungroup selected groups
+        for groupId in selectedGroupIds {
+            if let group = controller.discoveredGroups.first(where: { $0.id == groupId }) {
+                print("  - Dissolving group: \(group.name)")
+                controller.dissolveGroup(group: group, completion: handleCompletion)
+            }
+        }
+
+        // Ungroup individual devices
+        for device in groupedDevices {
+            print("  - Ungrouping device: \(device.name)")
+            controller.removeDeviceFromGroup(device: device, completion: handleCompletion)
         }
     }
 
