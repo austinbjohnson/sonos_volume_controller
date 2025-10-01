@@ -1003,14 +1003,19 @@ class SonosController: @unchecked Sendable {
         print("🎵 Creating group with coordinator: \(coordinator.name)")
 
         // Check if coordinator is currently playing - we'll resume it after grouping
-        var coordinatorWasPlaying = false
-        getTransportState(device: coordinator) { [weak self] state in
-            coordinatorWasPlaying = (state == "PLAYING")
+        getTransportState(device: coordinator) { [weak self] initialState in
+            guard let self = self else { return }
+            let coordinatorWasPlaying = (initialState == "PLAYING")
             if coordinatorWasPlaying {
                 print("📝 Coordinator is playing - will resume after grouping if needed")
             }
-        }
 
+            self.performGroupingInternal(devices: devices, coordinator: coordinator, coordinatorWasPlaying: coordinatorWasPlaying, retry: retry, completion: completion)
+        }
+    }
+
+    /// Internal grouping logic after checking coordinator state
+    private func performGroupingInternal(devices: [SonosDevice], coordinator: SonosDevice, coordinatorWasPlaying: Bool, retry: Bool, completion: (@Sendable (Bool) -> Void)?) {
         let membersToAdd = devices.filter { $0.uuid != coordinator.uuid }
         let dispatchGroup = DispatchGroup()
         let queue = DispatchQueue(label: "com.sonos.grouping")
