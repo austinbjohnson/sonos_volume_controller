@@ -139,6 +139,8 @@ actor UPnPEventListener {
         request.httpMethod = "SUBSCRIBE"
         request.setValue("<\(callbackURL)>", forHTTPHeaderField: "CALLBACK")
         request.setValue("Second-1800", forHTTPHeaderField: "TIMEOUT") // 30 minutes
+        request.setValue("upnp:event", forHTTPHeaderField: "NT") // Notification Type
+        request.setValue("upnp:propchange", forHTTPHeaderField: "NTS") // Notification Sub Type
 
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
@@ -147,6 +149,10 @@ actor UPnPEventListener {
                   httpResponse.statusCode == 200,
                   let sid = httpResponse.value(forHTTPHeaderField: "SID"),
                   let timeoutHeader = httpResponse.value(forHTTPHeaderField: "TIMEOUT") else {
+                print("❌ Subscription request failed for \(deviceIP)")
+                if let httpResponse = response as? HTTPURLResponse {
+                    print("   Status: \(httpResponse.statusCode)")
+                }
                 throw SubscriptionError.invalidResponse
             }
 
