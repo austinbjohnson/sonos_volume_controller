@@ -439,7 +439,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         checkbox.identifier = NSUserInterfaceItemIdentifier(group.id)
         checkbox.translatesAutoresizingMaskIntoConstraints = false
         checkbox.toolTip = "Select for ungrouping"
-        checkbox.isHidden = true  // Hidden by default, shown on hover
+        // Hidden by default, shown on hover (unless already checked)
+        checkbox.isHidden = (checkbox.state != .on)
 
         // Card identifier for tracking
         card.identifier = NSUserInterfaceItemIdentifier(group.id)
@@ -488,7 +489,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             nameLabel.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             nameLabel.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -10),
 
-            // Checkbox stays on right
+            // Checkbox stays on right (aligned with speaker checkboxes)
             checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
             checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
 
@@ -681,7 +682,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         checkbox.identifier = NSUserInterfaceItemIdentifier(device.name)
         checkbox.translatesAutoresizingMaskIntoConstraints = false
         checkbox.toolTip = "Select for grouping"
-        checkbox.isHidden = true  // Hidden by default, shown on hover
+        // Hidden by default, shown on hover (unless already checked)
+        checkbox.isHidden = (checkbox.state != .on)
 
         // Card identifier for tracking
         card.identifier = NSUserInterfaceItemIdentifier(device.name)
@@ -1868,7 +1870,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         super.mouseExited(with: event)
         if let trackingArea = event.trackingArea,
            let checkbox = trackingArea.userInfo?["checkbox"] as? NSButton {
-            checkbox.isHidden = true
+            // Keep checkbox visible if it's checked (selected for grouping/ungrouping)
+            if checkbox.state != .on {
+                checkbox.isHidden = true
+            }
         }
     }
 }
