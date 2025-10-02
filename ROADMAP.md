@@ -21,23 +21,137 @@ _When starting work on a task, add it here with your branch name and username to
 - [ ] Sandboxing configuration
 - [ ] App Store submission
 
-## Planned Features
+## P0 - Critical Issues
 
+_Issues that break core functionality. Must fix immediately._
+
+### Bugs
+- **Header visibility after speakers load**: After speakers are populated in the popover, the header section ("Active" status and speaker name) may not be visible until the popover is reopened or the view is interacted with. The Y coordinate of the header label becomes incorrect (~726px instead of ~40-60px) after population. Scroll-to-top commands don't fix the issue, suggesting a deeper layout coordinate system problem. (MenuBarContentView.swift:673-833) [Added by claudeCode]
+
+- **Individual speaker volume controls group volume**: When adjusting volume sliders for individual speakers within an expanded group view, it controls the entire group volume instead of the individual speaker volume. The `memberVolumeChanged` method exists but needs proper implementation using RenderingControl service for individual speaker adjustments. (MenuBarContentView.swift:1235-1245)
+
+### UX Critical
+- **Checkbox vs. card click confusion**: Speaker cards have dual interaction modes - clicking card selects default speaker, clicking checkbox selects for grouping. Frequently causes mistakes between these two actions. Add explicit "Set as Default" button/icon (e.g., star) to disambiguate. (MenuBarContentView.swift:1061-1073, 1216-1233) [Added by claudeCode]
+
+### Architecture Critical
+- **Thread safety violations with @unchecked Sendable**: SonosController marked @unchecked Sendable but has extensive mutable state (`devices`, `groups` arrays) accessed from multiple threads without proper synchronization. Risk of data races and crashes. Need to either convert to `actor` or add proper locking. (SonosController.swift:4-78) [Added by claudeCode]
+
+- **Synchronous network operations blocking main thread**: DispatchSemaphore used to make network calls synchronous in `updateGroupTopology`, causing UI freezes. Replace with async/await pattern. (SonosController.swift:219-236) [Added by claudeCode]
+
+## P1 - High Priority
+
+_Major friction points impacting usability, significant missing features, or important architectural issues._
+
+### Features
 - **Real-time group topology updates**: Subscribe to Sonos topology events to automatically refresh group information when changed from another app (Sonos app, Alexa, etc.). Follow Sonos best practices for ZoneGroupTopology event subscription and handling `groupCoordinatorChanged` events.
 
 - **Trigger device cache management**: Add ability to refresh trigger sources and cache them persistently. Users should be able to manually delete cached devices that are no longer relevant (similar to WiFi network history - devices remain in cache even when not currently available, but can be manually removed).
 
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.
 
-## Enhancements
+### Enhancements
+- **Audio trigger discoverability**: Trigger device setting displayed as read-only text with no indication it's configurable. Add chevron icon (>) or make row clickable to open Preferences directly. (MenuBarContentView.swift:849-888) [Added by claudeCode]
 
-_No enhancements currently planned. See "Planned Features" for major new functionality._
+- **No visual indication when app disabled**: Menu bar icon doesn't change when app is in "Standby" mode (settings.enabled = false). Can't tell at a glance if hotkeys will work. Consider dimming icon or adding slash overlay. (main.swift:32-67) [Added by claudeCode]
+
+- **Loading states during async operations**: No loading indicator when grouping/ungrouping takes 3-5 seconds. Add NSProgressIndicator next to button text and disable button during operation. (MenuBarContentView.swift:1347-1467) [Added by claudeCode]
+
+- **Network error handling improvements**: Network errors show one-time alert, but no way to retry discovery or diagnose issues after dismissal. Add "Refresh" button in Speakers section when no speakers found. (MenuBarContentView.swift:711-719) [Added by claudeCode]
+
+- **Topology cache invalidation**: Topology cache persists for entire app session. If speakers are regrouped via Sonos app or network changes, cache becomes stale. Add automatic invalidation trigger or manual refresh affordance. (SonosController.swift:11-13) [Added by claudeCode]
+
+- **Group expansion click target too small**: Chevron button is only 20x20pt. Make left third of card expandable or increase chevron hit target to 44x44pt. (MenuBarContentView.swift:1102-1133) [Added by claudeCode]
+
+- **No confirmation for destructive actions**: "Ungroup Selected" immediately dissolves groups without confirmation. Add dialog: "Ungroup X speakers? This cannot be undone." or add undo capability. (MenuBarContentView.swift:1262-1345) [Added by claudeCode]
+
+### Architecture
+- **God object: SonosController (1,412 lines)**: Violates Single Responsibility Principle. Mixes SSDP discovery, UPnP/SOAP communication, XML parsing, device management, group management, volume control, and network socket management. Split into separate services: DeviceDiscoveryService, GroupManagementService, VolumeControlService, SonosNetworkClient. (SonosController.swift) [Added by claudeCode]
+
+- **Massive view controller: MenuBarContentView (1,602 lines)**: Business logic mixed with UI code. Implement MVVM pattern with MenuBarViewModel to separate concerns. Target ~300-400 lines per view controller. (MenuBarContentView.swift) [Added by claudeCode]
+
+- **Raw network layer without abstraction**: SOAP XML constructed via string concatenation (error-prone). No request/response type safety, inconsistent error handling, no retry logic. Introduce type-safe SOAPRequest/SOAPResponse structs with proper error types. (SonosController.swift) [Added by claudeCode]
+
+## P2 - Medium Priority
+
+_Nice-to-have improvements that enhance UX or reduce technical debt._
+
+### Features
+- **Search/filter for speakers**: In large installations (10+ speakers), scrolling list becomes unwieldy. Add search field at top of speaker list. (MenuBarContentView.swift:276-378) [Added by claudeCode]
+
+- **Volume presets**: Add quick volume buttons (25%, 50%, 75%) near slider for instant adjustment. Common pattern in TV remotes and audio apps. [Added by claudeCode]
+
+- **Basic playback controls**: Add play/pause, next/previous buttons since topology is already loaded. Users wouldn't need to switch to Sonos app for basic transport. [Added by claudeCode]
+
+### Enhancements
+- **Volume normalization when grouping**: Individual speaker volumes preserved when creating groups, which can result in unbalanced audio. Consider normalizing to average or coordinator volume. (SonosController.swift:937-998) [Added by claudeCode]
+
+- **Group expand/collapse state persistence**: Expanded groups reset to collapsed when reopening popover. Persist `expandedGroups` Set to UserDefaults. (MenuBarContentView.swift:50) [Added by claudeCode]
+
+- **Volume step size visibility**: Volume step configured in Preferences (1-20%) not shown in popover. Show "±5%" next to slider or in HUD. (PreferencesWindow.swift:84-102) [Added by claudeCode]
+
+- **Stereo pair limitation warning**: When selecting stereo pair as coordinator, operation may fail (Sonos limitation). Warn before attempting or disable stereo pairs as group leaders in UI. (SonosController.swift:980-982) [Added by claudeCode]
+
+- **Graceful degradation for slow networks**: 5s discovery timeout may miss devices on congested networks. Add progressive disclosure: "Discovering... Found 2 speakers, still searching..." with "Search Longer" button. (SonosController.swift:133-143) [Added by claudeCode]
+
+- **Group/individual volume visual differentiation**: Group cards use subtle icon differences. Add colored left border (blue, 3pt) to groups for clearer distinction. (MenuBarContentView.swift:381-466) [Added by claudeCode]
+
+- **Success feedback for grouping**: After grouping, popover refreshes but no explicit success confirmation. Show success HUD: "Group Created: [Name]" and auto-expand new group. (MenuBarContentView.swift:1419-1467) [Added by claudeCode]
+
+- **Wrong device HUD clarity**: "Wrong audio device" message doesn't guide users to fix it. Change to "Switch to [Trigger Device] to use hotkeys" with current device shown. (VolumeKeyMonitor.swift) [Added by claudeCode]
+
+- **Long speaker name truncation**: Names truncated with ellipsis in cards. Add tooltip showing full name on hover or use 2-line wrapping. (MenuBarContentView.swift:548-671) [Added by claudeCode]
+
+- **Offline/unreachable speaker detection**: Offline speakers remain in list, controls fail silently. Detect timeouts, show "Offline" badge, auto-refresh topology every 60s. (SonosController.swift) [Added by claudeCode]
+
+### Architecture
+- **Inconsistent concurrency patterns**: Mix of callbacks, Tasks, DispatchQueue, DispatchSemaphore, Thread.sleep. Establish clear async/await strategy throughout codebase. [Added by claudeCode]
+
+- **Poor error propagation**: Silent failures (print statements only). Introduce structured SonosError enum with LocalizedError conformance for proper user-facing error messages. [Added by claudeCode]
+
+- **Tight coupling to frameworks**: Direct URLSession, Core Audio APIs in business logic. No dependency injection makes testing difficult. Add protocol abstractions (NetworkSession, AudioDeviceProvider). [Added by claudeCode]
+
+## P3 - Low Priority
+
+_Polish, minor improvements, and long-term architectural refactoring._
+
+### Features
+- **About window**: Add window showing version, changelog, support links. No current way to check version without quitting. [Added by claudeCode]
+
+- **Settings import/export**: Users who reinstall or use multiple Macs can't transfer configuration. Add export/import for trigger device, hotkeys, default speaker. [Added by claudeCode]
+
+- **Multi-room scene support**: Sonos supports scenes (predefined group+volume+source). Expose via quick-action buttons. [Added by claudeCode]
+
+- **Sonos alarm management**: View or disable alarms from menu bar (common use case: turn off alarm after waking). [Added by claudeCode]
+
+### Enhancements
+- **Preferences keyboard shortcut**: Add standard Cmd+, to open Preferences. Add tooltip to gear icon showing shortcut. (main.swift) [Added by claudeCode]
+
+- **Volume slider fine control**: Add modifier key support (Shift = 1% increments, Option = 5%) and show percentage tooltip while dragging. (MenuBarContentView.swift:1016-1022) [Added by claudeCode]
+
+- **Hover states**: Add subtle background color change on hover for speaker cards and scale-up (1.02x) for buttons. (MenuBarContentView.swift) [Added by claudeCode]
+
+- **Welcome banner dismissal**: Add close button (X) to banner and persist dismissal preference. (MenuBarContentView.swift:967-1006) [Added by claudeCode]
+
+- **Empty state styling**: "No speakers found" is plain text. Add SF Symbol icon (`antenna.radiowaves.left.and.right.slash`) and helpful suggestion. (MenuBarContentView.swift:711-719) [Added by claudeCode]
+
+- **Grouping button tooltips**: Disabled buttons show no hint about requirements. Add tooltip: "Select 2+ speakers to group". (MenuBarContentView.swift:317-336) [Added by claudeCode]
+
+- **Volume HUD group context**: HUD doesn't indicate if controlling a group. Add group icon and member count: "Living Room + 2 speakers". (VolumeHUD.swift:103-187) [Added by claudeCode]
+
+- **Haptic feedback**: Add NSHapticFeedbackManager for tactile responses on button clicks, volume min/max, group creation. [Added by claudeCode]
+
+- **Console logging in production**: Extensive print() statements. Wrap in #if DEBUG or use os_log for production builds. [Added by claudeCode]
+
+### Architecture
+- **Extract configuration constants**: Magic numbers and strings scattered throughout. Create SonosConstants enum for ports, timeouts, multicast addresses. [Added by claudeCode]
+
+- **Missing protocol abstractions**: No protocol definitions for key components. Would benefit from dependency inversion for testing. [Added by claudeCode]
 
 ## Known Bugs
 
-- **Individual speaker volume controls group volume**: When adjusting volume sliders for individual speakers within an expanded group view, it controls the entire group volume instead of the individual speaker volume. (TODO in MenuBarContentView.swift:1117)
+_Remaining bugs tracked separately from prioritized items above._
 
-- **Header visibility after speakers load**: After speakers are populated in the popover, the header section ("Active" status and speaker name) may not be visible until the popover is reopened or the view is interacted with. The Y coordinate of the header label becomes incorrect (~726px instead of ~40-60px) after population. Scroll-to-top commands don't fix the issue, suggesting a deeper layout coordinate system problem.
+_(Moved to P0/P1 sections)_
 
 ## Known Limitations
 
