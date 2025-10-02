@@ -11,8 +11,6 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
-- **Simplify active speaker concept** (branch: enhancement/simplify-active-speaker, @austinbjohnson)
-
 ---
 
 ## App Store Readiness
@@ -47,8 +45,6 @@ _Major friction points impacting usability, significant missing features, or imp
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.
 
 ### Enhancements
-- **Simplify active speaker concept**: Remove "default speaker" concept and use "last active speaker" instead. On app launch, select the last speaker that was actively used (not a configured default). This makes the behavior more intuitive - the app remembers what you were last controlling. Remove default speaker setting from Preferences. (main.swift, PreferencesWindow.swift, AppSettings.swift)
-
 - **Real-time trigger device display update**: Trigger device display in menu bar popover only updates when popover is reopened. Add real-time notification/observer pattern so display updates immediately when changed in Preferences without requiring popover close/reopen. (MenuBarContentView.swift:1667, MenuBarPopover.swift:59) [Added by claudeCode]
 
 - **No visual indication when app disabled**: Menu bar icon doesn't change when app is in "Standby" mode (settings.enabled = false). Can't tell at a glance if hotkeys will work. Consider dimming icon or adding slash overlay. (main.swift:32-67) [Added by claudeCode]
