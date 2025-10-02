@@ -1,7 +1,7 @@
 import Foundation
 import Cocoa
 
-class AppSettings {
+class AppSettings: @unchecked Sendable {
     private let defaults = UserDefaults.standard
 
     private enum Keys {

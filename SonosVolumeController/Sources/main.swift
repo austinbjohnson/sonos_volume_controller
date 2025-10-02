@@ -98,40 +98,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Discover Sonos devices with completion handler for proper initialization
         print("🔍 Starting Sonos discovery...")
-        sonosController.discoverDevices { [weak self] in
-            guard let self = self else { return }
+        Task {
+            await sonosController.discoverDevices { [weak self] in
+                guard let self = self else { return }
 
-            // Auto-select default speaker AFTER topology is loaded
-            Task { @MainActor in
-                if !self.settings.selectedSonosDevice.isEmpty {
-                    print("🎵 Auto-selecting default speaker (after topology loaded): \(self.settings.selectedSonosDevice)")
-                    self.sonosController.selectDevice(name: self.settings.selectedSonosDevice)
+                // Auto-select default speaker AFTER topology is loaded
+                Task { @MainActor in
+                    if !self.settings.selectedSonosDevice.isEmpty {
+                        print("🎵 Auto-selecting default speaker (after topology loaded): \(self.settings.selectedSonosDevice)")
+                        await self.sonosController.selectDevice(name: self.settings.selectedSonosDevice)
 
-                    // Fetch and sync current volume from the selected speaker
-                    print("🔊 Fetching current volume from default speaker...")
-                    self.sonosController.getVolume { volume in
-                        print("🔊 Initial volume: \(volume)%")
-                        // Post notification to update UI
-                        DispatchQueue.main.async {
-                            NotificationCenter.default.post(
-                                name: NSNotification.Name("SonosVolumeDidChange"),
-                                object: nil,
-                                userInfo: ["volume": volume]
-                            )
+                        // Fetch and sync current volume from the selected speaker
+                        print("🔊 Fetching current volume from default speaker...")
+                        await self.sonosController.getVolume { @Sendable volume in
+                            print("🔊 Initial volume: \(volume)%")
+                            // Post notification to update UI
+                            DispatchQueue.main.async {
+                                NotificationCenter.default.post(
+                                    name: NSNotification.Name("SonosVolumeDidChange"),
+                                    object: nil,
+                                    userInfo: ["volume": volume]
+                                )
+                            }
+                        }
+                    } else {
+                        print("⚠️ No default speaker configured")
+
+                        // First launch - show popover to guide user to select a speaker
+                        print("👋 First launch detected - showing onboarding popover")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            guard let button = self.statusItem.button else { return }
+                            self.menuBarPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
                         }
                     }
-                } else {
-                    print("⚠️ No default speaker configured")
 
-                    // First launch - show popover to guide user to select a speaker
-                    print("👋 First launch detected - showing onboarding popover")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        guard let button = self.statusItem.button else { return }
-                        self.menuBarPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-                    }
+                    print("✅ Sonos discovery and topology loaded")
                 }
-
-                print("✅ Sonos discovery and topology loaded")
             }
         }
 

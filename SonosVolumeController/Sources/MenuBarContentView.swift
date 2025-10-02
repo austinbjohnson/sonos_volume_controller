@@ -306,7 +306,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         speakerCardsContainer.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 8, right: 0)
 
         // Show loading indicator if no devices discovered yet
-        if appDelegate?.sonosController.discoveredDevices.isEmpty != false {
+        if appDelegate?.sonosController.cachedDiscoveredDevices.isEmpty != false {
             isLoadingDevices = true
         }
 
@@ -523,12 +523,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         volumeSlider.translatesAutoresizingMaskIntoConstraints = false
 
         // Load actual volume
-        appDelegate?.sonosController.getCurrentVolume { [weak volumeSlider] volume in
-            DispatchQueue.main.async {
-                if let vol = volume {
-                    volumeSlider?.doubleValue = Double(vol)
-                } else {
-                    volumeSlider?.doubleValue = 50
+        Task { @MainActor in
+            await appDelegate?.sonosController.getCurrentVolume { @Sendable [weak volumeSlider] volume in
+                DispatchQueue.main.async {
+                    if let vol = volume {
+                        volumeSlider?.doubleValue = Double(vol)
+                    } else {
+                        volumeSlider?.doubleValue = 50
+                    }
                 }
             }
         }
@@ -567,7 +569,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private func createSpeakerCard(device: SonosController.SonosDevice, isActive: Bool) -> NSView {
         // Check if device is in a multi-speaker group
         let isInGroup = device.groupCoordinatorUUID != nil &&
-                       appDelegate?.sonosController.discoveredGroups.first(where: {
+                       appDelegate?.sonosController.cachedDiscoveredGroups.first(where: {
                            $0.coordinatorUUID == device.groupCoordinatorUUID && $0.members.count > 1
                        }) != nil
         let isGroupCoordinator = device.isGroupCoordinator && isInGroup
@@ -640,7 +642,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Add group info label if in a group
         if isInGroup {
-            let group = appDelegate?.sonosController.discoveredGroups.first(where: {
+            let group = appDelegate?.sonosController.cachedDiscoveredGroups.first(where: {
                 $0.coordinatorUUID == device.groupCoordinatorUUID
             })
             if let group = group {
@@ -747,7 +749,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
 
         guard let controller = appDelegate?.sonosController,
-              !controller.discoveredDevices.isEmpty else {
+              !controller.cachedDiscoveredDevices.isEmpty else {
             let label = NSTextField(labelWithString: "No speakers found")
             label.alignment = .center
             label.textColor = .tertiaryLabelColor
@@ -757,8 +759,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
 
         let currentSpeaker = appDelegate?.settings.selectedSonosDevice
-        let groups = controller.discoveredGroups
-        let devices = controller.discoveredDevices
+        let groups = controller.cachedDiscoveredGroups
+        let devices = controller.cachedDiscoveredDevices
 
         // Show/hide welcome banner based on whether a speaker is selected
         let shouldShowBanner = currentSpeaker?.isEmpty ?? true
@@ -871,8 +873,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     }
 
     private func updateVolumeTypeLabel() {
-        guard let device = appDelegate?.sonosController.selectedDevice,
-              let group = appDelegate?.sonosController.getGroupForDevice(device) else {
+        guard let device = appDelegate?.sonosController.cachedSelectedDevice,
+              let group = appDelegate?.sonosController.getCachedGroupForDevice(device) else {
             volumeTypeLabel.stringValue = "Volume"
             volumeTypeLabel.textColor = .secondaryLabelColor
             return
@@ -1056,7 +1058,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         volumeLabel.stringValue = "\(volume)%"
         volumeLabel.textColor = .labelColor
         // Set the actual Sonos volume
-        appDelegate?.sonosController.setVolume(volume)
+        Task {
+            await appDelegate?.sonosController.setVolume(volume)
+        }
     }
 
     @objc private func volumeDidChange(_ notification: Notification) {
@@ -1112,7 +1116,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             return
         }
 
-        appDelegate?.sonosController.selectDevice(name: deviceName)
+        Task {
+            await appDelegate?.sonosController.selectDevice(name: deviceName)
+        }
         appDelegate?.settings.selectedSonosDevice = deviceName
 
         speakerNameLabel.stringValue = deviceName
@@ -1132,7 +1138,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
 
         // Check if selected items are groups or individual speakers
-        let groups = appDelegate?.sonosController.discoveredGroups ?? []
+        let groups = appDelegate?.sonosController.cachedDiscoveredGroups ?? []
         let selectedGroupIds = selectedSpeakerCards.filter { id in
             groups.contains(where: { $0.id == id && $0.members.count > 1 })
         }
@@ -1152,7 +1158,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     @objc private func toggleGroupExpansion(_ sender: NSButton) {
         guard let groupId = sender.identifier?.rawValue,
               let controller = appDelegate?.sonosController,
-              let group = controller.discoveredGroups.first(where: { $0.id == groupId }) else {
+              let group = controller.cachedDiscoveredGroups.first(where: { $0.id == groupId }) else {
             return
         }
 
@@ -1282,8 +1288,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         guard let controller = appDelegate?.sonosController else { return }
 
         // Find the group and select its coordinator as the active device
-        if let group = controller.discoveredGroups.first(where: { $0.id == groupId }) {
-            appDelegate?.sonosController.selectDevice(name: group.coordinator.name)
+        if let group = controller.cachedDiscoveredGroups.first(where: { $0.id == groupId }) {
+            Task {
+                await appDelegate?.sonosController.selectDevice(name: group.coordinator.name)
+            }
             appDelegate?.settings.selectedSonosDevice = group.coordinator.name
 
             // Update UI to show group name
@@ -1297,14 +1305,16 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
     @objc private func memberVolumeChanged(_ sender: NSSlider) {
         guard let deviceUUID = sender.identifier?.rawValue,
-              let device = appDelegate?.sonosController.discoveredDevices.first(where: { $0.uuid == deviceUUID }) else {
+              let device = appDelegate?.sonosController.cachedDiscoveredDevices.first(where: { $0.uuid == deviceUUID }) else {
             return
         }
 
         let volume = Int(sender.doubleValue)
         // Set individual speaker volume within the group
         // This uses RenderingControl service directly, bypassing group volume logic
-        appDelegate?.sonosController.setIndividualVolume(device: device, volume: volume)
+        Task {
+            await appDelegate?.sonosController.setIndividualVolume(device: device, volume: volume)
+        }
     }
 
     private func updateUngroupButton() {
@@ -1314,8 +1324,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
 
         // Check if any selected speakers are in multi-speaker groups
-        let selectedDevices = controller.discoveredDevices.filter { selectedSpeakerCards.contains($0.name) }
-        let groupedDevices = selectedDevices.filter { controller.getGroupForDevice($0) != nil }
+        let selectedDevices = controller.cachedDiscoveredDevices.filter { selectedSpeakerCards.contains($0.name) }
+        let groupedDevices = selectedDevices.filter { controller.getCachedGroupForDevice($0) != nil }
 
         ungroupButton.isEnabled = !groupedDevices.isEmpty
         ungroupButton.title = groupedDevices.count > 1 ?
@@ -1327,13 +1337,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Separate selected items into groups and individual devices
         let selectedGroupIds = selectedSpeakerCards.filter { id in
-            controller.discoveredGroups.contains(where: { $0.id == id && $0.members.count > 1 })
+            controller.cachedDiscoveredGroups.contains(where: { $0.id == id && $0.members.count > 1 })
         }
 
         // For device names, get devices that are in groups
         let deviceNames = selectedSpeakerCards.subtracting(selectedGroupIds)
-        let selectedDevices = controller.discoveredDevices.filter { deviceNames.contains($0.name) }
-        let groupedDevices = selectedDevices.filter { controller.getGroupForDevice($0) != nil }
+        let selectedDevices = controller.cachedDiscoveredDevices.filter { deviceNames.contains($0.name) }
+        let groupedDevices = selectedDevices.filter { controller.getCachedGroupForDevice($0) != nil }
 
         let totalOperations = selectedGroupIds.count + groupedDevices.count
 
@@ -1394,16 +1404,20 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Ungroup selected groups
         for groupId in selectedGroupIds {
-            if let group = controller.discoveredGroups.first(where: { $0.id == groupId }) {
+            if let group = controller.cachedDiscoveredGroups.first(where: { $0.id == groupId }) {
                 print("  - Dissolving group: \(group.name)")
-                controller.dissolveGroup(group: group, completion: handleCompletion)
+                Task {
+                    await controller.dissolveGroup(group: group, completion: handleCompletion)
+                }
             }
         }
 
         // Ungroup individual devices
         for device in groupedDevices {
             print("  - Ungrouping device: \(device.name)")
-            controller.removeDeviceFromGroup(device: device, completion: handleCompletion)
+            Task {
+                await controller.removeDeviceFromGroup(device: device, completion: handleCompletion)
+            }
         }
     }
 
@@ -1415,7 +1429,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Get the actual device objects
         guard let controller = appDelegate?.sonosController else { return }
-        let selectedDevices = controller.discoveredDevices.filter { selectedSpeakerCards.contains($0.name) }
+        let selectedDevices = controller.cachedDiscoveredDevices.filter { selectedSpeakerCards.contains($0.name) }
 
         guard selectedDevices.count == selectedSpeakerCards.count else {
             print("⚠️ Could not find all selected devices")
@@ -1432,19 +1446,21 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         groupButton.title = "Checking playback..."
 
         // Check which devices are currently playing
-        controller.getPlayingDevices(from: selectedDevices) { [weak self] playingDevices in
-            guard let self = self else { return }
+        Task {
+            await controller.getPlayingDevices(from: selectedDevices) { @Sendable [weak self] playingDevices in
+                guard let self = self else { return }
 
-            DispatchQueue.main.async {
-                // If multiple devices are playing, ask user which audio to keep
-                if playingDevices.count > 1 {
-                    self.showCoordinatorSelectionDialog(
-                        playingDevices: playingDevices,
-                        allDevices: selectedDevices
-                    )
-                } else {
-                    // Proceed with smart coordinator selection (0 or 1 playing)
-                    self.performGrouping(devices: selectedDevices, coordinator: nil)
+                DispatchQueue.main.async {
+                    // If multiple devices are playing, ask user which audio to keep
+                    if playingDevices.count > 1 {
+                        self.showCoordinatorSelectionDialog(
+                            playingDevices: playingDevices,
+                            allDevices: selectedDevices
+                        )
+                    } else {
+                        // Proceed with smart coordinator selection (0 or 1 playing)
+                        self.performGrouping(devices: selectedDevices, coordinator: nil)
+                    }
                 }
             }
         }
@@ -1485,7 +1501,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         groupButton.title = "Grouping..."
 
         // Create the group with optional explicit coordinator
-        controller.createGroup(devices: devices, coordinatorDevice: coordinator) { [weak self] success in
+        Task {
+            await controller.createGroup(devices: devices, coordinatorDevice: coordinator) { [weak self] success in
             DispatchQueue.main.async {
                 guard let self = self else { return }
 
@@ -1525,6 +1542,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     self.groupButton.isEnabled = true
                     self.groupButton.title = "Group \(self.selectedSpeakerCards.count) Speakers"
                 }
+            }
             }
         }
     }
@@ -1648,17 +1666,19 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Update volume type label
         updateVolumeTypeLabel()
 
-        appDelegate?.sonosController.getVolume { [weak self] volume in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
+        Task { @MainActor in
+            await appDelegate?.sonosController.getVolume { @Sendable [weak self] volume in
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
 
-                self.volumeSlider.doubleValue = Double(volume)
-                self.volumeLabel.stringValue = "\(volume)%"
-                self.volumeLabel.textColor = .labelColor
+                    self.volumeSlider.doubleValue = Double(volume)
+                    self.volumeLabel.stringValue = "\(volume)%"
+                    self.volumeLabel.textColor = .labelColor
 
-                // Enable slider now that we have actual volume
-                if !self.volumeSlider.isEnabled {
-                    self.volumeSlider.isEnabled = true
+                    // Enable slider now that we have actual volume
+                    if !self.volumeSlider.isEnabled {
+                        self.volumeSlider.isEnabled = true
+                    }
                 }
             }
         }
