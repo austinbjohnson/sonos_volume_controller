@@ -11,6 +11,8 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
+- **Individual speaker volume controls group volume bug** (branch: bug/individual-speaker-volume-in-groups, @austinbjohnson)
+
 ---
 
 ## App Store Readiness
