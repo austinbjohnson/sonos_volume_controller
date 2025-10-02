@@ -133,6 +133,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
 
                     print("✅ Sonos discovery and topology loaded")
+
+                    // Start real-time topology monitoring
+                    Task {
+                        do {
+                            try await self.sonosController.startTopologyMonitoring()
+                        } catch {
+                            print("⚠️ Failed to start topology monitoring: \(error)")
+                            print("   Falling back to manual topology updates")
+                        }
+                    }
                 }
             }
         }

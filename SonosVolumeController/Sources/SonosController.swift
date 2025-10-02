@@ -12,6 +12,9 @@ actor SonosController {
     private var topologyCache: [String: String] = [:]  // UUID -> Coordinator UUID
     private var hasLoadedTopology = false
 
+    // Topology snapshot for change detection
+    private var lastTopologySnapshot: String?
+
     // Thread-safe copies for UI access (updated when internal state changes)
     // Using nonisolated(unsafe) because these are only written from actor context
     // and read from nonisolated context, providing thread-safety through careful usage
@@ -55,6 +58,12 @@ actor SonosController {
         _cachedGroups = groups
         _cachedSelectedDevice = _selectedDevice
     }
+
+    // MARK: - Real-time Event Subscription
+
+    private var eventListener: UPnPEventListener?
+    private var eventProcessingTask: Task<Void, Never>?
+    private var coordinatorSubscriptions: [String: String] = [:]  // UUID -> SID
 
     struct SonosDevice {
         let name: String
@@ -399,13 +408,42 @@ actor SonosController {
             // Refresh selected device to pick up new coordinator information
             self.refreshSelectedDevice()
 
-        // Notify that devices have changed (for UI updates)
-        Task { @MainActor in
-            NotificationCenter.default.post(name: NSNotification.Name("SonosDevicesDiscovered"), object: nil)
+        // Check if topology actually changed before notifying UI
+        let newSnapshot = generateTopologySnapshot()
+        let topologyChanged = newSnapshot != lastTopologySnapshot
+
+        if topologyChanged {
+            print("📊 Topology changed, notifying UI")
+            lastTopologySnapshot = newSnapshot
+
+            // Notify that devices have changed (for UI updates)
+            Task { @MainActor in
+                NotificationCenter.default.post(name: NSNotification.Name("SonosDevicesDiscovered"), object: nil)
+            }
+        } else {
+            print("📊 Topology unchanged, skipping UI update")
         }
 
         // Call completion handler
         completion?()
+    }
+
+    /// Generate a snapshot signature of the current topology for change detection
+    private func generateTopologySnapshot() -> String {
+        // Create a sorted list of groups with their members
+        // This captures all meaningful topology changes (grouping/ungrouping)
+        let groupSignatures = groups
+            .sorted { $0.id < $1.id }
+            .map { group in
+                let memberUUIDs = group.members
+                    .map { $0.uuid }
+                    .sorted()
+                    .joined(separator: ",")
+                return "\(group.id):[\(memberUUIDs)]"
+            }
+            .joined(separator: ";")
+
+        return groupSignatures
     }
 
     private func parseSSDPResponse(_ data: String, from address: String) -> SonosDevice? {
@@ -549,6 +587,160 @@ actor SonosController {
             )
         }.sorted { $0.coordinator.name < $1.coordinator.name }
         updateCachedValues() // Update thread-safe copies
+    }
+
+    // MARK: - Real-time Topology Monitoring
+
+    /// Start monitoring topology changes via UPnP event subscriptions
+    func startTopologyMonitoring() async throws {
+        print("🎧 Starting topology monitoring...")
+
+        // Create event listener if needed
+        if eventListener == nil {
+            let listener = try await UPnPEventListener()
+            eventListener = listener
+
+            // Start processing events - capture listener to avoid actor isolation issues
+            eventProcessingTask = Task { [weak self] in
+                for await event in listener.events {
+                    await self?.handleTopologyEvent(event)
+                }
+            }
+        }
+
+        // Subscribe to coordinator devices
+        await subscribeToCoordinators()
+
+        print("✅ Topology monitoring started")
+    }
+
+    /// Stop monitoring topology changes
+    func stopTopologyMonitoring() async {
+        print("🛑 Stopping topology monitoring...")
+
+        // Cancel event processing
+        eventProcessingTask?.cancel()
+        eventProcessingTask = nil
+
+        // Shutdown event listener
+        if let listener = eventListener {
+            await listener.shutdown()
+        }
+
+        eventListener = nil
+        coordinatorSubscriptions.removeAll()
+
+        print("✅ Topology monitoring stopped")
+    }
+
+    /// Subscribe to all coordinator devices
+    private func subscribeToCoordinators() async {
+        print("📡 Subscribing to coordinators...")
+
+        guard let listener = eventListener else { return }
+
+        // Find unique coordinators
+        let coordinatorUUIDs = Set(devices.compactMap { $0.groupCoordinatorUUID })
+        let coordinators = coordinatorUUIDs.compactMap { uuid in
+            devices.first { $0.uuid == uuid }
+        }
+
+        print("   Found \(coordinators.count) coordinators")
+
+        for coordinator in coordinators {
+            // Skip if already subscribed
+            if coordinatorSubscriptions[coordinator.uuid] != nil {
+                print("   Already subscribed to \(coordinator.name)")
+                continue
+            }
+
+            do {
+                let sid = try await listener.subscribe(
+                    deviceUUID: coordinator.uuid,
+                    deviceIP: coordinator.ipAddress,
+                    service: .zoneGroupTopology
+                )
+
+                coordinatorSubscriptions[coordinator.uuid] = sid
+                print("   ✅ Subscribed to \(coordinator.name) (SID: \(sid))")
+
+            } catch {
+                print("   ⚠️ Failed to subscribe to \(coordinator.name): \(error)")
+            }
+        }
+    }
+
+    /// Handle incoming topology events
+    private func handleTopologyEvent(_ event: UPnPEventListener.TopologyEvent) async {
+        switch event {
+        case .topologyChanged(let xml):
+            print("🔄 Topology changed - updating...")
+
+            // Parse the new topology (this will post SonosDevicesDiscovered notification)
+            parseGroupTopology(xml, completion: nil)
+
+            // Resubscribe to any new coordinators
+            await subscribeToCoordinators()
+
+            print("✅ Topology updated from event")
+
+        case .coordinatorChanged(let oldUUID, let newUUID):
+            print("🔄 Coordinator changed: \(oldUUID) -> \(newUUID)")
+
+            // Unsubscribe from old coordinator if we were subscribed
+            if let oldSID = coordinatorSubscriptions[oldUUID] {
+                try? await eventListener?.unsubscribe(sid: oldSID)
+                coordinatorSubscriptions.removeValue(forKey: oldUUID)
+            }
+
+            // Subscribe to new coordinator
+            if let newCoordinator = devices.first(where: { $0.uuid == newUUID }) {
+                do {
+                    let sid = try await eventListener?.subscribe(
+                        deviceUUID: newCoordinator.uuid,
+                        deviceIP: newCoordinator.ipAddress,
+                        service: .zoneGroupTopology
+                    )
+
+                    if let sid = sid {
+                        coordinatorSubscriptions[newCoordinator.uuid] = sid
+                        print("✅ Subscribed to new coordinator: \(newCoordinator.name)")
+                    }
+                } catch {
+                    print("⚠️ Failed to subscribe to new coordinator: \(error)")
+                }
+            }
+
+        case .subscriptionExpired(let sid):
+            print("⚠️ Subscription expired: \(sid)")
+
+            // Find and remove the expired subscription
+            for (uuid, subscriptionSID) in coordinatorSubscriptions {
+                if subscriptionSID == sid {
+                    coordinatorSubscriptions.removeValue(forKey: uuid)
+
+                    // Try to resubscribe
+                    if let device = devices.first(where: { $0.uuid == uuid }) {
+                        do {
+                            let newSID = try await eventListener?.subscribe(
+                                deviceUUID: device.uuid,
+                                deviceIP: device.ipAddress,
+                                service: .zoneGroupTopology
+                            )
+
+                            if let newSID = newSID {
+                                coordinatorSubscriptions[uuid] = newSID
+                                print("✅ Resubscribed to \(device.name) after expiration")
+                            }
+                        } catch {
+                            print("⚠️ Failed to resubscribe after expiration: \(error)")
+                        }
+                    }
+
+                    break
+                }
+            }
+        }
     }
 
     // MARK: - Helper Methods
