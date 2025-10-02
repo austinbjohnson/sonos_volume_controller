@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed hotkeys not working in installed app - reverted to F11/F12 defaults, fixed CGEventFlags conversion, added network entitlements, improved permission flow with auto-restart (PR #22)
 
 ### Fixed
+- Popover height calculation on initial display - fixed tiny scroll area bug by forcing Auto Layout to complete before measuring card heights, popover now displays with correct height on first open
 - Real-time group volume slider synchronization - member sliders within expanded groups now update immediately when adjusting group volume, with smooth animations and visual feedback via pulsing connection lines (PR #39)
 - Enhanced group volume controls with bidirectional synchronization - individual speaker sliders now correctly display and control their own volumes (not group volume), group slider updates when individual speakers change, smooth animations throughout (PR #38)
 - Thread safety violations with @unchecked Sendable - converted SonosController to actor with proper async/await patterns, eliminated data race risks (PR #35)
