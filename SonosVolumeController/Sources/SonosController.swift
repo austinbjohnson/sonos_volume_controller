@@ -644,19 +644,11 @@ actor SonosController {
         case .topologyChanged(let xml):
             print("🔄 Topology changed - updating...")
 
-            // Parse the new topology
+            // Parse the new topology (this will post SonosDevicesDiscovered notification)
             parseGroupTopology(xml, completion: nil)
 
             // Resubscribe to any new coordinators
             await subscribeToCoordinators()
-
-            // Notify UI of changes
-            await MainActor.run {
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("SonosDevicesDiscovered"),
-                    object: nil
-                )
-            }
 
             print("✅ Topology updated from event")
 
