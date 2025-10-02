@@ -524,7 +524,8 @@ actor SonosController {
         _selectedDevice = devices.first { $0.name == name }
         updateCachedValues() // Update thread-safe copies
         if let device = _selectedDevice {
-            settings.selectedSonosDevice = device.name
+            // Track this device as last active
+            settings.trackSpeakerActivity(device.name)
 
             var info = "✅ Selected: \(device.name)"
             if device.channelMapSet != nil {

@@ -25,6 +25,10 @@ _When starting work on a task, add it here with your branch name and username to
 _Issues that break core functionality. Must fix immediately._
 
 ### Bugs
+- **Popover height not calculated correctly on initial display**: When popover first opens, height calculation doesn't account for all speakers/groups, resulting in tiny scroll area. Height is correct after clicking a speaker (triggers resize). The issue is that initial height calculation in populateSpeakers() doesn't properly account for expanded groups or total card count. Need to ensure updatePopoverSize() is called after all cards are added with correct height calculation. (MenuBarContentView.swift - populateSpeakers, updatePopoverSize, calculateCardsHeight)
+
+- **Hotkeys not working in clean install - no permission feedback**: On clean install, hotkeys produce system "bonk" sound but don't control volume. User gets no indication that accessibility permission is missing or that hotkeys are disabled. Need better permission status visibility and actionable feedback when hotkeys fail. Current permission check only shows alert on first launch, but doesn't help diagnose why hotkeys aren't working after that. Consider: (1) Show permission status in menu bar popover or Preferences, (2) Add HUD notification when hotkeys pressed without required permissions, (3) Add "Test Hotkeys" button in Preferences to verify they're working. (main.swift:193-243, VolumeKeyMonitor.swift)
+
 - **Cannot select collapsed group for ungrouping**: When a group is collapsed, clicking the checkbox does not allow selecting it for the "Ungroup Selected" action. Must expand group first to select members. Should be able to select collapsed groups for ungrouping. (MenuBarContentView.swift)
 
 - **Line-in audio source stops when grouping**: When grouping a speaker playing line-in audio with another speaker, the audio pauses briefly, plays for one second after grouping completes, then cuts out entirely. The Sonos app shows the line-in source is no longer active for the group. This is likely because the non-line-in speaker becomes the group coordinator and line-in sources cannot be shared across groups (device-specific limitation). Need to detect line-in sources and either: (1) make the line-in speaker the coordinator, or (2) warn user before grouping. (SonosController.swift:937-998)
@@ -43,8 +47,6 @@ _Major friction points impacting usability, significant missing features, or imp
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.
 
 ### Enhancements
-- **Simplify active speaker concept**: Remove "default speaker" concept and use "last active speaker" instead. On app launch, select the last speaker that was actively used (not a configured default). This makes the behavior more intuitive - the app remembers what you were last controlling. Remove default speaker setting from Preferences. (main.swift, PreferencesWindow.swift, AppSettings.swift)
-
 - **Real-time trigger device display update**: Trigger device display in menu bar popover only updates when popover is reopened. Add real-time notification/observer pattern so display updates immediately when changed in Preferences without requiring popover close/reopen. (MenuBarContentView.swift:1667, MenuBarPopover.swift:59) [Added by claudeCode]
 
 - **No visual indication when app disabled**: Menu bar icon doesn't change when app is in "Standby" mode (settings.enabled = false). Can't tell at a glance if hotkeys will work. Consider dimming icon or adding slash overlay. (main.swift:32-67) [Added by claudeCode]

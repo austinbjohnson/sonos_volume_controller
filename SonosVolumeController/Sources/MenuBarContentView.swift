@@ -153,7 +153,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         container.addSubview(statusLabel)
 
         // Speaker name - large and prominent
-        let currentSpeaker = appDelegate?.settings.selectedSonosDevice ?? "No Speaker"
+        let currentSpeaker = appDelegate?.settings.lastActiveSpeaker ?? "No Speaker"
         speakerNameLabel = NSTextField(labelWithString: currentSpeaker)
         speakerNameLabel.font = .systemFont(ofSize: 22, weight: .semibold)
         speakerNameLabel.textColor = .labelColor
@@ -393,19 +393,15 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         let isExpanded = expandedGroups.contains(group.id)
 
-        // Star button to set as default
-        let starButton = NSButton()
-        starButton.image = NSImage(systemSymbolName: isActive ? "star.fill" : "star",
-                                    accessibilityDescription: isActive ? "Default group" : "Set as default")
-        starButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        starButton.contentTintColor = isActive ? .systemYellow : .tertiaryLabelColor
-        starButton.isBordered = false
-        starButton.bezelStyle = .inline
-        starButton.target = self
-        starButton.action = #selector(selectGroup(_:))
-        starButton.identifier = NSUserInterfaceItemIdentifier(group.id)
-        starButton.toolTip = isActive ? "Default group" : "Set as default group"
-        starButton.translatesAutoresizingMaskIntoConstraints = false
+        // Active indicator (blue dot) - non-interactive visual indicator
+        let activeIndicator = NSView()
+        if isActive {
+            activeIndicator.wantsLayer = true
+            activeIndicator.layer?.backgroundColor = NSColor.systemBlue.cgColor
+            activeIndicator.layer?.cornerRadius = 4
+            activeIndicator.toolTip = "Currently active"
+        }
+        activeIndicator.translatesAutoresizingMaskIntoConstraints = false
 
         // Chevron for expansion - make it a button so it's separately clickable
         let chevronButton = NSButton()
@@ -427,8 +423,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         // Group name
-        let displayName = isActive ? "\(group.name) (Default)" : group.name
-        let nameLabel = NSTextField(labelWithString: displayName)
+        let nameLabel = NSTextField(labelWithString: group.name)
         nameLabel.font = .systemFont(ofSize: 13, weight: isActive ? .semibold : .medium)
         nameLabel.textColor = isActive ? .labelColor : .labelColor
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -444,25 +439,41 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         checkbox.identifier = NSUserInterfaceItemIdentifier(group.id)
         checkbox.translatesAutoresizingMaskIntoConstraints = false
         checkbox.toolTip = "Select for ungrouping"
+        // Hidden by default, shown on hover (unless already checked)
+        checkbox.isHidden = (checkbox.state != .on)
 
-        // Card identifier for tracking (no longer needed for click gesture)
+        // Card identifier for tracking
         card.identifier = NSUserInterfaceItemIdentifier(group.id)
 
-        card.addSubview(starButton)
+        // Add tracking area for hover detection
+        let trackingArea = NSTrackingArea(
+            rect: card.bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: ["checkbox": checkbox]
+        )
+        card.addTrackingArea(trackingArea)
+
+        // Add click gesture to card (since we removed the interactive star button)
+        let cardClick = NSClickGestureRecognizer(target: self, action: #selector(selectGroup(_:)))
+        cardClick.delegate = self
+        card.addGestureRecognizer(cardClick)
+
+        card.addSubview(activeIndicator)
         card.addSubview(chevronButton)
         card.addSubview(icon)
         card.addSubview(nameLabel)
         card.addSubview(checkbox)
 
         NSLayoutConstraint.activate([
-            // Star button on the left
-            starButton.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
-            starButton.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            starButton.widthAnchor.constraint(equalToConstant: 24),
-            starButton.heightAnchor.constraint(equalToConstant: 24),
+            // Active indicator (blue dot) on the left
+            activeIndicator.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
+            activeIndicator.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            activeIndicator.widthAnchor.constraint(equalToConstant: 8),
+            activeIndicator.heightAnchor.constraint(equalToConstant: 8),
 
-            // Chevron after star button
-            chevronButton.leadingAnchor.constraint(equalTo: starButton.trailingAnchor, constant: 6),
+            // Chevron after active indicator
+            chevronButton.leadingAnchor.constraint(equalTo: activeIndicator.trailingAnchor, constant: 8),
             chevronButton.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             chevronButton.widthAnchor.constraint(equalToConstant: 20),
             chevronButton.heightAnchor.constraint(equalToConstant: 20),
@@ -478,7 +489,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             nameLabel.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             nameLabel.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -10),
 
-            // Checkbox stays on right
+            // Checkbox stays on right (aligned with speaker checkboxes)
             checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
             checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
 
@@ -604,19 +615,15 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             ])
         }
 
-        // Star button to set as default
-        let starButton = NSButton()
-        starButton.image = NSImage(systemSymbolName: isActive ? "star.fill" : "star",
-                                    accessibilityDescription: isActive ? "Default speaker" : "Set as default")
-        starButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        starButton.contentTintColor = isActive ? .systemYellow : .tertiaryLabelColor
-        starButton.isBordered = false
-        starButton.bezelStyle = .inline
-        starButton.target = self
-        starButton.action = #selector(selectSpeaker(_:))
-        starButton.identifier = NSUserInterfaceItemIdentifier(device.name)
-        starButton.toolTip = isActive ? "Default speaker" : "Set as default speaker"
-        starButton.translatesAutoresizingMaskIntoConstraints = false
+        // Active indicator (blue dot) - non-interactive visual indicator
+        let activeIndicator = NSView()
+        if isActive {
+            activeIndicator.wantsLayer = true
+            activeIndicator.layer?.backgroundColor = NSColor.systemBlue.cgColor
+            activeIndicator.layer?.cornerRadius = 4
+            activeIndicator.toolTip = "Currently active"
+        }
+        activeIndicator.translatesAutoresizingMaskIntoConstraints = false
 
         // Speaker icon
         let icon = NSImageView()
@@ -627,10 +634,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         // Build display name with group info
-        var displayName = device.name
-        if isActive {
-            displayName += " (Default)"
-        }
+        let displayName = device.name
 
         // Create a stack for name + group info
         let textStack = NSStackView()
@@ -678,26 +682,42 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         checkbox.identifier = NSUserInterfaceItemIdentifier(device.name)
         checkbox.translatesAutoresizingMaskIntoConstraints = false
         checkbox.toolTip = "Select for grouping"
+        // Hidden by default, shown on hover (unless already checked)
+        checkbox.isHidden = (checkbox.state != .on)
 
-        // Card identifier for tracking (no longer needed for click gesture)
+        // Card identifier for tracking
         card.identifier = NSUserInterfaceItemIdentifier(device.name)
 
         let leadingOffset: CGFloat = (isInGroup && !isGroupCoordinator) ? 20 : 8
 
-        card.addSubview(starButton)
+        // Add tracking area for hover detection
+        let trackingArea = NSTrackingArea(
+            rect: card.bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: ["checkbox": checkbox]
+        )
+        card.addTrackingArea(trackingArea)
+
+        // Add click gesture to card (since we removed the interactive star button)
+        let cardClick = NSClickGestureRecognizer(target: self, action: #selector(selectSpeaker(_:)))
+        cardClick.delegate = self
+        card.addGestureRecognizer(cardClick)
+
+        card.addSubview(activeIndicator)
         card.addSubview(icon)
         card.addSubview(textStack)
         card.addSubview(checkbox)
 
         NSLayoutConstraint.activate([
-            // Star button on the left
-            starButton.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: leadingOffset),
-            starButton.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            starButton.widthAnchor.constraint(equalToConstant: 24),
-            starButton.heightAnchor.constraint(equalToConstant: 24),
+            // Active indicator (blue dot) on the left
+            activeIndicator.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: leadingOffset),
+            activeIndicator.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            activeIndicator.widthAnchor.constraint(equalToConstant: 8),
+            activeIndicator.heightAnchor.constraint(equalToConstant: 8),
 
-            // Icon follows the star button
-            icon.leadingAnchor.constraint(equalTo: starButton.trailingAnchor, constant: 6),
+            // Icon follows the active indicator
+            icon.leadingAnchor.constraint(equalTo: activeIndicator.trailingAnchor, constant: 8),
             icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 20),
             icon.heightAnchor.constraint(equalToConstant: 20),
@@ -763,7 +783,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             return
         }
 
-        let currentSpeaker = appDelegate?.settings.selectedSonosDevice
+        let currentSpeaker = appDelegate?.settings.lastActiveSpeaker
         let groups = controller.cachedDiscoveredGroups
         let devices = controller.cachedDiscoveredDevices
 
@@ -778,33 +798,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Find devices that are in multi-speaker groups
         let devicesInGroups = Set(groups.filter { $0.members.count > 1 }.flatMap { $0.members.map { $0.uuid } })
 
-        // Sort groups: those containing default speaker first, then alphabetically
+        // Sort groups alphabetically (consistent ordering)
         let sortedGroups = groups.filter { $0.members.count > 1 }.sorted { group1, group2 in
-            let isGroup1Active = group1.members.contains(where: { $0.name == currentSpeaker })
-            let isGroup2Active = group2.members.contains(where: { $0.name == currentSpeaker })
-
-            if isGroup1Active && !isGroup2Active {
-                return true
-            } else if !isGroup1Active && isGroup2Active {
-                return false
-            } else {
-                return group1.name.localizedCaseInsensitiveCompare(group2.name) == .orderedAscending
-            }
+            return group1.name.localizedCaseInsensitiveCompare(group2.name) == .orderedAscending
         }
 
-        // Sort ungrouped devices: default speaker first, then alphabetically
+        // Sort ungrouped devices alphabetically (consistent ordering)
         let ungroupedDevices = devices.filter { !devicesInGroups.contains($0.uuid) }.sorted { device1, device2 in
-            let isDevice1Current = device1.name == currentSpeaker
-            let isDevice2Current = device2.name == currentSpeaker
-
-            // Default speaker always first
-            if isDevice1Current && !isDevice2Current {
-                return true
-            } else if !isDevice1Current && isDevice2Current {
-                return false
-            } else {
-                return device1.name.localizedCaseInsensitiveCompare(device2.name) == .orderedAscending
-            }
+            return device1.name.localizedCaseInsensitiveCompare(device2.name) == .orderedAscending
         }
 
         // Add groups first
@@ -1026,7 +1027,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         // Welcome text
-        let text = NSTextField(labelWithString: "Welcome! Select your default speaker below to get started.")
+        let text = NSTextField(labelWithString: "Welcome! Click any speaker below to start controlling it with volume hotkeys.")
         text.font = .systemFont(ofSize: 12, weight: .medium)
         text.textColor = .labelColor
         text.alignment = .left
@@ -1257,7 +1258,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         Task {
             await appDelegate?.sonosController.selectDevice(name: deviceName)
         }
-        appDelegate?.settings.selectedSonosDevice = deviceName
+        // Track this speaker as last active
+        appDelegate?.settings.trackSpeakerActivity(deviceName)
 
         speakerNameLabel.stringValue = deviceName
         populateSpeakers()
@@ -1430,7 +1432,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             Task {
                 await appDelegate?.sonosController.selectDevice(name: group.coordinator.name)
             }
-            appDelegate?.settings.selectedSonosDevice = group.coordinator.name
+            // Track this group as last active
+            appDelegate?.settings.trackSpeakerActivity(group.coordinator.name)
 
             // Update UI to show group name
             speakerNameLabel.stringValue = group.name
@@ -1685,7 +1688,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     self.populateSpeakers()
 
                     // Update volume slider if one of the grouped speakers was selected
-                    if let selectedDevice = self.appDelegate?.settings.selectedSonosDevice,
+                    if let selectedDevice = self.appDelegate?.settings.lastActiveSpeaker,
                        devices.contains(where: { $0.name == selectedDevice }) {
                         self.updateVolumeFromSonos()
                     }
@@ -1818,7 +1821,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Discovery completed if we're calling refresh
         isLoadingDevices = false
 
-        speakerNameLabel.stringValue = appDelegate?.settings.selectedSonosDevice ?? "No Speaker"
+        speakerNameLabel.stringValue = appDelegate?.settings.lastActiveSpeaker ?? "No Speaker"
         updateStatus()
         updateTriggerDeviceLabel()
         populateSpeakers()
@@ -1849,6 +1852,27 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                         self.volumeSlider.isEnabled = true
                     }
                 }
+            }
+        }
+    }
+
+    // MARK: - Mouse Tracking for Checkbox Hover
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        if let trackingArea = event.trackingArea,
+           let checkbox = trackingArea.userInfo?["checkbox"] as? NSButton {
+            checkbox.isHidden = false
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        if let trackingArea = event.trackingArea,
+           let checkbox = trackingArea.userInfo?["checkbox"] as? NSButton {
+            // Keep checkbox visible if it's checked (selected for grouping/ungrouping)
+            if checkbox.state != .on {
+                checkbox.isHidden = true
             }
         }
     }
