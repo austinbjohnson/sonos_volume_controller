@@ -101,6 +101,8 @@ _Nice-to-have improvements that enhance UX or reduce technical debt._
 - **Offline/unreachable speaker detection**: Offline speakers remain in list, controls fail silently. Detect timeouts, show "Offline" badge, auto-refresh topology every 60s. (SonosController.swift) [Added by claudeCode]
 
 ### Architecture
+- **Excessive debug logging from group volume work**: PR #39 added comprehensive 📊/🎚️ logging for debugging group volume synchronization. Now that it's working, clean up duplicate/verbose logs and wrap remaining debug statements in `#if DEBUG`. Focus on: MenuBarContentView.swift:1063-1215 (volumeChanged, refreshMemberVolumes, performMemberVolumeRefresh), SonosController.swift:1496-1598 (snapshotGroupVolume, setGroupVolume). [Added by claudeCode]
+
 - **Remaining Sendable warnings in SonosController**: Multiple warnings for mutation of captured vars and non-Sendable completion handlers. Convert remaining completion handler callbacks to use `@Sendable` closures or pure async/await patterns. (SonosController.swift:461, 465, 476, 790, 926, 1075, 1213, 1266) [Added by claudeCode]
 
 - **Inconsistent concurrency patterns**: Mix of callbacks, Tasks, DispatchQueue, DispatchSemaphore, Thread.sleep. Establish clear async/await strategy throughout codebase. [Added by claudeCode]
