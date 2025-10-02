@@ -11,6 +11,7 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
+
 ---
 
 ## App Store Readiness
@@ -30,8 +31,6 @@ _When starting work on a task, add it here with your branch name and username to
 
 ## Enhancements
 
-- **Dynamic popover sizing with improved group expansion UX**: Remove fixed height and make popover grow/shrink dynamically based on content. Rotate chevron in place (0° → 90°) instead of swapping icons. Group card stays anchored while member cards slide in below. Eliminates scroll positioning issues. Set max height (600-800px) before enabling scroll. Standard macOS pattern with smooth window animations. This will also fix the speakers list spacing issue.
-
 - **Simplify settings window**: Remove tabs for trigger source and speaker selection from the full settings window. Both can be handled directly in the menu bar popover, making a separate tabbed preferences window unnecessary.
 
 - **Simplify trigger source UI**: Replace radio button list with read-only info display showing the current trigger device. Now that "Any Device" is the default and works well, the selection UI could be streamlined to just show what's active (with option to change in preferences if needed).
@@ -39,6 +38,8 @@ _When starting work on a task, add it here with your branch name and username to
 ## Known Bugs
 
 - **Individual speaker volume controls group volume**: When adjusting volume sliders for individual speakers within an expanded group view, it controls the entire group volume instead of the individual speaker volume. (TODO in MenuBarContentView.swift:1117)
+
+- **Header visibility after speakers load**: After speakers are populated in the popover, the header section ("Active" status and speaker name) may not be visible until the popover is reopened or the view is interacted with. The Y coordinate of the header label becomes incorrect (~726px instead of ~40-60px) after population. Scroll-to-top commands don't fix the issue, suggesting a deeper layout coordinate system problem.
 
 ## Known Limitations
 

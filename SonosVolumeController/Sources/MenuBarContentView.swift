@@ -1,5 +1,30 @@
 import Cocoa
 
+// Custom view that enforces 380px width for popover sizing
+private class FixedWidthView: NSView {
+    private var widthConstraint: NSLayoutConstraint?
+
+    override func updateConstraints() {
+        super.updateConstraints()
+
+        // Enforce 380px width constraint
+        if widthConstraint == nil {
+            let constraint = widthAnchor.constraint(equalToConstant: 380)
+            constraint.priority = .required
+            constraint.isActive = true
+            widthConstraint = constraint
+        }
+    }
+
+    override var fittingSize: NSSize {
+        return NSSize(width: 380, height: super.fittingSize.height)
+    }
+
+    override var intrinsicContentSize: NSSize {
+        return NSSize(width: 380, height: NSView.noIntrinsicMetric)
+    }
+}
+
 @available(macOS 26.0, *)
 @MainActor
 class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegate {
@@ -23,6 +48,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var isLoadingDevices: Bool = false
     private var welcomeBanner: NSView!
     private var expandedGroups: Set<String> = []  // Track which groups are expanded
+    private var scrollViewHeightConstraint: NSLayoutConstraint!
+    private var containerView: NSView!
+    private var welcomeBannerHeightConstraint: NSLayoutConstraint!
+    private var isPopulatingInProgress: Bool = false  // Prevent multiple simultaneous populates
 
     init(appDelegate: AppDelegate?) {
         self.appDelegate = appDelegate
@@ -34,9 +63,12 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     }
 
     override func loadView() {
-        // Main container - wider and taller to fit all speakers
-        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 650))
+        // Main container - width fixed at 380px via custom fittingSize, height dynamic
+        containerView = FixedWidthView(frame: NSRect(x: 0, y: 0, width: 380, height: 500))
         self.view = containerView
+
+        // Set preferred content size to prevent auto-sizing
+        self.preferredContentSize = NSSize(width: 380, height: 500)
 
         // Single glass effect view
         glassView = NSGlassEffectView()
@@ -44,10 +76,15 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         glassView.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(glassView)
 
-        // Main content container
+        // Main content container - constrain to exact width
         let contentView = NSView()
         contentView.translatesAutoresizingMaskIntoConstraints = false
         glassView.contentView = contentView
+
+        // Force contentView to be exactly 380px minus margins (2 * 8px = 16px)
+        NSLayoutConstraint.activate([
+            contentView.widthAnchor.constraint(equalToConstant: 364)
+        ])
 
         // Build all sections inside the single glass view
         setupHeaderSection(in: contentView)
@@ -79,12 +116,15 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             object: nil
         )
 
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(devicesDiscovered),
-            name: NSNotification.Name("SonosDevicesDiscovered"),
-            object: nil
-        )
+        // Note: devicesDiscovered is handled by AppDelegate which calls refresh()
+        // No need to observe it here to avoid duplicate populateSpeakers() calls
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        // Now that view is loaded, populate speakers with proper layout
+        populateSpeakers()
     }
 
     deinit {
@@ -270,7 +310,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             isLoadingDevices = true
         }
 
-        populateSpeakers()
+        // Don't populate here - will be called after view is loaded
         scrollView.documentView = speakerCardsContainer
 
         // Group button
@@ -303,6 +343,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let previousDividers = container.subviews.compactMap { $0 as? NSBox }
         let previousDivider = previousDividers[previousDividers.count - 2]
 
+        // Create height constraints for dynamic sizing
+        scrollViewHeightConstraint = scrollView.heightAnchor.constraint(equalToConstant: 200)
+        welcomeBannerHeightConstraint = welcomeBanner.heightAnchor.constraint(equalToConstant: 0) // Start hidden
+
         NSLayoutConstraint.activate([
             speakersTitle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             speakersTitle.topAnchor.constraint(equalTo: previousDivider.bottomAnchor, constant: 12),
@@ -310,12 +354,12 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             welcomeBanner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             welcomeBanner.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
             welcomeBanner.topAnchor.constraint(equalTo: speakersTitle.bottomAnchor, constant: 12),
-            welcomeBanner.heightAnchor.constraint(equalToConstant: 50),
+            welcomeBannerHeightConstraint,
 
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
             scrollView.topAnchor.constraint(equalTo: welcomeBanner.bottomAnchor, constant: 8),
-            scrollView.heightAnchor.constraint(equalToConstant: 250),
+            scrollViewHeightConstraint,
 
             speakerCardsContainer.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
 
@@ -397,7 +441,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             // Position chevron at left edge inside card
             chevronButton.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
             chevronButton.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            chevronButton.widthAnchor.constraint(equalToConstant: 16),
+            chevronButton.widthAnchor.constraint(equalToConstant: 20),
             chevronButton.heightAnchor.constraint(equalToConstant: 20),
 
             // Position icon after chevron
@@ -627,6 +671,17 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     }
 
     private func populateSpeakers() {
+        // Debounce: prevent multiple simultaneous populate calls
+        guard !isPopulatingInProgress else {
+            print("⚠️ populateSpeakers already in progress, skipping")
+            return
+        }
+
+        isPopulatingInProgress = true
+        defer {
+            isPopulatingInProgress = false
+        }
+
         speakerCardsContainer.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
         // Show loading indicator if discovery is in progress
@@ -668,8 +723,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let devices = controller.discoveredDevices
 
         // Show/hide welcome banner based on whether a speaker is selected
-        if let banner = welcomeBanner {
-            banner.isHidden = !(currentSpeaker?.isEmpty ?? true)
+        let shouldShowBanner = currentSpeaker?.isEmpty ?? true
+        if let banner = welcomeBanner, let heightConstraint = welcomeBannerHeightConstraint {
+            banner.isHidden = !shouldShowBanner
+            // Collapse height when hidden to prevent ghost spacing
+            heightConstraint.constant = shouldShowBanner ? 50 : 0
         }
 
         // Find devices that are in multi-speaker groups
@@ -751,6 +809,27 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Update volume type label
         updateVolumeTypeLabel()
+
+        // Force scroll to top to ensure header is visible
+        if let scrollView = speakerCardsContainer.enclosingScrollView {
+            scrollView.documentView?.scroll(NSPoint.zero)
+            scrollView.contentView.scroll(to: NSPoint.zero)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+
+        // Update popover size after initial populate (with delay to ensure layout is complete)
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            // Force scroll to top again after layout
+            if let scrollView = self.speakerCardsContainer.enclosingScrollView {
+                scrollView.documentView?.scroll(NSPoint.zero)
+                scrollView.contentView.scroll(to: NSPoint.zero)
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
+
+            self.updatePopoverSize(animated: false)
+        }
     }
 
     private func updateVolumeTypeLabel() {
@@ -1011,12 +1090,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         populateSpeakers()
     }
 
-    @objc private func devicesDiscovered() {
-        // Discovery completed, hide loading indicator
-        isLoadingDevices = false
-        populateSpeakers()
-    }
-
     // NSGestureRecognizerDelegate - prevent gesture from starting if clicking on checkbox
     func gestureRecognizerShouldBegin(_ gestureRecognizer: NSGestureRecognizer) -> Bool {
         guard let clickGesture = gestureRecognizer as? NSClickGestureRecognizer,
@@ -1090,15 +1163,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             expandedGroups.remove(groupId)
         }
 
-        // Animate chevron rotation
+        // Animate chevron icon swap with smooth transition
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.25
+            context.duration = 0.2
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            sender.animator().contentTintColor = sender.contentTintColor
-        })
 
-        // Update chevron image
-        sender.image = NSImage(systemSymbolName: isExpanding ? "chevron.down" : "chevron.right", accessibilityDescription: "Expand")
+            sender.image = NSImage(systemSymbolName: isExpanding ? "chevron.down" : "chevron.right", accessibilityDescription: "Expand")
+        })
 
         if isExpanding {
             // Expanding - insert member cards with animation
@@ -1151,6 +1222,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 // Animate in
                 paddedContainer.animator().alphaValue = 1
             }
+        }, completionHandler: { [weak self] in
+            // Update popover size AFTER cards are inserted (so we calculate correct height)
+            DispatchQueue.main.async {
+                self?.updatePopoverSize(animated: true)
+            }
         })
     }
 
@@ -1172,11 +1248,15 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             for view in memberViews {
                 view.animator().alphaValue = 0
             }
-        }, completionHandler: {
+        }, completionHandler: { [weak self] in
             // Remove from view hierarchy after animation completes
-            for view in memberViews {
-                self.speakerCardsContainer.removeArrangedSubview(view)
-                view.removeFromSuperview()
+            DispatchQueue.main.async {
+                for view in memberViews {
+                    self?.speakerCardsContainer.removeArrangedSubview(view)
+                    view.removeFromSuperview()
+                }
+                // Update popover size AFTER cards are removed (so we calculate correct height)
+                self?.updatePopoverSize(animated: true)
             }
         })
     }
@@ -1442,6 +1522,90 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         NSApplication.shared.terminate(nil)
     }
 
+    // MARK: - Dynamic Sizing
+
+    private func calculateContentHeight() -> CGFloat {
+        // Calculate total height of speaker cards
+        var cardsHeight: CGFloat = 0
+        for view in speakerCardsContainer.arrangedSubviews {
+            cardsHeight += view.frame.height
+        }
+        // Add spacing between cards (8pt per gap)
+        if speakerCardsContainer.arrangedSubviews.count > 1 {
+            cardsHeight += CGFloat(speakerCardsContainer.arrangedSubviews.count - 1) * 8
+        }
+        // Add bottom padding
+        cardsHeight += 8
+
+        return cardsHeight
+    }
+
+    private func updatePopoverSize(animated: Bool = true) {
+        // Guard against being called before view is loaded
+        guard scrollViewHeightConstraint != nil else {
+            print("⚠️ updatePopoverSize called before view loaded, skipping")
+            return
+        }
+
+        let contentHeight = calculateContentHeight()
+        let maxScrollHeight: CGFloat = 350 // Max height before scroll appears
+        let newScrollHeight = min(contentHeight, maxScrollHeight)
+
+        // Update scroll view height
+        if animated {
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.3
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                context.allowsImplicitAnimation = true
+
+                scrollViewHeightConstraint.animator().constant = newScrollHeight
+                containerView.layoutSubtreeIfNeeded()
+            })
+        } else {
+            scrollViewHeightConstraint.constant = newScrollHeight
+            containerView.layoutSubtreeIfNeeded()
+        }
+
+        // Update popover content size to trigger resize (height only, keep width fixed at 380)
+        if let popover = appDelegate?.menuBarPopover {
+            // Force layout to complete so fittingSize is accurate
+            view.layoutSubtreeIfNeeded()
+            containerView.layoutSubtreeIfNeeded()
+
+            // Get the actual banner height (0 or 50 depending on visibility)
+            let bannerHeight = welcomeBannerHeightConstraint?.constant ?? 0
+
+            // Calculate new height based on all content sections with dynamic banner height
+            let newHeight: CGFloat =
+                24 + // Top padding
+                10 + 8 + 22 + 20 + // Status dot + spacing + speaker name + spacing
+                1 + 16 + // Divider + spacing
+                13 + 8 + 22 + 16 + // Volume label + spacing + slider + spacing
+                1 + 12 + // Divider + spacing
+                13 + 12 + bannerHeight + 8 + // Speakers title + spacing + banner (dynamic) + spacing
+                newScrollHeight + 12 + 30 + 16 + // Scroll view + spacing + buttons + spacing
+                1 + 12 + // Divider + spacing
+                13 + 4 + 120 + 16 + // Trigger title + spacing + radios + spacing
+                1 + 16 + 44 + 16 + // Divider + spacing + actions + padding
+                8 // Bottom padding
+
+            let newSize = NSSize(width: 380, height: newHeight)
+
+            // Update preferred content size to match
+            self.preferredContentSize = newSize
+
+            if animated {
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.25  // Match card animation duration
+                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    popover.contentSize = newSize
+                })
+            } else {
+                popover.contentSize = newSize
+            }
+        }
+    }
+
     // MARK: - Update Methods
 
     private func updateStatus() {
@@ -1455,6 +1619,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
     func refresh() {
         guard isViewLoaded else { return }
+
+        // Discovery completed if we're calling refresh
+        isLoadingDevices = false
 
         speakerNameLabel.stringValue = appDelegate?.settings.selectedSonosDevice ?? "No Speaker"
         updateStatus()
