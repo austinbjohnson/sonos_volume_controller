@@ -41,6 +41,8 @@ _Major friction points impacting usability, significant missing features, or imp
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.
 
 ### Enhancements
+- **Real-time trigger device display update**: Trigger device display in menu bar popover only updates when popover is reopened. Add real-time notification/observer pattern so display updates immediately when changed in Preferences without requiring popover close/reopen. (MenuBarContentView.swift:1667, MenuBarPopover.swift:59) [Added by claudeCode]
+
 - **No visual indication when app disabled**: Menu bar icon doesn't change when app is in "Standby" mode (settings.enabled = false). Can't tell at a glance if hotkeys will work. Consider dimming icon or adding slash overlay. (main.swift:32-67) [Added by claudeCode]
 
 - **Loading states during async operations**: No loading indicator when grouping/ungrouping takes 3-5 seconds. Add NSProgressIndicator next to button text and disable button during operation. (MenuBarContentView.swift:1347-1467) [Added by claudeCode]
