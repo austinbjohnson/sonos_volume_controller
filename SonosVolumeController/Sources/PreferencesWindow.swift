@@ -10,7 +10,6 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
     private var volumeUpTextField: NSTextField?
     private var isRecordingDown = false
     private var isRecordingUp = false
-    private var sonosDropdown: NSPopUpButton?
 
     init(appDelegate: AppDelegate) {
         self.appDelegate = appDelegate
@@ -34,7 +33,7 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
     }
 
     private func createWindow() {
-        let windowRect = NSRect(x: 0, y: 0, width: 600, height: 500)
+        let windowRect = NSRect(x: 0, y: 0, width: 500, height: 380)
         let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
 
         window = NSWindow(
@@ -50,33 +49,14 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
         // Important: Release when closed to prevent leaks, but we control when it closes
         window?.isReleasedWhenClosed = false
 
-        // Create tab view
-        let tabView = NSTabView(frame: NSRect(x: 20, y: 20, width: 560, height: 430))
-
-        // General Tab
-        let generalTab = NSTabViewItem(identifier: "general")
-        generalTab.label = "General"
-        generalTab.view = createGeneralTab()
-        tabView.addTabViewItem(generalTab)
-
-        // Audio Devices Tab
-        let audioTab = NSTabViewItem(identifier: "audio")
-        audioTab.label = "Audio Devices"
-        audioTab.view = createAudioTab()
-        tabView.addTabViewItem(audioTab)
-
-        // Sonos Tab
-        let sonosTab = NSTabViewItem(identifier: "sonos")
-        sonosTab.label = "Sonos"
-        sonosTab.view = createSonosTab()
-        tabView.addTabViewItem(sonosTab)
-
-        window?.contentView?.addSubview(tabView)
+        // Show General tab content directly (no tabs)
+        let contentView = createGeneralTab()
+        window?.contentView = contentView
     }
 
     private func createGeneralTab() -> NSView {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 400))
-        var yPos: CGFloat = 360
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 380))
+        var yPos: CGFloat = 340
 
         // Enable/Disable checkbox
         let enableCheckbox = NSButton(frame: NSRect(x: 30, y: yPos, width: 300, height: 25))
@@ -183,134 +163,6 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
         return view
     }
 
-    private func createAudioTab() -> NSView {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 400))
-        var yPos: CGFloat = 360
-
-        // Trigger Device label
-        let triggerLabel = createLabel(
-            "Trigger Audio Device (activates Sonos control):",
-            frame: NSRect(x: 30, y: yPos, width: 500, height: 20)
-        )
-        view.addSubview(triggerLabel)
-
-        yPos -= 35
-
-        // Audio device dropdown
-        let audioDropdown = NSPopUpButton(frame: NSRect(x: 30, y: yPos, width: 450, height: 26), pullsDown: false)
-        audioDropdown.removeAllItems()
-        audioDropdown.autoenablesItems = false
-
-        // Populate with all audio devices
-        if let devices = appDelegate?.audioMonitor.getAllAudioDevices() {
-            for device in devices {
-                audioDropdown.addItem(withTitle: device)
-            }
-        }
-
-        // Select current trigger device
-        if let triggerDevice = appDelegate?.settings.triggerDeviceName,
-           !triggerDevice.isEmpty {
-            audioDropdown.selectItem(withTitle: triggerDevice)
-        }
-
-        audioDropdown.target = self
-        audioDropdown.action = #selector(triggerDeviceChanged(_:))
-        view.addSubview(audioDropdown)
-
-        yPos -= 60
-
-        // Current device label
-        let currentDevice = appDelegate?.audioMonitor.currentDeviceName ?? "Unknown"
-        let currentLabel = createLabel(
-            "Current Active Device: \(currentDevice)",
-            frame: NSRect(x: 30, y: yPos, width: 500, height: 20)
-        )
-        view.addSubview(currentLabel)
-
-        yPos -= 35
-
-        // Status indicator
-        let isActive = appDelegate?.audioMonitor.shouldInterceptVolumeKeys == true
-        let statusText = isActive ? "✅ Active (Sonos control enabled)" : "⚪ Inactive (using different device)"
-        let statusLabel = createLabel(statusText, frame: NSRect(x: 30, y: yPos, width: 500, height: 20))
-        view.addSubview(statusLabel)
-
-        return view
-    }
-
-    private func createSonosTab() -> NSView {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 400))
-        var yPos: CGFloat = 360
-
-        // Default speaker label
-        let defaultLabel = createLabel(
-            "Default Sonos Speaker (auto-select on startup):",
-            frame: NSRect(x: 30, y: yPos, width: 500, height: 20)
-        )
-        view.addSubview(defaultLabel)
-
-        yPos -= 35
-
-        // Sonos speaker dropdown
-        let sonosDropdown = NSPopUpButton(frame: NSRect(x: 30, y: yPos, width: 450, height: 26), pullsDown: false)
-        sonosDropdown.removeAllItems()
-        sonosDropdown.autoenablesItems = false
-
-        sonosDropdown.addItem(withTitle: "(None - Manual Selection)")
-
-        if let devices = appDelegate?.sonosController.discoveredDevices {
-            for device in devices {
-                sonosDropdown.addItem(withTitle: device.name)
-            }
-        }
-
-        // Select current default speaker
-        if let defaultSpeaker = appDelegate?.settings.selectedSonosDevice,
-           !defaultSpeaker.isEmpty {
-            sonosDropdown.selectItem(withTitle: defaultSpeaker)
-        }
-
-        sonosDropdown.target = self
-        sonosDropdown.action = #selector(defaultSpeakerChanged(_:))
-        view.addSubview(sonosDropdown)
-
-        // Store reference for later updates
-        self.sonosDropdown = sonosDropdown
-
-        yPos -= 50
-
-        // Refresh button
-        let refreshButton = NSButton(frame: NSRect(x: 30, y: yPos, width: 150, height: 28))
-        refreshButton.title = "Refresh Devices"
-        refreshButton.bezelStyle = .rounded
-        refreshButton.target = self
-        refreshButton.action = #selector(refreshSonos(_:))
-        view.addSubview(refreshButton)
-
-        yPos -= 60
-
-        // Current speaker
-        let currentSpeaker = appDelegate?.settings.selectedSonosDevice ?? "(None)"
-        let currentSpeakerLabel = createLabel(
-            "Currently Controlling: \(currentSpeaker)",
-            frame: NSRect(x: 30, y: yPos, width: 500, height: 20)
-        )
-        view.addSubview(currentSpeakerLabel)
-
-        yPos -= 35
-
-        // Device count
-        let deviceCount = appDelegate?.sonosController.discoveredDevices.count ?? 0
-        let deviceCountLabel = createLabel(
-            "Discovered Devices: \(deviceCount)",
-            frame: NSRect(x: 30, y: yPos, width: 500, height: 20)
-        )
-        view.addSubview(deviceCountLabel)
-
-        return view
-    }
-
     // MARK: - Helper Methods
 
     private func createLabel(_ text: String, frame: NSRect) -> NSTextField {
@@ -380,55 +232,6 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
         // Save to settings
         appDelegate?.settings.volumeStep = Int(value)
         print("Volume step changed to: \(value)%")
-    }
-
-    @objc private func triggerDeviceChanged(_ sender: NSPopUpButton) {
-        guard let selectedDevice = sender.selectedItem?.title else { return }
-        appDelegate?.settings.triggerDeviceName = selectedDevice
-        print("Trigger device set to: \(selectedDevice)")
-    }
-
-    @objc private func defaultSpeakerChanged(_ sender: NSPopUpButton) {
-        guard let selectedTitle = sender.selectedItem?.title else { return }
-
-        if selectedTitle == "(None - Manual Selection)" {
-            appDelegate?.settings.selectedSonosDevice = ""
-            print("Default speaker cleared")
-        } else {
-            appDelegate?.settings.selectedSonosDevice = selectedTitle
-            appDelegate?.sonosController.selectDevice(name: selectedTitle)
-            print("Default speaker set to: \(selectedTitle)")
-        }
-    }
-
-    @objc private func refreshSonos(_ sender: NSButton) {
-        print("Refreshing Sonos devices and topology...")
-
-        // Save current selection
-        let currentSelection = sonosDropdown?.selectedItem?.title
-
-        appDelegate?.sonosController.discoverDevices(forceRefreshTopology: true) { [weak self] in
-            guard let self = self else { return }
-
-            Task { @MainActor in
-                // Rebuild dropdown with new devices
-                self.sonosDropdown?.removeAllItems()
-                self.sonosDropdown?.addItem(withTitle: "(None - Manual Selection)")
-
-                if let devices = self.appDelegate?.sonosController.discoveredDevices {
-                    for device in devices {
-                        self.sonosDropdown?.addItem(withTitle: device.name)
-                    }
-                }
-
-                // Restore previous selection if it still exists
-                if let previousSelection = currentSelection {
-                    self.sonosDropdown?.selectItem(withTitle: previousSelection)
-                }
-
-                print("✅ Sonos dropdown updated with \(self.appDelegate?.sonosController.discoveredDevices.count ?? 0) devices")
-            }
-        }
     }
 
     @objc private func recordVolumeDownKey(_ sender: NSButton) {
