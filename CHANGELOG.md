@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hierarchical group UI with expandable member controls - groups display as primary cards with drill-down capability to control individual speakers within groups (PR #27)
 
 ### Changed
+- Simplified UI by streamlining trigger display and preferences window - replaced radio button list with read-only display, removed redundant Audio Devices and Sonos tabs from preferences (PR #32)
 - Changed default hotkeys to Cmd+Shift+9/0 for better ergonomics (PR #20)
 - Fixed hotkeys not working in installed app - reverted to F11/F12 defaults, fixed CGEventFlags conversion, added network entitlements, improved permission flow with auto-restart (PR #22)
 
