@@ -1344,59 +1344,58 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Sort members alphabetically
         let sortedMembers = group.members.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
-        // Insert member cards with animation
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.25
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            context.allowsImplicitAnimation = true
+        print("🔍 [EXPAND] Phase 1: Insert cards invisibly and resize popover")
 
-            for (index, member) in sortedMembers.enumerated() {
-                let memberCard = createMemberCard(device: member)
+        // PHASE 1: Insert cards invisibly and resize popover
+        var insertedContainers: [NSView] = []
 
-                // Add left padding for indentation
-                let paddedContainer = NSView()
-                paddedContainer.translatesAutoresizingMaskIntoConstraints = false
-                paddedContainer.identifier = NSUserInterfaceItemIdentifier("\(afterGroupId)_member_\(member.uuid)")
-                paddedContainer.addSubview(memberCard)
+        for (index, member) in sortedMembers.enumerated() {
+            let memberCard = createMemberCard(device: member)
 
-                NSLayoutConstraint.activate([
-                    memberCard.leadingAnchor.constraint(equalTo: paddedContainer.leadingAnchor, constant: 20),
-                    memberCard.trailingAnchor.constraint(equalTo: paddedContainer.trailingAnchor),
-                    memberCard.topAnchor.constraint(equalTo: paddedContainer.topAnchor),
-                    memberCard.bottomAnchor.constraint(equalTo: paddedContainer.bottomAnchor)
-                ])
+            // Add left padding for indentation
+            let paddedContainer = NSView()
+            paddedContainer.translatesAutoresizingMaskIntoConstraints = false
+            paddedContainer.identifier = NSUserInterfaceItemIdentifier("\(afterGroupId)_member_\(member.uuid)")
+            paddedContainer.addSubview(memberCard)
 
-                // Start with zero alpha for animation
-                paddedContainer.alphaValue = 0
+            NSLayoutConstraint.activate([
+                memberCard.leadingAnchor.constraint(equalTo: paddedContainer.leadingAnchor, constant: 20),
+                memberCard.trailingAnchor.constraint(equalTo: paddedContainer.trailingAnchor),
+                memberCard.topAnchor.constraint(equalTo: paddedContainer.topAnchor),
+                memberCard.bottomAnchor.constraint(equalTo: paddedContainer.bottomAnchor)
+            ])
 
-                // Insert after the group card (or after previous member cards)
-                speakerCardsContainer.insertArrangedSubview(paddedContainer, at: groupCardIndex + 1 + index)
+            // Insert invisibly (alpha = 0)
+            paddedContainer.alphaValue = 0
 
-                // Animate in
-                paddedContainer.animator().alphaValue = 1
-            }
-        }, completionHandler: { [weak self] in
-            // Update popover size AFTER cards are inserted (so we calculate correct height)
-            DispatchQueue.main.async {
-                guard let self = self else { return }
+            // Insert after the group card (or after previous member cards)
+            speakerCardsContainer.insertArrangedSubview(paddedContainer, at: groupCardIndex + 1 + index)
+            insertedContainers.append(paddedContainer)
+        }
 
-                print("🔍 [EXPAND] Animation completed, about to force layout and resize")
-                print("🔍 [EXPAND] Card count before layout: \(self.speakerCardsContainer.arrangedSubviews.count)")
+        // Force layout to calculate final heights with all cards present
+        speakerCardsContainer.layoutSubtreeIfNeeded()
 
-                // Force complete layout of all newly inserted cards before measuring
-                self.speakerCardsContainer.layoutSubtreeIfNeeded()
+        print("🔍 [EXPAND] Cards inserted, forcing layout and resizing popover")
 
-                // Log card heights after layout
-                var totalHeight: CGFloat = 0
-                for (index, view) in self.speakerCardsContainer.arrangedSubviews.enumerated() {
-                    print("🔍 [EXPAND] Card \(index): height = \(view.frame.height)")
-                    totalHeight += view.frame.height
+        // Resize popover to final size (quick animation, 0.2s)
+        updatePopoverSize(animated: true, duration: 0.2)
+
+        // PHASE 2: Fade in cards after a tiny delay (allows popover to start resizing)
+        print("🔍 [EXPAND] Phase 2: Fading in cards after 50ms delay")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.25
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                // Do NOT use allowsImplicitAnimation - only animate alpha
+
+                for container in insertedContainers {
+                    container.animator().alphaValue = 1
                 }
-                print("🔍 [EXPAND] Total cards height: \(totalHeight)")
+            })
 
-                self.updatePopoverSize(animated: true)
-            }
-        })
+            print("🔍 [EXPAND] Fade animation started")
+        }
     }
 
     private func animateRemoveMemberCards(for group: SonosController.SonosGroup) {
@@ -1408,43 +1407,37 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         guard !memberViews.isEmpty else { return }
 
-        // Animate removal
+        print("🔍 [COLLAPSE] Phase 1: Fade out \(memberViews.count) cards")
+
+        // PHASE 1: Fade out cards (keep in hierarchy)
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.25
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            context.allowsImplicitAnimation = true
+            // Do NOT use allowsImplicitAnimation - only animate alpha
 
             for view in memberViews {
                 view.animator().alphaValue = 0
             }
         }, completionHandler: { [weak self] in
-            // Remove from view hierarchy after animation completes
-            DispatchQueue.main.async {
-                guard let self = self else { return }
+            // PHASE 2: Remove and resize after fade completes
+            guard let self = self else { return }
 
-                print("🔍 [COLLAPSE] Animation completed, removing \(memberViews.count) cards")
+            print("🔍 [COLLAPSE] Phase 2: Cards faded out, removing and resizing")
 
-                for view in memberViews {
-                    self.speakerCardsContainer.removeArrangedSubview(view)
-                    view.removeFromSuperview()
-                }
-
-                print("🔍 [COLLAPSE] Cards removed, card count: \(self.speakerCardsContainer.arrangedSubviews.count)")
-
-                // Force layout to complete removal before measuring
-                self.speakerCardsContainer.layoutSubtreeIfNeeded()
-
-                // Log card heights after layout
-                var totalHeight: CGFloat = 0
-                for (index, view) in self.speakerCardsContainer.arrangedSubviews.enumerated() {
-                    print("🔍 [COLLAPSE] Card \(index): height = \(view.frame.height)")
-                    totalHeight += view.frame.height
-                }
-                print("🔍 [COLLAPSE] Total cards height: \(totalHeight)")
-
-                // Update popover size AFTER cards are removed and layout is complete
-                self.updatePopoverSize(animated: true)
+            // Remove from view hierarchy
+            for view in memberViews {
+                self.speakerCardsContainer.removeArrangedSubview(view)
+                view.removeFromSuperview()
             }
+
+            print("🔍 [COLLAPSE] Cards removed, card count: \(self.speakerCardsContainer.arrangedSubviews.count)")
+
+            // Force layout to complete removal
+            self.speakerCardsContainer.layoutSubtreeIfNeeded()
+
+            // Resize popover quickly (0.15s) or instantly to avoid jarring motion
+            print("🔍 [COLLAPSE] Resizing popover with quick animation")
+            self.updatePopoverSize(animated: true, duration: 0.15)
         })
     }
 
@@ -1789,7 +1782,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         return cardsHeight
     }
 
-    private func updatePopoverSize(animated: Bool = true) {
+    private func updatePopoverSize(animated: Bool = true, duration: TimeInterval = 0.25) {
         // Guard against being called before view is loaded
         guard scrollViewHeightConstraint != nil else {
             print("⚠️ updatePopoverSize called before view loaded, skipping")
@@ -1800,10 +1793,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let maxScrollHeight: CGFloat = 350 // Max height before scroll appears
         let newScrollHeight = min(contentHeight, maxScrollHeight)
 
+        print("🔍 [RESIZE] updatePopoverSize(animated: \(animated), duration: \(duration))")
+        print("🔍 [RESIZE] Content height: \(contentHeight), scroll height: \(newScrollHeight)")
+
         // Update scroll view height
         if animated {
             NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.3
+                context.duration = duration
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 context.allowsImplicitAnimation = true
 
@@ -1845,7 +1841,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
             if animated {
                 NSAnimationContext.runAnimationGroup({ context in
-                    context.duration = 0.25  // Match card animation duration
+                    context.duration = duration
                     context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                     popover.contentSize = newSize
                 })
