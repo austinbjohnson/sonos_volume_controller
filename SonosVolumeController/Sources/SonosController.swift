@@ -12,6 +12,9 @@ actor SonosController {
     private var topologyCache: [String: String] = [:]  // UUID -> Coordinator UUID
     private var hasLoadedTopology = false
 
+    // Topology snapshot for change detection
+    private var lastTopologySnapshot: String?
+
     // Thread-safe copies for UI access (updated when internal state changes)
     // Using nonisolated(unsafe) because these are only written from actor context
     // and read from nonisolated context, providing thread-safety through careful usage
@@ -405,13 +408,42 @@ actor SonosController {
             // Refresh selected device to pick up new coordinator information
             self.refreshSelectedDevice()
 
-        // Notify that devices have changed (for UI updates)
-        Task { @MainActor in
-            NotificationCenter.default.post(name: NSNotification.Name("SonosDevicesDiscovered"), object: nil)
+        // Check if topology actually changed before notifying UI
+        let newSnapshot = generateTopologySnapshot()
+        let topologyChanged = newSnapshot != lastTopologySnapshot
+
+        if topologyChanged {
+            print("📊 Topology changed, notifying UI")
+            lastTopologySnapshot = newSnapshot
+
+            // Notify that devices have changed (for UI updates)
+            Task { @MainActor in
+                NotificationCenter.default.post(name: NSNotification.Name("SonosDevicesDiscovered"), object: nil)
+            }
+        } else {
+            print("📊 Topology unchanged, skipping UI update")
         }
 
         // Call completion handler
         completion?()
+    }
+
+    /// Generate a snapshot signature of the current topology for change detection
+    private func generateTopologySnapshot() -> String {
+        // Create a sorted list of groups with their members
+        // This captures all meaningful topology changes (grouping/ungrouping)
+        let groupSignatures = groups
+            .sorted { $0.id < $1.id }
+            .map { group in
+                let memberUUIDs = group.members
+                    .map { $0.uuid }
+                    .sorted()
+                    .joined(separator: ",")
+                return "\(group.id):[\(memberUUIDs)]"
+            }
+            .joined(separator: ";")
+
+        return groupSignatures
     }
 
     private func parseSSDPResponse(_ data: String, from address: String) -> SonosDevice? {
