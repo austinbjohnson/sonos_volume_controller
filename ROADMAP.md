@@ -11,8 +11,6 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
-- **Audio trigger source selection in Preferences**: Add interactive dropdown in Preferences window to allow users to select which audio device triggers Sonos volume control (previously read-only display). (branch: enhancement/audio-trigger-preferences, @austinbjohnson)
-
 ---
 
 ## App Store Readiness

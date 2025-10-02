@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Trigger device picker in menu bar - select which audio device activates Sonos hotkeys, defaults to "Any Device" for universal compatibility (PR #25)
 - Hierarchical group UI with expandable member controls - groups display as primary cards with drill-down capability to control individual speakers within groups (PR #27)
 - Real-time topology updates via UPnP event subscriptions - automatically detects and reflects speaker grouping changes made from Sonos app or other controllers without manual refresh (PR #36)
+- Audio trigger source dropdown in Preferences window for selecting which audio device activates Sonos control
 
 ### Changed
 - Fixed checkbox vs. card click confusion by adding explicit star buttons to set default speaker/group - eliminates accidental clicks between selecting for grouping vs setting as default (PR #34)
