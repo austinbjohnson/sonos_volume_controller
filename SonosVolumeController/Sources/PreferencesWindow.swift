@@ -10,10 +10,16 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
     private var volumeUpTextField: NSTextField?
     private var isRecordingDown = false
     private var isRecordingUp = false
+    private var audioDeviceMonitor: AudioDeviceMonitor?
+    private var triggerDevicePopup: NSPopUpButton?
 
     init(appDelegate: AppDelegate) {
         self.appDelegate = appDelegate
         super.init()
+    }
+
+    func setAudioDeviceMonitor(_ monitor: AudioDeviceMonitor) {
+        self.audioDeviceMonitor = monitor
     }
 
     func show() {
@@ -33,7 +39,7 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
     }
 
     private func createWindow() {
-        let windowRect = NSRect(x: 0, y: 0, width: 500, height: 380)
+        let windowRect = NSRect(x: 0, y: 0, width: 500, height: 480)
         let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
 
         window = NSWindow(
@@ -55,8 +61,8 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
     }
 
     private func createGeneralTab() -> NSView {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 380))
-        var yPos: CGFloat = 340
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 480))
+        var yPos: CGFloat = 440
 
         // Enable/Disable checkbox
         let enableCheckbox = NSButton(frame: NSRect(x: 30, y: yPos, width: 300, height: 25))
@@ -77,6 +83,34 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
         loginCheckbox.target = self
         loginCheckbox.action = #selector(toggleLoginItem(_:))
         view.addSubview(loginCheckbox)
+
+        yPos -= 50
+
+        // Audio Output Trigger section header
+        let triggerHeaderLabel = createLabel("Audio Output Trigger", frame: NSRect(x: 30, y: yPos, width: 200, height: 20))
+        triggerHeaderLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        view.addSubview(triggerHeaderLabel)
+
+        yPos -= 25
+
+        // Descriptive label
+        let triggerDescLabel = createLabel("Control Sonos when this device is active:", frame: NSRect(x: 30, y: yPos, width: 440, height: 20))
+        triggerDescLabel.textColor = .secondaryLabelColor
+        triggerDescLabel.font = NSFont.systemFont(ofSize: 11)
+        view.addSubview(triggerDescLabel)
+
+        yPos -= 30
+
+        // Dropdown for audio device selection
+        let triggerPopup = NSPopUpButton(frame: NSRect(x: 30, y: yPos, width: 350, height: 26))
+        triggerPopup.bezelStyle = .rounded
+        triggerPopup.target = self
+        triggerPopup.action = #selector(triggerDeviceChanged(_:))
+        view.addSubview(triggerPopup)
+        self.triggerDevicePopup = triggerPopup
+
+        // Populate dropdown
+        populateTriggerDeviceDropdown()
 
         yPos -= 60
 
@@ -232,6 +266,65 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
         // Save to settings
         appDelegate?.settings.volumeStep = Int(value)
         print("Volume step changed to: \(value)%")
+    }
+
+    @objc private func triggerDeviceChanged(_ sender: NSPopUpButton) {
+        guard let selectedTitle = sender.selectedItem?.title else { return }
+
+        if selectedTitle == "Any Device (Always Active)" {
+            appDelegate?.settings.triggerDeviceName = ""
+            print("Trigger device set to: Any Device (Always Active)")
+        } else {
+            appDelegate?.settings.triggerDeviceName = selectedTitle
+            print("Trigger device set to: \(selectedTitle)")
+        }
+    }
+
+    private func populateTriggerDeviceDropdown() {
+        guard let popup = triggerDevicePopup else { return }
+
+        popup.removeAllItems()
+
+        // Add "Any Device" as first option
+        popup.addItem(withTitle: "Any Device (Always Active)")
+
+        // Get available audio devices
+        let devices = audioDeviceMonitor?.getAllAudioDevices() ?? []
+
+        if !devices.isEmpty {
+            // Add separator
+            popup.menu?.addItem(NSMenuItem.separator())
+
+            // Add each device
+            for device in devices {
+                popup.addItem(withTitle: device)
+            }
+        }
+
+        // Select current setting
+        let currentTrigger = appDelegate?.settings.triggerDeviceName ?? ""
+        if currentTrigger.isEmpty {
+            popup.selectItem(at: 0) // "Any Device"
+        } else {
+            // Try to find and select the saved device
+            if let index = popup.itemTitles.firstIndex(of: currentTrigger) {
+                popup.selectItem(at: index)
+            } else {
+                // Device not found (disconnected) - show it but grayed out
+                popup.menu?.addItem(NSMenuItem.separator())
+                let notFoundItem = popup.menu?.addItem(
+                    withTitle: "Device Not Found: \(currentTrigger)",
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                notFoundItem?.isEnabled = false
+
+                // Select the disabled item to show user what was saved
+                if let lastIndex = popup.numberOfItems - 1 as Int?, lastIndex >= 0 {
+                    popup.selectItem(at: lastIndex)
+                }
+            }
+        }
     }
 
     @objc private func recordVolumeDownKey(_ sender: NSButton) {

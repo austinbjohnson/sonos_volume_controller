@@ -29,6 +29,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize popover
         menuBarPopover = MenuBarPopover(appDelegate: self)
 
+        // Initialize audio monitor (needed before preferences window is shown)
+        audioMonitor = AudioDeviceMonitor(settings: settings)
+
+        // Wire up audio monitor to preferences window so it can populate device dropdown
+        preferencesWindow.setAudioDeviceMonitor(audioMonitor)
+
         // Create status bar item with custom Sonos speaker icon
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
@@ -67,8 +73,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         print("📍 Status bar item created")
 
-        // Initialize components
-        audioMonitor = AudioDeviceMonitor(settings: settings)
+        // Initialize remaining components (audioMonitor already initialized above)
         sonosController = SonosController(settings: settings)
         volumeKeyMonitor = VolumeKeyMonitor(
             audioMonitor: audioMonitor,
