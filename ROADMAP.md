@@ -11,6 +11,8 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
+- **Fix popover height calculation on initial display** (branch: bug/popover-height-calculation, @austinbjohnson)
+
 ---
 
 ## App Store Readiness
