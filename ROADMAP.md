@@ -11,8 +11,6 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
-- **Checkbox vs. card click confusion fix** (branch: enhancement/clarify-speaker-interactions, @austinbjohnson)
-
 
 ---
 
@@ -31,7 +29,6 @@ _Issues that break core functionality. Must fix immediately._
 - **Individual speaker volume controls group volume**: When adjusting volume sliders for individual speakers within an expanded group view, it controls the entire group volume instead of the individual speaker volume. The `memberVolumeChanged` method exists but needs proper implementation using RenderingControl service for individual speaker adjustments. (MenuBarContentView.swift:1235-1245)
 
 ### UX Critical
-- **Checkbox vs. card click confusion**: Speaker cards have dual interaction modes - clicking card selects default speaker, clicking checkbox selects for grouping. Frequently causes mistakes between these two actions. Add explicit "Set as Default" button/icon (e.g., star) to disambiguate. (MenuBarContentView.swift:1061-1073, 1216-1233) [Added by claudeCode]
 
 ### Architecture Critical
 - **Thread safety violations with @unchecked Sendable**: SonosController marked @unchecked Sendable but has extensive mutable state (`devices`, `groups` arrays) accessed from multiple threads without proper synchronization. Risk of data races and crashes. Need to either convert to `actor` or add proper locking. (SonosController.swift:4-78) [Added by claudeCode]
