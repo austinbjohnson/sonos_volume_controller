@@ -1378,9 +1378,23 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }, completionHandler: { [weak self] in
             // Update popover size AFTER cards are inserted (so we calculate correct height)
             DispatchQueue.main.async {
+                guard let self = self else { return }
+
+                print("🔍 [EXPAND] Animation completed, about to force layout and resize")
+                print("🔍 [EXPAND] Card count before layout: \(self.speakerCardsContainer.arrangedSubviews.count)")
+
                 // Force complete layout of all newly inserted cards before measuring
-                self?.speakerCardsContainer.layoutSubtreeIfNeeded()
-                self?.updatePopoverSize(animated: true)
+                self.speakerCardsContainer.layoutSubtreeIfNeeded()
+
+                // Log card heights after layout
+                var totalHeight: CGFloat = 0
+                for (index, view) in self.speakerCardsContainer.arrangedSubviews.enumerated() {
+                    print("🔍 [EXPAND] Card \(index): height = \(view.frame.height)")
+                    totalHeight += view.frame.height
+                }
+                print("🔍 [EXPAND] Total cards height: \(totalHeight)")
+
+                self.updatePopoverSize(animated: true)
             }
         })
     }
@@ -1406,16 +1420,30 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }, completionHandler: { [weak self] in
             // Remove from view hierarchy after animation completes
             DispatchQueue.main.async {
+                guard let self = self else { return }
+
+                print("🔍 [COLLAPSE] Animation completed, removing \(memberViews.count) cards")
+
                 for view in memberViews {
-                    self?.speakerCardsContainer.removeArrangedSubview(view)
+                    self.speakerCardsContainer.removeArrangedSubview(view)
                     view.removeFromSuperview()
                 }
 
+                print("🔍 [COLLAPSE] Cards removed, card count: \(self.speakerCardsContainer.arrangedSubviews.count)")
+
                 // Force layout to complete removal before measuring
-                self?.speakerCardsContainer.layoutSubtreeIfNeeded()
+                self.speakerCardsContainer.layoutSubtreeIfNeeded()
+
+                // Log card heights after layout
+                var totalHeight: CGFloat = 0
+                for (index, view) in self.speakerCardsContainer.arrangedSubviews.enumerated() {
+                    print("🔍 [COLLAPSE] Card \(index): height = \(view.frame.height)")
+                    totalHeight += view.frame.height
+                }
+                print("🔍 [COLLAPSE] Total cards height: \(totalHeight)")
 
                 // Update popover size AFTER cards are removed and layout is complete
-                self?.updatePopoverSize(animated: true)
+                self.updatePopoverSize(animated: true)
             }
         })
     }
@@ -1734,20 +1762,29 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     // MARK: - Dynamic Sizing
 
     private func calculateContentHeight() -> CGFloat {
+        print("🔍 [CALC] calculateContentHeight() called")
+
         // Force layout to ensure all card frames are calculated
         speakerCardsContainer.layoutSubtreeIfNeeded()
 
         // Calculate total height of speaker cards
         var cardsHeight: CGFloat = 0
-        for view in speakerCardsContainer.arrangedSubviews {
+        for (index, view) in speakerCardsContainer.arrangedSubviews.enumerated() {
+            print("🔍 [CALC] Card \(index): \(view.frame.height)pt")
             cardsHeight += view.frame.height
         }
+
         // Add spacing between cards (8pt per gap)
+        let spacing: CGFloat
         if speakerCardsContainer.arrangedSubviews.count > 1 {
-            cardsHeight += CGFloat(speakerCardsContainer.arrangedSubviews.count - 1) * 8
+            spacing = CGFloat(speakerCardsContainer.arrangedSubviews.count - 1) * 8
+            cardsHeight += spacing
+            print("🔍 [CALC] Added spacing: \(spacing)pt")
         }
+
         // Add bottom padding
         cardsHeight += 8
+        print("🔍 [CALC] Final content height: \(cardsHeight)pt (cards: \(speakerCardsContainer.arrangedSubviews.count))")
 
         return cardsHeight
     }
