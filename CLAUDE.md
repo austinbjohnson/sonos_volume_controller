@@ -132,10 +132,33 @@ gh pr create --title "Title" --body "Description"
 3. **Stereo Pairs**: Query visible speaker (it controls both in pair)
 4. **@MainActor**: VolumeHUD and UI components require main actor isolation
 
+## Sonos API Documentation
+
+**Local docs available at:** `SonosVolumeController/docs/sonos-api/`
+
+Key documentation files:
+- **volume.md**: Volume control best practices, group vs individual volume
+- **groups.md**: Group management, coordinator selection
+- **upnp-local-api.md**: Local UPnP/SOAP API reference
+- **control.md**: Cloud API overview (households, groups, sessions)
+
+**Important:** Always consult local docs before implementing Sonos-related features to ensure compliance with official recommendations.
+
+### Key Sonos Concepts
+
+1. **Group Volume**: According to `volume.md`, group volume "Adjusts volume proportionally across all players in a group" and "Maintains relative volume differences between players"
+
+2. **Both `SetGroupVolume` and `SetRelativeGroupVolume` maintain speaker ratios** - this is documented Sonos behavior
+
+3. **Volume Commands**:
+   - `setVolume` / `SetGroupVolume`: Set absolute volume level (maintains ratios)
+   - `setRelativeVolume` / `SetRelativeGroupVolume`: Adjust volume incrementally (maintains ratios)
+
 ## Tips for Development
 
 - Always check `ROADMAP.md` at start of session
 - Check "In Progress" section before starting work to avoid conflicts
+- **Consult `docs/sonos-api/` before implementing Sonos features**
 - Use `swift run` for quick iteration during development
 - Only use `./build-app.sh --install` when ready to test installed behavior
 - Keep PRs focused on single feature/enhancement/bug
