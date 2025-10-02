@@ -1345,6 +1345,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let sortedMembers = group.members.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
         print("🔍 [EXPAND] Phase 1: Insert cards invisibly and resize popover")
+        print("🔍 [EXPAND] Card count BEFORE insert: \(speakerCardsContainer.arrangedSubviews.count)")
 
         // PHASE 1: Insert cards invisibly and resize popover
         var insertedContainers: [NSView] = []
@@ -1373,8 +1374,18 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             insertedContainers.append(paddedContainer)
         }
 
+        print("🔍 [EXPAND] Card count AFTER insert: \(speakerCardsContainer.arrangedSubviews.count)")
+        print("🔍 [EXPAND] Forcing layout BEFORE measurement...")
+
         // Force layout to calculate final heights with all cards present
         speakerCardsContainer.layoutSubtreeIfNeeded()
+        containerView.layoutSubtreeIfNeeded()
+        view.layoutSubtreeIfNeeded()
+
+        print("🔍 [EXPAND] Layout forced, now checking card heights...")
+        for (i, cardView) in speakerCardsContainer.arrangedSubviews.enumerated() {
+            print("🔍 [EXPAND]   Card \(i): \(cardView.frame.height)pt (alpha: \(cardView.alphaValue))")
+        }
 
         print("🔍 [EXPAND] Cards inserted, forcing layout and resizing popover")
 
@@ -1790,7 +1801,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
 
         let contentHeight = calculateContentHeight()
-        let maxScrollHeight: CGFloat = 350 // Max height before scroll appears
+        let maxScrollHeight: CGFloat = 400 // Max height before scroll appears (increased to accommodate expanded groups)
         let newScrollHeight = min(contentHeight, maxScrollHeight)
 
         print("🔍 [RESIZE] updatePopoverSize(animated: \(animated), duration: \(duration))")
