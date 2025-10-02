@@ -25,7 +25,7 @@ _When starting work on a task, add it here with your branch name and username to
 _Issues that break core functionality. Must fix immediately._
 
 ### Bugs
-- **Group volume changes don't update member sliders**: When adjusting the group volume slider, individual member speaker sliders within the expanded group do not update in real-time. The sliders should move proportionally to reflect how Sonos adjusts individual speaker volumes when the group volume changes. Currently only the group slider moves. (MenuBarContentView.swift:1076-1102, refreshMemberVolumes:1107-1140)
+- **Group volume changes don't update member sliders in real-time**: When adjusting the group volume slider, individual member speaker sliders within the expanded group do not update in real-time. The backend correctly sets the volumes (confirmed by collapsing/expanding group which reloads and shows correct values), but the frontend slider UI doesn't animate/update during the adjustment. Need to ensure refreshMemberVolumes() is being called and the slider animations are working. (MenuBarContentView.swift:1076-1102, refreshMemberVolumes:1107-1140)
 
 - **Cannot select collapsed group for ungrouping**: When a group is collapsed, clicking the checkbox does not allow selecting it for the "Ungroup Selected" action. Must expand group first to select members. Should be able to select collapsed groups for ungrouping. (MenuBarContentView.swift)
 

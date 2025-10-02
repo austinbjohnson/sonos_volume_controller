@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed hotkeys not working in installed app - reverted to F11/F12 defaults, fixed CGEventFlags conversion, added network entitlements, improved permission flow with auto-restart (PR #22)
 
 ### Fixed
-- Enhanced group volume controls with bidirectional synchronization - individual speaker sliders now correctly display and control their own volumes (not group volume), group slider updates when individual speakers change, smooth animations throughout
+- Enhanced group volume controls with bidirectional synchronization - individual speaker sliders now correctly display and control their own volumes (not group volume), group slider updates when individual speakers change, smooth animations throughout (PR #38)
 - Thread safety violations with @unchecked Sendable - converted SonosController to actor with proper async/await patterns, eliminated data race risks (PR #35)
 - Fixed ungroup functionality for group checkboxes - properly handles both group IDs and device names when ungrouping (PR #29)
 - Fixed audio dropout when grouping speakers - intelligently selects playing speaker as coordinator to preserve audio, prompts user when multiple speakers are playing (PR #30)
