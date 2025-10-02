@@ -98,6 +98,8 @@ _Nice-to-have improvements that enhance UX or reduce technical debt._
 - **Offline/unreachable speaker detection**: Offline speakers remain in list, controls fail silently. Detect timeouts, show "Offline" badge, auto-refresh topology every 60s. (SonosController.swift) [Added by claudeCode]
 
 ### Architecture
+- **Remaining Sendable warnings in SonosController**: Multiple warnings for mutation of captured vars and non-Sendable completion handlers. Convert remaining completion handler callbacks to use `@Sendable` closures or pure async/await patterns. (SonosController.swift:461, 465, 476, 790, 926, 1075, 1213, 1266) [Added by claudeCode]
+
 - **Inconsistent concurrency patterns**: Mix of callbacks, Tasks, DispatchQueue, DispatchSemaphore, Thread.sleep. Establish clear async/await strategy throughout codebase. [Added by claudeCode]
 
 - **Poor error propagation**: Silent failures (print statements only). Introduce structured SonosError enum with LocalizedError conformance for proper user-facing error messages. [Added by claudeCode]
@@ -137,6 +139,8 @@ _Polish, minor improvements, and long-term architectural refactoring._
 - **Console logging in production**: Extensive print() statements. Wrap in #if DEBUG or use os_log for production builds. [Added by claudeCode]
 
 ### Architecture
+- **Deprecated String(cString:) usage**: Replace deprecated String(cString:) with String(decoding:as:UTF8.self) after null termination truncation. (SonosController.swift:1467) [Added by claudeCode]
+
 - **Extract configuration constants**: Magic numbers and strings scattered throughout. Create SonosConstants enum for ports, timeouts, multicast addresses. [Added by claudeCode]
 
 - **Missing protocol abstractions**: No protocol definitions for key components. Would benefit from dependency inversion for testing. [Added by claudeCode]
