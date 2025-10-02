@@ -423,8 +423,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         // Group name
-        let displayName = isActive ? "\(group.name) (Default)" : group.name
-        let nameLabel = NSTextField(labelWithString: displayName)
+        let nameLabel = NSTextField(labelWithString: group.name)
         nameLabel.font = .systemFont(ofSize: 13, weight: isActive ? .semibold : .medium)
         nameLabel.textColor = isActive ? .labelColor : .labelColor
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -624,10 +623,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         // Build display name with group info
-        var displayName = device.name
-        if isActive {
-            displayName += " (Default)"
-        }
+        let displayName = device.name
 
         // Create a stack for name + group info
         let textStack = NSStackView()
