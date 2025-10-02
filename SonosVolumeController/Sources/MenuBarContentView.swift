@@ -53,6 +53,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var welcomeBannerHeightConstraint: NSLayoutConstraint!
     private var isPopulatingInProgress: Bool = false  // Prevent multiple simultaneous populates
     private var triggerDeviceLabel: NSTextField!  // Display current audio trigger device
+    private var isAdjustingGroupVolume: Bool = false  // Track when group volume is being adjusted
+    private var memberVolumeThrottleTimer: Timer?  // Throttle member volume refresh calls
 
     init(appDelegate: AppDelegate?) {
         self.appDelegate = appDelegate
@@ -1062,6 +1064,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let volume = Int(sender.doubleValue)
         volumeLabel.stringValue = "\(volume)%"
 
+        // Mark that we're adjusting group volume
+        isAdjustingGroupVolume = true
+        updateMemberCardVisualState(isGroupAdjusting: true)
+
         // Visual feedback: briefly highlight the label
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.15
@@ -1083,6 +1089,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             // (Sonos adjusts member volumes proportionally)
             await MainActor.run {
                 self.refreshMemberVolumes()
+                self.isAdjustingGroupVolume = false
+                self.updateMemberCardVisualState(isGroupAdjusting: false)
             }
         }
     }
@@ -1107,34 +1115,87 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     }
 
     private func refreshMemberVolumes() {
-        // Find all member cards and refresh their volume sliders
-        let memberCards = speakerCardsContainer.arrangedSubviews.filter { view in
+        // Throttle member volume updates to prevent excessive network requests
+        memberVolumeThrottleTimer?.invalidate()
+        memberVolumeThrottleTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.performMemberVolumeRefresh()
+            }
+        }
+    }
+
+    private func performMemberVolumeRefresh() {
+        // Find all member card containers (paddedContainer wrapping the actual member card)
+        let memberContainers = speakerCardsContainer.arrangedSubviews.filter { view in
             guard let identifier = view.identifier?.rawValue else { return false }
             return identifier.contains("_member_")
         }
 
-        for card in memberCards {
-            // Find the volume slider in this member card
-            if let volumeSlider = card.subviews.compactMap({ $0 as? NSSlider }).first,
+        for paddedContainer in memberContainers {
+            // Navigate: paddedContainer -> memberCard -> find slider
+            guard let memberCard = paddedContainer.subviews.first else { continue }
+
+            // Find the volume slider in the actual member card
+            if let volumeSlider = memberCard.subviews.compactMap({ $0 as? NSSlider }).first,
                let deviceUUID = volumeSlider.identifier?.rawValue,
                let device = appDelegate?.sonosController.cachedDiscoveredDevices.first(where: { $0.uuid == deviceUUID }) {
 
                 // Refresh this speaker's individual volume
+                // Capture container reference for later use
+                let containerRef = paddedContainer
                 Task { @MainActor in
-                    await appDelegate?.sonosController.getIndividualVolume(device: device) { @Sendable [weak volumeSlider] volume in
-                        DispatchQueue.main.async {
-                            if let vol = volume {
-                                // Animate slider movement smoothly
-                                NSAnimationContext.runAnimationGroup({ context in
-                                    context.duration = 0.25
-                                    context.allowsImplicitAnimation = true
-                                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                                    volumeSlider?.animator().doubleValue = Double(vol)
-                                })
+                    await appDelegate?.sonosController.getIndividualVolume(device: device) { @Sendable volume in
+                        guard let vol = volume else { return }
+
+                        Task { @MainActor [weak containerRef] in
+                            guard let container = containerRef else { return }
+
+                            // Re-find the slider to ensure it still exists
+                            guard let currentCard = container.subviews.first,
+                                  let currentSlider = currentCard.subviews.compactMap({ $0 as? NSSlider }).first else {
+                                return
                             }
+
+                            // Animate slider movement smoothly
+                            NSAnimationContext.runAnimationGroup({ context in
+                                context.duration = 0.25
+                                context.allowsImplicitAnimation = true
+                                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                                currentSlider.animator().doubleValue = Double(vol)
+                            })
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private func updateMemberCardVisualState(isGroupAdjusting: Bool) {
+        // Find all member card containers
+        let memberContainers = speakerCardsContainer.arrangedSubviews.filter { view in
+            guard let identifier = view.identifier?.rawValue else { return false }
+            return identifier.contains("_member_")
+        }
+
+        for paddedContainer in memberContainers {
+            guard let memberCard = paddedContainer.subviews.first else { continue }
+
+            // Find the connection line (first subview, blue vertical line)
+            if let connectionLine = memberCard.subviews.first(where: { $0.layer?.backgroundColor != nil && $0.frame.width <= 2 }) {
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.4
+                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+
+                    if isGroupAdjusting {
+                        // Pulse the connection line to show active sync
+                        connectionLine.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.8).cgColor
+                        memberCard.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.04).cgColor
+                    } else {
+                        // Return to normal state
+                        connectionLine.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.6).cgColor
+                        memberCard.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.02).cgColor
+                    }
+                })
             }
         }
     }
@@ -1371,6 +1432,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
 
         let volume = Int(sender.doubleValue)
+
+        // Cancel any pending group volume updates (member takes priority)
+        memberVolumeThrottleTimer?.invalidate()
+        isAdjustingGroupVolume = false
 
         // Set individual speaker volume within the group
         // This uses RenderingControl service directly, bypassing group volume logic
