@@ -25,8 +25,6 @@ _When starting work on a task, add it here with your branch name and username to
 _Issues that break core functionality. Must fix immediately._
 
 ### Bugs
-- **Group volume changes don't update member sliders in real-time**: When adjusting the group volume slider, individual member speaker sliders within the expanded group do not update in real-time. The backend correctly sets the volumes (confirmed by collapsing/expanding group which reloads and shows correct values), but the frontend slider UI doesn't animate/update during the adjustment. Need to ensure refreshMemberVolumes() is being called and the slider animations are working. (MenuBarContentView.swift:1076-1102, refreshMemberVolumes:1107-1140)
-
 - **Cannot select collapsed group for ungrouping**: When a group is collapsed, clicking the checkbox does not allow selecting it for the "Ungroup Selected" action. Must expand group first to select members. Should be able to select collapsed groups for ungrouping. (MenuBarContentView.swift)
 
 - **Line-in audio source stops when grouping**: When grouping a speaker playing line-in audio with another speaker, the audio pauses briefly, plays for one second after grouping completes, then cuts out entirely. The Sonos app shows the line-in source is no longer active for the group. This is likely because the non-line-in speaker becomes the group coordinator and line-in sources cannot be shared across groups (device-specific limitation). Need to detect line-in sources and either: (1) make the line-in speaker the coordinator, or (2) warn user before grouping. (SonosController.swift:937-998)
