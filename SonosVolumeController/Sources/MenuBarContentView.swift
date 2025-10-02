@@ -55,7 +55,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var triggerDeviceLabel: NSTextField!  // Display current audio trigger device
     private var isAdjustingGroupVolume: Bool = false  // Track when group volume is being adjusted
     private var memberVolumeThrottleTimer: Timer?  // Throttle member volume refresh calls
-    private var lastKnownVolume: Int?  // Cache last volume for delta calculation
 
     init(appDelegate: AppDelegate?) {
         self.appDelegate = appDelegate
@@ -1065,14 +1064,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let volume = Int(sender.doubleValue)
         volumeLabel.stringValue = "\(volume)%"
 
-        // Calculate delta for proportional volume adjustment (maintains speaker ratios)
-        let delta: Int?
-        if let lastVol = lastKnownVolume {
-            delta = volume - lastVol
-        } else {
-            delta = nil  // First adjustment, use absolute
-        }
-        lastKnownVolume = volume
+        print("📊 [UI] Volume slider changed to: \(volume)%")
 
         // Mark that we're adjusting group volume
         isAdjustingGroupVolume = true
@@ -1091,19 +1083,16 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             }
         })
 
-        // Set the actual Sonos volume
+        // Set the actual Sonos volume using absolute SetGroupVolume
+        // According to Sonos docs, this should maintain speaker ratios
         Task {
-            // Use relative adjustment if we have a delta (maintains speaker ratios)
-            // Otherwise fall back to absolute (first adjustment)
-            if let delta = delta, delta != 0 {
-                await appDelegate?.sonosController.changeVolumeBy(delta)
-            } else {
-                await appDelegate?.sonosController.setVolume(volume)
-            }
+            print("📊 [UI] Calling setVolume(\(volume)) - should maintain speaker ratios per Sonos docs")
+            await appDelegate?.sonosController.setVolume(volume)
 
             // After setting group volume, refresh all member volumes
-            // (Sonos adjusts member volumes proportionally when using relative control)
+            // (Sonos adjusts member volumes proportionally)
             await MainActor.run {
+                print("📊 [UI] Refreshing member volumes to reflect changes")
                 self.refreshMemberVolumes()
                 self.isAdjustingGroupVolume = false
                 self.updateMemberCardVisualState(isGroupAdjusting: false)
@@ -1116,12 +1105,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         guard let userInfo = notification.userInfo,
               let volume = userInfo["volume"] as? Int else { return }
 
+        print("📊 [UI] Volume notification received: \(volume)%")
+
         volumeSlider.doubleValue = Double(volume)
         volumeLabel.stringValue = "\(volume)%"
         volumeLabel.textColor = .labelColor
-
-        // Cache volume for delta calculation
-        lastKnownVolume = volume
 
         // Enable slider now that we have actual volume
         if !volumeSlider.isEnabled {
@@ -1150,6 +1138,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             return identifier.contains("_member_")
         }
 
+        print("📊 [UI] Refreshing \(memberContainers.count) member speaker volumes...")
+
         for paddedContainer in memberContainers {
             // Navigate: paddedContainer -> memberCard -> find slider
             guard let memberCard = paddedContainer.subviews.first else { continue }
@@ -1159,12 +1149,17 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                let deviceUUID = volumeSlider.identifier?.rawValue,
                let device = appDelegate?.sonosController.cachedDiscoveredDevices.first(where: { $0.uuid == deviceUUID }) {
 
+                let currentSliderValue = Int(volumeSlider.doubleValue)
+                print("📊 [UI] Querying \(device.name) - current UI slider: \(currentSliderValue)%")
+
                 // Refresh this speaker's individual volume
                 // Capture container reference for later use
                 let containerRef = paddedContainer
                 Task { @MainActor in
                     await appDelegate?.sonosController.getIndividualVolume(device: device) { @Sendable volume in
                         guard let vol = volume else { return }
+
+                        print("📊 [UI] ✅ \(device.name) actual volume from Sonos: \(vol)%")
 
                         Task { @MainActor [weak containerRef] in
                             guard let container = containerRef else { return }
@@ -1174,6 +1169,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                                   let currentSlider = currentCard.subviews.compactMap({ $0 as? NSSlider }).first else {
                                 return
                             }
+
+                            print("📊 [UI] Updating \(device.name) slider: \(Int(currentSlider.doubleValue))% → \(vol)%")
 
                             // Animate slider movement smoothly
                             NSAnimationContext.runAnimationGroup({ context in

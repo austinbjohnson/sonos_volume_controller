@@ -879,32 +879,6 @@ actor SonosController {
         }
     }
 
-    /// Change volume by a relative amount (delta) - maintains speaker ratios in groups
-    /// This is the preferred method for slider adjustments to preserve relative volumes
-    /// - Parameter delta: Amount to change (+/-)
-    func changeVolumeBy(_ delta: Int) {
-        guard let device = _selectedDevice else {
-            print("❌ No Sonos device selected")
-            return
-        }
-
-        // Check if device is in a multi-speaker group
-        if let group = getGroupForDevice(device) {
-            print("🎚️ changeVolumeBy(\(delta)) for GROUP \(group.displayName)")
-            changeGroupVolume(group: group, by: delta)
-            return
-        }
-
-        // For individual speakers/stereo pairs, get current volume and apply delta
-        getCurrentVolume { [weak self] currentVolume in
-            guard let self = self, let current = currentVolume else { return }
-            let newVolume = max(0, min(100, current + delta))
-            Task {
-                await self.setVolume(newVolume)
-            }
-        }
-    }
-
     /// Get volume for a specific device, bypassing group logic
     /// Used for reading individual speaker volumes within a group
     /// - Parameters:
@@ -1524,7 +1498,14 @@ actor SonosController {
     func setGroupVolume(group: SonosGroup, volume: Int) {
         let coordinator = group.coordinator
         let clampedVolume = max(0, min(100, volume))
+        print("🎚️ ========================================")
         print("🎚️ Setting group volume for \(group.displayName) to \(clampedVolume)")
+        print("🎚️ Group has \(group.members.count) members:")
+        for member in group.members {
+            print("🎚️   - \(member.name)")
+        }
+        print("🎚️ Using SetGroupVolume SOAP action (should maintain speaker ratios per docs)")
+        print("🎚️ ========================================")
 
         let url = URL(string: "http://\(coordinator.ipAddress):1400/MediaRenderer/GroupRenderingControl/Control")!
         var request = URLRequest(url: url)
