@@ -11,6 +11,8 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
+- **Simplify active speaker concept** (branch: enhancement/simplify-active-speaker, @austinbjohnson)
+
 ---
 
 ## App Store Readiness
