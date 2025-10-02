@@ -389,6 +389,20 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         let isExpanded = expandedGroups.contains(group.id)
 
+        // Star button to set as default
+        let starButton = NSButton()
+        starButton.image = NSImage(systemSymbolName: isActive ? "star.fill" : "star",
+                                    accessibilityDescription: isActive ? "Default group" : "Set as default")
+        starButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        starButton.contentTintColor = isActive ? .systemYellow : .tertiaryLabelColor
+        starButton.isBordered = false
+        starButton.bezelStyle = .inline
+        starButton.target = self
+        starButton.action = #selector(selectGroup(_:))
+        starButton.identifier = NSUserInterfaceItemIdentifier(group.id)
+        starButton.toolTip = isActive ? "Default group" : "Set as default group"
+        starButton.translatesAutoresizingMaskIntoConstraints = false
+
         // Chevron for expansion - make it a button so it's separately clickable
         let chevronButton = NSButton()
         chevronButton.image = NSImage(systemSymbolName: isExpanded ? "chevron.down" : "chevron.right", accessibilityDescription: "Expand")
@@ -425,21 +439,26 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         checkbox.action = #selector(speakerSelectionChanged(_:))
         checkbox.identifier = NSUserInterfaceItemIdentifier(group.id)
         checkbox.translatesAutoresizingMaskIntoConstraints = false
+        checkbox.toolTip = "Select for ungrouping"
 
-        // Click gesture to select group as active
-        let clickGesture = NSClickGestureRecognizer(target: self, action: #selector(selectGroup(_:)))
-        clickGesture.delegate = self
-        card.addGestureRecognizer(clickGesture)
+        // Card identifier for tracking (no longer needed for click gesture)
         card.identifier = NSUserInterfaceItemIdentifier(group.id)
 
+        card.addSubview(starButton)
         card.addSubview(chevronButton)
         card.addSubview(icon)
         card.addSubview(nameLabel)
         card.addSubview(checkbox)
 
         NSLayoutConstraint.activate([
-            // Position chevron at left edge inside card
-            chevronButton.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
+            // Star button on the left
+            starButton.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
+            starButton.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            starButton.widthAnchor.constraint(equalToConstant: 24),
+            starButton.heightAnchor.constraint(equalToConstant: 24),
+
+            // Chevron after star button
+            chevronButton.leadingAnchor.constraint(equalTo: starButton.trailingAnchor, constant: 6),
             chevronButton.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             chevronButton.widthAnchor.constraint(equalToConstant: 20),
             chevronButton.heightAnchor.constraint(equalToConstant: 20),
@@ -578,6 +597,20 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             ])
         }
 
+        // Star button to set as default
+        let starButton = NSButton()
+        starButton.image = NSImage(systemSymbolName: isActive ? "star.fill" : "star",
+                                    accessibilityDescription: isActive ? "Default speaker" : "Set as default")
+        starButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        starButton.contentTintColor = isActive ? .systemYellow : .tertiaryLabelColor
+        starButton.isBordered = false
+        starButton.bezelStyle = .inline
+        starButton.target = self
+        starButton.action = #selector(selectSpeaker(_:))
+        starButton.identifier = NSUserInterfaceItemIdentifier(device.name)
+        starButton.toolTip = isActive ? "Default speaker" : "Set as default speaker"
+        starButton.translatesAutoresizingMaskIntoConstraints = false
+
         // Speaker icon
         let icon = NSImageView()
         let iconName = isGroupCoordinator ? "person.3.fill" : "hifispeaker.fill"
@@ -637,22 +670,27 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         checkbox.action = #selector(speakerSelectionChanged(_:))
         checkbox.identifier = NSUserInterfaceItemIdentifier(device.name)
         checkbox.translatesAutoresizingMaskIntoConstraints = false
+        checkbox.toolTip = "Select for grouping"
 
-        // Click gesture for main selection
-        let clickGesture = NSClickGestureRecognizer(target: self, action: #selector(selectSpeaker(_:)))
-        clickGesture.delaysPrimaryMouseButtonEvents = false // Don't delay button clicks
-        clickGesture.delegate = self
-        card.addGestureRecognizer(clickGesture)
+        // Card identifier for tracking (no longer needed for click gesture)
         card.identifier = NSUserInterfaceItemIdentifier(device.name)
 
-        let leadingOffset: CGFloat = (isInGroup && !isGroupCoordinator) ? 20 : 12
+        let leadingOffset: CGFloat = (isInGroup && !isGroupCoordinator) ? 20 : 8
 
+        card.addSubview(starButton)
         card.addSubview(icon)
         card.addSubview(textStack)
         card.addSubview(checkbox)
 
         NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: leadingOffset),
+            // Star button on the left
+            starButton.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: leadingOffset),
+            starButton.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            starButton.widthAnchor.constraint(equalToConstant: 24),
+            starButton.heightAnchor.constraint(equalToConstant: 24),
+
+            // Icon follows the star button
+            icon.leadingAnchor.constraint(equalTo: starButton.trailingAnchor, constant: 6),
             icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 20),
             icon.heightAnchor.constraint(equalToConstant: 20),
@@ -1058,9 +1096,21 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         return true
     }
 
-    @objc private func selectSpeaker(_ gesture: NSClickGestureRecognizer) {
-        guard let card = gesture.view,
-              let deviceName = card.identifier?.rawValue else { return }
+    @objc private func selectSpeaker(_ sender: Any) {
+        let deviceName: String
+
+        if let button = sender as? NSButton {
+            // Called from star button
+            guard let name = button.identifier?.rawValue else { return }
+            deviceName = name
+        } else if let gesture = sender as? NSClickGestureRecognizer {
+            // Legacy: called from card click (no longer used but kept for compatibility)
+            guard let card = gesture.view,
+                  let name = card.identifier?.rawValue else { return }
+            deviceName = name
+        } else {
+            return
+        }
 
         appDelegate?.sonosController.selectDevice(name: deviceName)
         appDelegate?.settings.selectedSonosDevice = deviceName
@@ -1213,10 +1263,23 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         })
     }
 
-    @objc private func selectGroup(_ gesture: NSClickGestureRecognizer) {
-        guard let card = gesture.view,
-              let groupId = card.identifier?.rawValue,
-              let controller = appDelegate?.sonosController else { return }
+    @objc private func selectGroup(_ sender: Any) {
+        let groupId: String
+
+        if let button = sender as? NSButton {
+            // Called from star button
+            guard let id = button.identifier?.rawValue else { return }
+            groupId = id
+        } else if let gesture = sender as? NSClickGestureRecognizer {
+            // Legacy: called from card click (no longer used but kept for compatibility)
+            guard let card = gesture.view,
+                  let id = card.identifier?.rawValue else { return }
+            groupId = id
+        } else {
+            return
+        }
+
+        guard let controller = appDelegate?.sonosController else { return }
 
         // Find the group and select its coordinator as the active device
         if let group = controller.discoveredGroups.first(where: { $0.id == groupId }) {
