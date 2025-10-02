@@ -863,9 +863,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
 
-        // Update popover size after initial populate (with delay to ensure layout is complete)
+        // Update popover size after initial populate
+        // Force layout to complete before calculating heights
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
+
+            // Force layout on all card subviews to ensure heights are calculated
+            self.speakerCardsContainer.layoutSubtreeIfNeeded()
+            self.containerView.layoutSubtreeIfNeeded()
 
             // Force scroll to top again after layout
             if let scrollView = self.speakerCardsContainer.enclosingScrollView {
@@ -1723,6 +1728,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     // MARK: - Dynamic Sizing
 
     private func calculateContentHeight() -> CGFloat {
+        // Force layout to ensure all card frames are calculated
+        speakerCardsContainer.layoutSubtreeIfNeeded()
+
         // Calculate total height of speaker cards
         var cardsHeight: CGFloat = 0
         for view in speakerCardsContainer.arrangedSubviews {
