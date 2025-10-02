@@ -52,6 +52,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var containerView: NSView!
     private var welcomeBannerHeightConstraint: NSLayoutConstraint!
     private var isPopulatingInProgress: Bool = false  // Prevent multiple simultaneous populates
+    private var triggerDeviceLabel: NSTextField!  // Display current audio trigger device
 
     init(appDelegate: AppDelegate?) {
         self.appDelegate = appDelegate
@@ -900,11 +901,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Display current trigger device (read-only)
         let triggerDevice = currentTrigger.isEmpty ? "Any Device" : currentTrigger
-        let valueLabel = NSTextField(labelWithString: triggerDevice)
-        valueLabel.font = .systemFont(ofSize: 12, weight: .regular)
-        valueLabel.textColor = .labelColor
-        valueLabel.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(valueLabel)
+        triggerDeviceLabel = NSTextField(labelWithString: triggerDevice)
+        triggerDeviceLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        triggerDeviceLabel.textColor = .labelColor
+        triggerDeviceLabel.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(triggerDeviceLabel)
 
         // Divider
         let divider4 = createDivider()
@@ -918,12 +919,12 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             triggerTitle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             triggerTitle.topAnchor.constraint(equalTo: previousDivider.bottomAnchor, constant: 12),
 
-            valueLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
-            valueLabel.topAnchor.constraint(equalTo: triggerTitle.bottomAnchor, constant: 4),
+            triggerDeviceLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            triggerDeviceLabel.topAnchor.constraint(equalTo: triggerTitle.bottomAnchor, constant: 4),
 
             divider4.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             divider4.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
-            divider4.topAnchor.constraint(equalTo: valueLabel.bottomAnchor, constant: 12),
+            divider4.topAnchor.constraint(equalTo: triggerDeviceLabel.bottomAnchor, constant: 12),
             divider4.heightAnchor.constraint(equalToConstant: 1)
         ])
     }
@@ -1658,8 +1659,15 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         speakerNameLabel.stringValue = appDelegate?.settings.selectedSonosDevice ?? "No Speaker"
         updateStatus()
+        updateTriggerDeviceLabel()
         populateSpeakers()
         // Don't fetch volume here - it will be updated via notification after device selection
+    }
+
+    func updateTriggerDeviceLabel() {
+        guard let settings = appDelegate?.settings else { return }
+        let currentTrigger = settings.triggerDeviceName
+        triggerDeviceLabel.stringValue = currentTrigger.isEmpty ? "Any Device" : currentTrigger
     }
 
     private func updateVolumeFromSonos() {

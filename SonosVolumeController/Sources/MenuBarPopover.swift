@@ -56,6 +56,9 @@ class MenuBarPopover: NSPopover, NSPopoverDelegate {
     }
 
     func popoverDidShow(_ notification: Notification) {
+        // Update trigger device label when popover opens (in case it changed in Preferences)
+        menuContentViewController?.updateTriggerDeviceLabel()
+
         // Start monitoring for clicks outside the popover
         startMonitoring()
     }
