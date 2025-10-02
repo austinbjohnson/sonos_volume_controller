@@ -439,9 +439,19 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         checkbox.identifier = NSUserInterfaceItemIdentifier(group.id)
         checkbox.translatesAutoresizingMaskIntoConstraints = false
         checkbox.toolTip = "Select for ungrouping"
+        checkbox.isHidden = true  // Hidden by default, shown on hover
 
         // Card identifier for tracking
         card.identifier = NSUserInterfaceItemIdentifier(group.id)
+
+        // Add tracking area for hover detection
+        let trackingArea = NSTrackingArea(
+            rect: card.bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: ["checkbox": checkbox]
+        )
+        card.addTrackingArea(trackingArea)
 
         // Add click gesture to card (since we removed the interactive star button)
         let cardClick = NSClickGestureRecognizer(target: self, action: #selector(selectGroup(_:)))
@@ -671,11 +681,21 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         checkbox.identifier = NSUserInterfaceItemIdentifier(device.name)
         checkbox.translatesAutoresizingMaskIntoConstraints = false
         checkbox.toolTip = "Select for grouping"
+        checkbox.isHidden = true  // Hidden by default, shown on hover
 
-        // Card identifier for tracking (no longer needed for click gesture)
+        // Card identifier for tracking
         card.identifier = NSUserInterfaceItemIdentifier(device.name)
 
         let leadingOffset: CGFloat = (isInGroup && !isGroupCoordinator) ? 20 : 8
+
+        // Add tracking area for hover detection
+        let trackingArea = NSTrackingArea(
+            rect: card.bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: ["checkbox": checkbox]
+        )
+        card.addTrackingArea(trackingArea)
 
         // Add click gesture to card (since we removed the interactive star button)
         let cardClick = NSClickGestureRecognizer(target: self, action: #selector(selectSpeaker(_:)))
@@ -776,33 +796,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Find devices that are in multi-speaker groups
         let devicesInGroups = Set(groups.filter { $0.members.count > 1 }.flatMap { $0.members.map { $0.uuid } })
 
-        // Sort groups: those containing default speaker first, then alphabetically
+        // Sort groups alphabetically (consistent ordering)
         let sortedGroups = groups.filter { $0.members.count > 1 }.sorted { group1, group2 in
-            let isGroup1Active = group1.members.contains(where: { $0.name == currentSpeaker })
-            let isGroup2Active = group2.members.contains(where: { $0.name == currentSpeaker })
-
-            if isGroup1Active && !isGroup2Active {
-                return true
-            } else if !isGroup1Active && isGroup2Active {
-                return false
-            } else {
-                return group1.name.localizedCaseInsensitiveCompare(group2.name) == .orderedAscending
-            }
+            return group1.name.localizedCaseInsensitiveCompare(group2.name) == .orderedAscending
         }
 
-        // Sort ungrouped devices: default speaker first, then alphabetically
+        // Sort ungrouped devices alphabetically (consistent ordering)
         let ungroupedDevices = devices.filter { !devicesInGroups.contains($0.uuid) }.sorted { device1, device2 in
-            let isDevice1Current = device1.name == currentSpeaker
-            let isDevice2Current = device2.name == currentSpeaker
-
-            // Default speaker always first
-            if isDevice1Current && !isDevice2Current {
-                return true
-            } else if !isDevice1Current && isDevice2Current {
-                return false
-            } else {
-                return device1.name.localizedCaseInsensitiveCompare(device2.name) == .orderedAscending
-            }
+            return device1.name.localizedCaseInsensitiveCompare(device2.name) == .orderedAscending
         }
 
         // Add groups first
@@ -1850,6 +1851,24 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Mouse Tracking for Checkbox Hover
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        if let trackingArea = event.trackingArea,
+           let checkbox = trackingArea.userInfo?["checkbox"] as? NSButton {
+            checkbox.isHidden = false
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        if let trackingArea = event.trackingArea,
+           let checkbox = trackingArea.userInfo?["checkbox"] as? NSButton {
+            checkbox.isHidden = true
         }
     }
 }
