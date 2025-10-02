@@ -1493,6 +1493,44 @@ actor SonosController {
         }.resume()
     }
 
+    /// Snapshot the current group volume ratios
+    /// This captures the relative volume between all players for use by SetGroupVolume
+    /// Must be called on the group coordinator before SetGroupVolume
+    private func snapshotGroupVolume(group: SonosGroup, completion: @escaping (Bool) -> Void) {
+        let coordinator = group.coordinator
+        print("📸 Taking group volume snapshot for \(group.displayName)")
+
+        let url = URL(string: "http://\(coordinator.ipAddress):1400/MediaRenderer/GroupRenderingControl/Control")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
+        request.addValue("\"urn:schemas-upnp-org:service:GroupRenderingControl:1#SnapshotGroupVolume\"", forHTTPHeaderField: "SOAPACTION")
+
+        let soapBody = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+            <s:Body>
+                <u:SnapshotGroupVolume xmlns:u="urn:schemas-upnp-org:service:GroupRenderingControl:1">
+                    <InstanceID>0</InstanceID>
+                </u:SnapshotGroupVolume>
+            </s:Body>
+        </s:Envelope>
+        """
+
+        request.httpBody = soapBody.data(using: .utf8)
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Failed to snapshot group volume: \(error)")
+                completion(false)
+                return
+            }
+
+            print("✅ Group volume snapshot captured")
+            completion(true)
+        }.resume()
+    }
+
     /// Set the group volume (proportionally adjusts all members)
     /// Must be called on the group coordinator
     func setGroupVolume(group: SonosGroup, volume: Int) {
@@ -1504,49 +1542,59 @@ actor SonosController {
         for member in group.members {
             print("🎚️   - \(member.name)")
         }
-        print("🎚️ Using SetGroupVolume SOAP action (should maintain speaker ratios per docs)")
+        print("🎚️ Step 1: Taking snapshot to capture current speaker ratios")
+        print("🎚️ Step 2: SetGroupVolume will use snapshot to maintain ratios")
         print("🎚️ ========================================")
 
-        let url = URL(string: "http://\(coordinator.ipAddress):1400/MediaRenderer/GroupRenderingControl/Control")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.addValue("\"urn:schemas-upnp-org:service:GroupRenderingControl:1#SetGroupVolume\"", forHTTPHeaderField: "SOAPACTION")
-
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-            <s:Body>
-                <u:SetGroupVolume xmlns:u="urn:schemas-upnp-org:service:GroupRenderingControl:1">
-                    <InstanceID>0</InstanceID>
-                    <DesiredVolume>\(clampedVolume)</DesiredVolume>
-                </u:SetGroupVolume>
-            </s:Body>
-        </s:Envelope>
-        """
-
-        request.httpBody = soapBody.data(using: .utf8)
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                print("❌ Failed to set group volume: \(error)")
+        // First, snapshot the current volume ratios
+        snapshotGroupVolume(group: group) { [weak self] success in
+            guard success else {
+                print("❌ Failed to snapshot group volume, aborting SetGroupVolume")
                 return
             }
 
-            print("✅ Group volume set to \(clampedVolume)")
+            // Now set the group volume with the captured ratios
+            let url = URL(string: "http://\(coordinator.ipAddress):1400/MediaRenderer/GroupRenderingControl/Control")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
+            request.addValue("\"urn:schemas-upnp-org:service:GroupRenderingControl:1#SetGroupVolume\"", forHTTPHeaderField: "SOAPACTION")
 
-            // Show HUD
-            Task { @MainActor in
-                VolumeHUD.shared.show(speaker: group.displayName, volume: clampedVolume)
+            let soapBody = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:SetGroupVolume xmlns:u="urn:schemas-upnp-org:service:GroupRenderingControl:1">
+                        <InstanceID>0</InstanceID>
+                        <DesiredVolume>\(clampedVolume)</DesiredVolume>
+                    </u:SetGroupVolume>
+                </s:Body>
+            </s:Envelope>
+            """
 
-                // Post notification for UI updates
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("SonosVolumeDidChange"),
-                    object: nil,
-                    userInfo: ["volume": clampedVolume]
-                )
-            }
-        }.resume()
+            request.httpBody = soapBody.data(using: .utf8)
+
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    print("❌ Failed to set group volume: \(error)")
+                    return
+                }
+
+                print("✅ Group volume set to \(clampedVolume) with snapshot-preserved ratios")
+
+                // Show HUD
+                Task { @MainActor in
+                    VolumeHUD.shared.show(speaker: group.displayName, volume: clampedVolume)
+
+                    // Post notification for UI updates
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("SonosVolumeDidChange"),
+                        object: nil,
+                        userInfo: ["volume": clampedVolume]
+                    )
+                }
+            }.resume()
+        }
     }
 
     /// Adjust group volume by a relative amount (+/-)
