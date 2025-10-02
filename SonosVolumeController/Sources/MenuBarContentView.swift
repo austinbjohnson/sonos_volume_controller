@@ -854,53 +854,17 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         triggerTitle.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(triggerTitle)
 
-        // Description
-        let description = NSTextField(wrappingLabelWithString: "Hotkeys work when this device is active:")
-        description.font = .systemFont(ofSize: 11, weight: .regular)
-        description.textColor = .tertiaryLabelColor
-        description.maximumNumberOfLines = 2
-        description.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(description)
-
-        // Radio buttons container
-        let radioContainer = NSStackView()
-        radioContainer.orientation = .vertical
-        radioContainer.spacing = 8
-        radioContainer.alignment = .leading
-        radioContainer.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(radioContainer)
-
         // Get current trigger device setting
         guard let settings = appDelegate?.settings else { return }
         let currentTrigger = settings.triggerDeviceName
 
-        // "Any Device" option (recommended)
-        let anyDeviceButton = NSButton()
-        anyDeviceButton.setButtonType(.radio)
-        anyDeviceButton.title = "Any Device (recommended)"
-        anyDeviceButton.font = .systemFont(ofSize: 12, weight: .regular)
-        anyDeviceButton.state = currentTrigger.isEmpty ? .on : .off
-        anyDeviceButton.target = self
-        anyDeviceButton.action = #selector(triggerDeviceChanged(_:))
-        anyDeviceButton.identifier = NSUserInterfaceItemIdentifier("")  // Empty = any device
-        radioContainer.addArrangedSubview(anyDeviceButton)
-
-        // Get all audio devices
-        guard let audioMonitor = appDelegate?.audioMonitor else { return }
-        let audioDevices = audioMonitor.getAllAudioDevices()
-
-        // Create radio button for each audio device
-        for device in audioDevices {
-            let deviceButton = NSButton()
-            deviceButton.setButtonType(.radio)
-            deviceButton.title = device
-            deviceButton.font = .systemFont(ofSize: 12, weight: .regular)
-            deviceButton.state = (device == currentTrigger) ? .on : .off
-            deviceButton.target = self
-            deviceButton.action = #selector(triggerDeviceChanged(_:))
-            deviceButton.identifier = NSUserInterfaceItemIdentifier(device)
-            radioContainer.addArrangedSubview(deviceButton)
-        }
+        // Display current trigger device (read-only)
+        let triggerDevice = currentTrigger.isEmpty ? "Any Device" : currentTrigger
+        let valueLabel = NSTextField(labelWithString: triggerDevice)
+        valueLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        valueLabel.textColor = .labelColor
+        valueLabel.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(valueLabel)
 
         // Divider
         let divider4 = createDivider()
@@ -914,26 +878,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             triggerTitle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             triggerTitle.topAnchor.constraint(equalTo: previousDivider.bottomAnchor, constant: 12),
 
-            description.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
-            description.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
-            description.topAnchor.constraint(equalTo: triggerTitle.bottomAnchor, constant: 4),
-
-            radioContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
-            radioContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
-            radioContainer.topAnchor.constraint(equalTo: description.bottomAnchor, constant: 8),
+            valueLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            valueLabel.topAnchor.constraint(equalTo: triggerTitle.bottomAnchor, constant: 4),
 
             divider4.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             divider4.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
-            divider4.topAnchor.constraint(equalTo: radioContainer.bottomAnchor, constant: 16),
+            divider4.topAnchor.constraint(equalTo: valueLabel.bottomAnchor, constant: 12),
             divider4.heightAnchor.constraint(equalToConstant: 1)
         ])
-    }
-
-    @objc private func triggerDeviceChanged(_ sender: NSButton) {
-        guard let settings = appDelegate?.settings else { return }
-        let deviceName = sender.identifier?.rawValue ?? ""
-        settings.triggerDeviceName = deviceName
-        print("Trigger device changed to: \(deviceName.isEmpty ? "Any Device" : deviceName)")
     }
 
     // MARK: - Actions Section
@@ -1585,7 +1537,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 13 + 12 + bannerHeight + 8 + // Speakers title + spacing + banner (dynamic) + spacing
                 newScrollHeight + 12 + 30 + 16 + // Scroll view + spacing + buttons + spacing
                 1 + 12 + // Divider + spacing
-                13 + 4 + 120 + 16 + // Trigger title + spacing + radios + spacing
+                13 + 4 + 12 + 12 + // Trigger title + spacing + value label + spacing
                 1 + 16 + 44 + 16 + // Divider + spacing + actions + padding
                 8 // Bottom padding
 

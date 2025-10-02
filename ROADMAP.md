@@ -31,9 +31,7 @@ _When starting work on a task, add it here with your branch name and username to
 
 ## Enhancements
 
-- **Simplify settings window**: Remove tabs for trigger source and speaker selection from the full settings window. Both can be handled directly in the menu bar popover, making a separate tabbed preferences window unnecessary.
-
-- **Simplify trigger source UI**: Replace radio button list with read-only info display showing the current trigger device. Now that "Any Device" is the default and works well, the selection UI could be streamlined to just show what's active (with option to change in preferences if needed).
+_No enhancements currently planned. See "Planned Features" for major new functionality._
 
 ## Known Bugs
 
