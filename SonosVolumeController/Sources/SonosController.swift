@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-class SonosController: @unchecked Sendable {
+actor SonosController {
     private let settings: AppSettings
     private var devices: [SonosDevice] = []
     private var groups: [SonosGroup] = []
@@ -12,19 +12,48 @@ class SonosController: @unchecked Sendable {
     private var topologyCache: [String: String] = [:]  // UUID -> Coordinator UUID
     private var hasLoadedTopology = false
 
-    // Expose selected device
+    // Thread-safe copies for UI access (updated when internal state changes)
+    // Using nonisolated(unsafe) because these are only written from actor context
+    // and read from nonisolated context, providing thread-safety through careful usage
+    nonisolated(unsafe) private var _cachedDevices: [SonosDevice] = []
+    nonisolated(unsafe) private var _cachedGroups: [SonosGroup] = []
+    nonisolated(unsafe) private var _cachedSelectedDevice: SonosDevice?
+
+    // Expose selected device (actor-isolated)
     var selectedDevice: SonosDevice? {
         return _selectedDevice
     }
 
-    // Expose devices for menu population
+    // Expose devices for menu population (actor-isolated)
     var discoveredDevices: [SonosDevice] {
         return devices
     }
 
-    // Expose groups for UI
+    // Expose groups for UI (actor-isolated)
     var discoveredGroups: [SonosGroup] {
         return groups
+    }
+
+    // MARK: - Nonisolated accessors for UI
+    // These return cached copies that are safe to access from any thread
+
+    nonisolated var cachedDiscoveredDevices: [SonosDevice] {
+        return _cachedDevices
+    }
+
+    nonisolated var cachedDiscoveredGroups: [SonosGroup] {
+        return _cachedGroups
+    }
+
+    nonisolated var cachedSelectedDevice: SonosDevice? {
+        return _cachedSelectedDevice
+    }
+
+    // Helper to update cached values (must be called from actor context)
+    private func updateCachedValues() {
+        _cachedDevices = devices
+        _cachedGroups = groups
+        _cachedSelectedDevice = _selectedDevice
     }
 
     struct SonosDevice {
@@ -81,7 +110,7 @@ class SonosController: @unchecked Sendable {
         print("Discovering Sonos devices...")
 
         // Notify UI that discovery is starting
-        DispatchQueue.main.async {
+        Task { @MainActor in
             NotificationCenter.default.post(name: NSNotification.Name("SonosDiscoveryStarted"), object: nil)
         }
 
@@ -93,14 +122,12 @@ class SonosController: @unchecked Sendable {
         }
 
         // Use SSDP (Simple Service Discovery Protocol) to find Sonos devices
-        let queue = DispatchQueue(label: "sonos.discovery")
-
-        queue.async { [weak self] in
-            self?.performSSDPDiscovery(completion: completion)
+        Task {
+            await performSSDPDiscovery(completion: completion)
         }
     }
 
-    private func performSSDPDiscovery(completion: (@Sendable () -> Void)? = nil) {
+    private func performSSDPDiscovery(completion: (@Sendable () -> Void)? = nil) async {
         // Increased MX from 1 to 3 to give devices more time to respond
         let ssdpMessage = """
         M-SEARCH * HTTP/1.1\r
@@ -119,12 +146,12 @@ class SonosController: @unchecked Sendable {
             print("📡 Sending discovery packet 1/3...")
             try socket.send(ssdpMessage, to: "239.255.255.250", port: 1900)
 
-            Thread.sleep(forTimeInterval: 0.5)
+            try await Task.sleep(nanoseconds: 500_000_000)
 
             print("📡 Sending discovery packet 2/3...")
             try socket.send(ssdpMessage, to: "239.255.255.250", port: 1900)
 
-            Thread.sleep(forTimeInterval: 0.5)
+            try await Task.sleep(nanoseconds: 500_000_000)
 
             print("📡 Sending discovery packet 3/3...")
             try socket.send(ssdpMessage, to: "239.255.255.250", port: 1900)
@@ -142,46 +169,49 @@ class SonosController: @unchecked Sendable {
                 }
             }
 
-            DispatchQueue.main.async {
-                // Deduplicate devices by UUID (not name, since stereo pairs have duplicate names)
-                var uniqueDevices: [SonosDevice] = []
-                var seenUUIDs = Set<String>()
+            // Process discovered devices - now in async actor context
+            // Deduplicate devices by UUID (not name, since stereo pairs have duplicate names)
+            var uniqueDevices: [SonosDevice] = []
+            var seenUUIDs = Set<String>()
 
-                for device in foundDevices {
-                    if !seenUUIDs.contains(device.uuid) {
-                        uniqueDevices.append(device)
-                        seenUUIDs.insert(device.uuid)
-                    }
+            for device in foundDevices {
+                if !seenUUIDs.contains(device.uuid) {
+                    uniqueDevices.append(device)
+                    seenUUIDs.insert(device.uuid)
                 }
+            }
 
-                // Apply cached topology if available (but we'll refresh it anyway)
-                // Just keep the devices as-is, topology will be updated in updateGroupTopology()
+            // Apply cached topology if available (but we'll refresh it anyway)
+            // Just keep the devices as-is, topology will be updated in updateGroupTopology()
 
-                self.devices = uniqueDevices
-                print("Found \(foundDevices.count) Sonos devices (\(uniqueDevices.count) unique)")
-                for device in uniqueDevices {
-                    print("  - \(device.name) at \(device.ipAddress)")
-                }
+            self.devices = uniqueDevices
+            self.updateCachedValues() // Update thread-safe copies
+            print("Found \(foundDevices.count) Sonos devices (\(uniqueDevices.count) unique)")
+            for device in uniqueDevices {
+                print("  - \(device.name) at \(device.ipAddress)")
+            }
 
-                // Only fetch topology if not cached
-                if !self.hasLoadedTopology {
-                    print("Fetching initial group topology...")
-                    self.updateGroupTopology(completion: completion)
-                    self.hasLoadedTopology = true
-                } else {
-                    print("Using cached topology (refresh to update)")
-                    // Call completion immediately if using cached topology
-                    completion?()
-                }
+            // Only fetch topology if not cached
+            let needsTopology = !self.hasLoadedTopology
+            if needsTopology {
+                print("Fetching initial group topology...")
+                await self.updateGroupTopology(completion: completion)
+                self.hasLoadedTopology = true
+            } else {
+                print("Using cached topology (refresh to update)")
+                // Call completion immediately if using cached topology
+                completion?()
+            }
 
-                // Post notification so menu can update
+            // Post notification so menu can update - needs to be on MainActor
+            await MainActor.run {
                 NotificationCenter.default.post(name: NSNotification.Name("SonosDevicesDiscovered"), object: nil)
             }
         } catch {
             print("SSDP Discovery error: \(error)")
 
             // Notify about network error (likely permissions issue)
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 NotificationCenter.default.post(
                     name: NSNotification.Name("SonosNetworkError"),
                     object: nil,
@@ -191,7 +221,7 @@ class SonosController: @unchecked Sendable {
         }
     }
 
-    private func updateGroupTopology(completion: (@Sendable () -> Void)? = nil) {
+    private func updateGroupTopology(completion: (@Sendable () -> Void)? = nil) async {
         // Pick any device to query group topology (all devices know about all groups)
         guard let anyDevice = devices.first else {
             completion?()
@@ -216,33 +246,25 @@ class SonosController: @unchecked Sendable {
 
         request.httpBody = soapBody.data(using: .utf8)
 
-        let semaphore = DispatchSemaphore(value: 0)
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
 
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            defer { semaphore.signal() }
-
-            if let error = error {
-                print("GetZoneGroupState error: \(error)")
+            guard let responseStr = String(data: data, encoding: .utf8) else {
+                print("Failed to decode response")
                 return
             }
 
-            guard let data = data, let responseStr = String(data: data, encoding: .utf8) else {
-                return
-            }
-
-            self.parseGroupTopology(responseStr, completion: completion)
-        }.resume()
-
-        _ = semaphore.wait(timeout: .now() + 3)
+            parseGroupTopology(responseStr, completion: completion)
+        } catch {
+            print("GetZoneGroupState error: \(error)")
+        }
     }
 
     private func parseGroupTopology(_ xml: String, completion: (@Sendable () -> Void)? = nil) {
         // Extract ZoneGroupState XML from SOAP response
         guard let stateRange = xml.range(of: "<ZoneGroupState>([\\s\\S]*?)</ZoneGroupState>", options: .regularExpression) else {
             print("Could not find ZoneGroupState in response")
-            DispatchQueue.main.async {
-                completion?()
-            }
+            completion?()
             return
         }
 
@@ -315,15 +337,14 @@ class SonosController: @unchecked Sendable {
             }
         }
 
-        // Update devices with coordinator information on main queue (thread safety)
-        DispatchQueue.main.async {
-            // Store in cache for future use
-            self.topologyCache = groupInfo
-            print("Cached topology for \(groupInfo.count) devices")
-            print("Found \(invisibleUUIDs.count) invisible/satellite speakers to filter out")
+        // Update devices with coordinator information
+        // Store in cache for future use
+        self.topologyCache = groupInfo
+        print("Cached topology for \(groupInfo.count) devices")
+        print("Found \(invisibleUUIDs.count) invisible/satellite speakers to filter out")
 
-            // Update devices with PAIR and GROUP information, filter out invisible speakers
-            self.devices = self.devices.compactMap { device in
+        // Update devices with PAIR and GROUP information, filter out invisible speakers
+        self.devices = self.devices.compactMap { device in
                 // Filter out invisible/satellite speakers from device list
                 if invisibleUUIDs.contains(device.uuid) {
                     print("Filtering out invisible speaker: \(device.name) (\(device.uuid))")
@@ -345,6 +366,7 @@ class SonosController: @unchecked Sendable {
                     pairPartnerUUID: pairPartner
                 )
             }
+            updateCachedValues() // Update thread-safe copies after updating devices
 
             // Build groups from topology
             self.buildGroups(from: groupInfo)
@@ -377,12 +399,13 @@ class SonosController: @unchecked Sendable {
             // Refresh selected device to pick up new coordinator information
             self.refreshSelectedDevice()
 
-            // Notify that devices have changed (for UI updates)
+        // Notify that devices have changed (for UI updates)
+        Task { @MainActor in
             NotificationCenter.default.post(name: NSNotification.Name("SonosDevicesDiscovered"), object: nil)
-
-            // Call completion handler
-            completion?()
         }
+
+        // Call completion handler
+        completion?()
     }
 
     private func parseSSDPResponse(_ data: String, from address: String) -> SonosDevice? {
@@ -461,6 +484,7 @@ class SonosController: @unchecked Sendable {
 
     func selectDevice(name: String) {
         _selectedDevice = devices.first { $0.name == name }
+        updateCachedValues() // Update thread-safe copies
         if let device = _selectedDevice {
             settings.selectedSonosDevice = device.name
 
@@ -486,6 +510,7 @@ class SonosController: @unchecked Sendable {
         // Re-find the device in the updated devices array to get current topology info
         if let updatedDevice = devices.first(where: { $0.name == currentDevice.name }) {
             _selectedDevice = updatedDevice
+            updateCachedValues() // Update thread-safe copies
             if updatedDevice.channelMapSet != nil {
                 print("Refreshed selected device: \(updatedDevice.name) [STEREO PAIR]")
             } else {
@@ -523,6 +548,7 @@ class SonosController: @unchecked Sendable {
                 groupVolume: nil  // Will be fetched on demand
             )
         }.sorted { $0.coordinator.name < $1.coordinator.name }
+        updateCachedValues() // Update thread-safe copies
     }
 
     // MARK: - Helper Methods
@@ -533,6 +559,14 @@ class SonosController: @unchecked Sendable {
 
         // Find the group and make sure it has more than 1 member
         return groups.first(where: { $0.coordinatorUUID == coordUUID && $0.members.count > 1 })
+    }
+
+    // Nonisolated version for UI access
+    nonisolated func getCachedGroupForDevice(_ device: SonosDevice) -> SonosGroup? {
+        guard let coordUUID = device.groupCoordinatorUUID else { return nil }
+
+        // Find the group and make sure it has more than 1 member
+        return _cachedGroups.first(where: { $0.coordinatorUUID == coordUUID && $0.members.count > 1 })
     }
 
     func getCurrentVolume(completion: @escaping (Int?) -> Void) {
@@ -843,8 +877,12 @@ class SonosController: @unchecked Sendable {
 
             // Optionally refresh topology before calling completion
             if shouldRefreshTopology {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                    self?.updateGroupTopology {
+                Task { [weak self] in
+                    // Wait a bit before refreshing topology
+                    try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
+                    guard let self = self else { return }
+
+                    await self.updateGroupTopology {
                         DispatchQueue.main.async {
                             completion?(true)
                         }
@@ -893,8 +931,9 @@ class SonosController: @unchecked Sendable {
             completion?(true)
 
             // Refresh topology after a short delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                self.updateGroupTopology()
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                await self?.updateGroupTopology(completion: nil)
             }
         }.resume()
     }
@@ -948,7 +987,9 @@ class SonosController: @unchecked Sendable {
                 completion?(false)
                 return
             }
-            performGrouping(devices: deviceList, coordinator: explicitCoordinator, completion: completion)
+            Task { [weak self] in
+                await self?.performGrouping(devices: deviceList, coordinator: explicitCoordinator, completion: completion)
+            }
             return
         }
 
@@ -993,7 +1034,9 @@ class SonosController: @unchecked Sendable {
                 print("   Note: Other playing devices will stop playback")
             }
 
-            self.performGrouping(devices: deviceList, coordinator: coordinator, completion: completion)
+            Task { [weak self] in
+                await self?.performGrouping(devices: deviceList, coordinator: coordinator, completion: completion)
+            }
         }
     }
 
@@ -1010,7 +1053,9 @@ class SonosController: @unchecked Sendable {
                 print("📝 Coordinator is playing - will resume after grouping if needed")
             }
 
-            self.performGroupingInternal(devices: devices, coordinator: coordinator, coordinatorWasPlaying: coordinatorWasPlaying, retry: retry, completion: completion)
+            Task { [weak self] in
+                await self?.performGroupingInternal(devices: devices, coordinator: coordinator, coordinatorWasPlaying: coordinatorWasPlaying, retry: retry, completion: completion)
+            }
         }
     }
 
@@ -1043,20 +1088,30 @@ class SonosController: @unchecked Sendable {
             // If failed and coordinator is a stereo pair, retry with different coordinator
             if !allSuccess && retry && coordinator.channelMapSet != nil && membersToAdd.count == 1 {
                 print("🔄 Retrying with \(membersToAdd[0].name) as coordinator (stereo pair limitation)")
-                self.performGrouping(devices: devices, coordinator: membersToAdd[0], retry: false, completion: completion)
+                Task { [weak self] in
+                    await self?.performGrouping(devices: devices, coordinator: membersToAdd[0], retry: false, completion: completion)
+                }
                 return
             }
 
             // Refresh topology once after all additions complete
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
                 guard let self = self else { return }
-                self.updateGroupTopology {
+
+                await self.updateGroupTopology {
                     // If coordinator was playing, check if it's still playing and resume if needed
                     if coordinatorWasPlaying {
-                        self.getTransportState(device: coordinator) { state in
-                            if state != "PLAYING" {
-                                print("🔄 Coordinator paused during grouping - resuming playback")
-                                self.sendPlayCommand(to: coordinator)
+                        Task { [weak self] in
+                            guard let self = self else { return }
+                            await self.getTransportState(device: coordinator) { state in
+                                if state != "PLAYING" {
+                                    print("🔄 Coordinator paused during grouping - resuming playback")
+                                    Task { [weak self] in
+                                        guard let self = self else { return }
+                                        await self.sendPlayCommand(to: coordinator)
+                                    }
+                                }
                             }
                         }
                     }
@@ -1308,24 +1363,27 @@ class SonosController: @unchecked Sendable {
 
         request.httpBody = soapBody.data(using: .utf8)
 
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
                 print("❌ Failed to change group volume: \(error)")
                 return
             }
 
             // Get the new volume to show in HUD
-            self.getGroupVolume(group: group) { newVolume in
-                guard let volume = newVolume else { return }
+            Task { [weak self] in
+                guard let self = self else { return }
+                await self.getGroupVolume(group: group) { newVolume in
+                    guard let volume = newVolume else { return }
 
-                Task { @MainActor in
-                    VolumeHUD.shared.show(speaker: group.displayName, volume: volume)
+                    Task { @MainActor in
+                        VolumeHUD.shared.show(speaker: group.displayName, volume: volume)
 
-                    NotificationCenter.default.post(
-                        name: NSNotification.Name("SonosVolumeDidChange"),
-                        object: nil,
-                        userInfo: ["volume": volume]
-                    )
+                        NotificationCenter.default.post(
+                            name: NSNotification.Name("SonosVolumeDidChange"),
+                            object: nil,
+                            userInfo: ["volume": volume]
+                        )
+                    }
                 }
             }
         }.resume()

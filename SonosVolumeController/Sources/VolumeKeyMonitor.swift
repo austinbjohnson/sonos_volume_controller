@@ -1,7 +1,7 @@
 import Cocoa
 import CoreGraphics
 
-class VolumeKeyMonitor {
+class VolumeKeyMonitor: @unchecked Sendable {
     private let audioMonitor: AudioDeviceMonitor
     private let sonosController: SonosController
     private let settings: AppSettings
@@ -139,10 +139,14 @@ class VolumeKeyMonitor {
         print("✅ Intercepting event")
         if isVolumeUpKey {
             print("🔊 Volume Up - Controlling Sonos")
-            sonosController.volumeUp()
+            Task {
+                await sonosController.volumeUp()
+            }
         } else if isVolumeDownKey {
             print("🔉 Volume Down - Controlling Sonos")
-            sonosController.volumeDown()
+            Task {
+                await sonosController.volumeDown()
+            }
         }
 
         // Pass through - we've handled it but can't truly suppress F-keys
