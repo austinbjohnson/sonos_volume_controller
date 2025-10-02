@@ -153,7 +153,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         container.addSubview(statusLabel)
 
         // Speaker name - large and prominent
-        let currentSpeaker = appDelegate?.settings.selectedSonosDevice ?? "No Speaker"
+        let currentSpeaker = appDelegate?.settings.lastActiveSpeaker ?? "No Speaker"
         speakerNameLabel = NSTextField(labelWithString: currentSpeaker)
         speakerNameLabel.font = .systemFont(ofSize: 22, weight: .semibold)
         speakerNameLabel.textColor = .labelColor
@@ -763,7 +763,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             return
         }
 
-        let currentSpeaker = appDelegate?.settings.selectedSonosDevice
+        let currentSpeaker = appDelegate?.settings.lastActiveSpeaker
         let groups = controller.cachedDiscoveredGroups
         let devices = controller.cachedDiscoveredDevices
 
@@ -1257,7 +1257,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         Task {
             await appDelegate?.sonosController.selectDevice(name: deviceName)
         }
-        appDelegate?.settings.selectedSonosDevice = deviceName
+        // Track this speaker as last active
+        appDelegate?.settings.trackSpeakerActivity(deviceName)
 
         speakerNameLabel.stringValue = deviceName
         populateSpeakers()
@@ -1430,7 +1431,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             Task {
                 await appDelegate?.sonosController.selectDevice(name: group.coordinator.name)
             }
-            appDelegate?.settings.selectedSonosDevice = group.coordinator.name
+            // Track this group as last active
+            appDelegate?.settings.trackSpeakerActivity(group.coordinator.name)
 
             // Update UI to show group name
             speakerNameLabel.stringValue = group.name
@@ -1685,7 +1687,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     self.populateSpeakers()
 
                     // Update volume slider if one of the grouped speakers was selected
-                    if let selectedDevice = self.appDelegate?.settings.selectedSonosDevice,
+                    if let selectedDevice = self.appDelegate?.settings.lastActiveSpeaker,
                        devices.contains(where: { $0.name == selectedDevice }) {
                         self.updateVolumeFromSonos()
                     }
@@ -1818,7 +1820,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Discovery completed if we're calling refresh
         isLoadingDevices = false
 
-        speakerNameLabel.stringValue = appDelegate?.settings.selectedSonosDevice ?? "No Speaker"
+        speakerNameLabel.stringValue = appDelegate?.settings.lastActiveSpeaker ?? "No Speaker"
         updateStatus()
         updateTriggerDeviceLabel()
         populateSpeakers()

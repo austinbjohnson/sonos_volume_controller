@@ -7,7 +7,8 @@ class AppSettings: @unchecked Sendable {
     private enum Keys {
         static let enabled = "sonosControlEnabled"
         static let triggerDevice = "triggerDeviceName"
-        static let selectedSonos = "selectedSonosDevice"
+        static let selectedSonos = "selectedSonosDevice"  // Deprecated - kept for migration
+        static let lastActiveSpeaker = "lastActiveSpeaker"  // New UUID-based storage
         static let volumeStep = "volumeStep"
         static let volumeDownKeyCode = "volumeDownKeyCode"
         static let volumeUpKeyCode = "volumeUpKeyCode"
@@ -42,6 +43,24 @@ class AppSettings: @unchecked Sendable {
         }
         set {
             defaults.set(newValue, forKey: Keys.selectedSonos)
+        }
+    }
+
+    /// Last active speaker - automatically tracked when user controls a speaker
+    var lastActiveSpeaker: String {
+        get {
+            defaults.string(forKey: Keys.lastActiveSpeaker) ?? ""
+        }
+    }
+
+    /// Track speaker activity - call this when user interacts with a speaker
+    /// This automatically updates the last active speaker for restoration on next launch
+    func trackSpeakerActivity(_ deviceName: String) {
+        guard !deviceName.isEmpty else { return }
+        let current = defaults.string(forKey: Keys.lastActiveSpeaker) ?? ""
+        if deviceName != current {
+            defaults.set(deviceName, forKey: Keys.lastActiveSpeaker)
+            print("📍 Last active speaker updated: \(deviceName)")
         }
     }
 
@@ -131,6 +150,18 @@ class AppSettings: @unchecked Sendable {
         }
         if defaults.object(forKey: Keys.volumeUpModifiers) == nil {
             defaults.set(0, forKey: Keys.volumeUpModifiers)  // No modifiers
+        }
+
+        // Migration: Move selectedSonosDevice → lastActiveSpeaker (UUID-based)
+        // This runs once for existing users to preserve their configured default speaker
+        if defaults.object(forKey: Keys.lastActiveSpeaker) == nil {
+            if let oldDefault = defaults.string(forKey: Keys.selectedSonos), !oldDefault.isEmpty {
+                // Store the device name temporarily - will be converted to UUID on first topology load
+                defaults.set(oldDefault, forKey: Keys.lastActiveSpeaker)
+                print("🔄 Migrated default speaker to last active: \(oldDefault)")
+                // Note: We keep selectedSonos for now to avoid breaking existing references
+                // It will be phased out gradually as code is updated
+            }
         }
     }
 

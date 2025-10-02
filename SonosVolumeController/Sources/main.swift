@@ -107,14 +107,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             await sonosController.discoverDevices { [weak self] in
                 guard let self = self else { return }
 
-                // Auto-select default speaker AFTER topology is loaded
+                // Auto-select last active speaker AFTER topology is loaded
                 Task { @MainActor in
-                    if !self.settings.selectedSonosDevice.isEmpty {
-                        print("🎵 Auto-selecting default speaker (after topology loaded): \(self.settings.selectedSonosDevice)")
-                        await self.sonosController.selectDevice(name: self.settings.selectedSonosDevice)
+                    if !self.settings.lastActiveSpeaker.isEmpty {
+                        print("🎵 Restoring last active speaker (after topology loaded): \(self.settings.lastActiveSpeaker)")
+                        await self.sonosController.selectDevice(name: self.settings.lastActiveSpeaker)
 
                         // Fetch and sync current volume from the selected speaker
-                        print("🔊 Fetching current volume from default speaker...")
+                        print("🔊 Fetching current volume from last active speaker...")
                         await self.sonosController.getVolume { @Sendable volume in
                             print("🔊 Initial volume: \(volume)%")
                             // Post notification to update UI
@@ -127,7 +127,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                             }
                         }
                     } else {
-                        print("⚠️ No default speaker configured")
+                        print("🆕 No previous speaker - will set after first selection")
 
                         // First launch - show popover to guide user to select a speaker
                         print("👋 First launch detected - showing onboarding popover")
