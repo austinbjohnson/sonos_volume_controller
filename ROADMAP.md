@@ -11,6 +11,7 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
+- **Real-time group topology updates** (branch: feature/realtime-topology-events, @austinbjohnson)
 
 ---
 
