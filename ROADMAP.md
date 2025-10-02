@@ -11,8 +11,6 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
-- **Thread safety violations with @unchecked Sendable** (branch: bug/thread-safety-violations, @austinbjohnson)
-
 
 ---
 
@@ -33,9 +31,6 @@ _Issues that break core functionality. Must fix immediately._
 ### UX Critical
 
 ### Architecture Critical
-- **Thread safety violations with @unchecked Sendable**: SonosController marked @unchecked Sendable but has extensive mutable state (`devices`, `groups` arrays) accessed from multiple threads without proper synchronization. Risk of data races and crashes. Need to either convert to `actor` or add proper locking. (SonosController.swift:4-78) [Added by claudeCode]
-
-- **Synchronous network operations blocking main thread**: DispatchSemaphore used to make network calls synchronous in `updateGroupTopology`, causing UI freezes. Replace with async/await pattern. (SonosController.swift:219-236) [Added by claudeCode]
 
 ## P1 - High Priority
 
