@@ -393,19 +393,15 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         let isExpanded = expandedGroups.contains(group.id)
 
-        // Star button to set as default
-        let starButton = NSButton()
-        starButton.image = NSImage(systemSymbolName: isActive ? "star.fill" : "star",
-                                    accessibilityDescription: isActive ? "Default group" : "Set as default")
-        starButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        starButton.contentTintColor = isActive ? .systemYellow : .tertiaryLabelColor
-        starButton.isBordered = false
-        starButton.bezelStyle = .inline
-        starButton.target = self
-        starButton.action = #selector(selectGroup(_:))
-        starButton.identifier = NSUserInterfaceItemIdentifier(group.id)
-        starButton.toolTip = isActive ? "Default group" : "Set as default group"
-        starButton.translatesAutoresizingMaskIntoConstraints = false
+        // Active indicator (blue dot) - non-interactive visual indicator
+        let activeIndicator = NSView()
+        if isActive {
+            activeIndicator.wantsLayer = true
+            activeIndicator.layer?.backgroundColor = NSColor.systemBlue.cgColor
+            activeIndicator.layer?.cornerRadius = 4
+            activeIndicator.toolTip = "Currently active"
+        }
+        activeIndicator.translatesAutoresizingMaskIntoConstraints = false
 
         // Chevron for expansion - make it a button so it's separately clickable
         let chevronButton = NSButton()
@@ -445,24 +441,29 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         checkbox.translatesAutoresizingMaskIntoConstraints = false
         checkbox.toolTip = "Select for ungrouping"
 
-        // Card identifier for tracking (no longer needed for click gesture)
+        // Card identifier for tracking
         card.identifier = NSUserInterfaceItemIdentifier(group.id)
 
-        card.addSubview(starButton)
+        // Add click gesture to card (since we removed the interactive star button)
+        let cardClick = NSClickGestureRecognizer(target: self, action: #selector(selectGroup(_:)))
+        cardClick.delegate = self
+        card.addGestureRecognizer(cardClick)
+
+        card.addSubview(activeIndicator)
         card.addSubview(chevronButton)
         card.addSubview(icon)
         card.addSubview(nameLabel)
         card.addSubview(checkbox)
 
         NSLayoutConstraint.activate([
-            // Star button on the left
-            starButton.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
-            starButton.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            starButton.widthAnchor.constraint(equalToConstant: 24),
-            starButton.heightAnchor.constraint(equalToConstant: 24),
+            // Active indicator (blue dot) on the left
+            activeIndicator.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
+            activeIndicator.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            activeIndicator.widthAnchor.constraint(equalToConstant: 8),
+            activeIndicator.heightAnchor.constraint(equalToConstant: 8),
 
-            // Chevron after star button
-            chevronButton.leadingAnchor.constraint(equalTo: starButton.trailingAnchor, constant: 6),
+            // Chevron after active indicator
+            chevronButton.leadingAnchor.constraint(equalTo: activeIndicator.trailingAnchor, constant: 8),
             chevronButton.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             chevronButton.widthAnchor.constraint(equalToConstant: 20),
             chevronButton.heightAnchor.constraint(equalToConstant: 20),
@@ -604,19 +605,15 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             ])
         }
 
-        // Star button to set as default
-        let starButton = NSButton()
-        starButton.image = NSImage(systemSymbolName: isActive ? "star.fill" : "star",
-                                    accessibilityDescription: isActive ? "Default speaker" : "Set as default")
-        starButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        starButton.contentTintColor = isActive ? .systemYellow : .tertiaryLabelColor
-        starButton.isBordered = false
-        starButton.bezelStyle = .inline
-        starButton.target = self
-        starButton.action = #selector(selectSpeaker(_:))
-        starButton.identifier = NSUserInterfaceItemIdentifier(device.name)
-        starButton.toolTip = isActive ? "Default speaker" : "Set as default speaker"
-        starButton.translatesAutoresizingMaskIntoConstraints = false
+        // Active indicator (blue dot) - non-interactive visual indicator
+        let activeIndicator = NSView()
+        if isActive {
+            activeIndicator.wantsLayer = true
+            activeIndicator.layer?.backgroundColor = NSColor.systemBlue.cgColor
+            activeIndicator.layer?.cornerRadius = 4
+            activeIndicator.toolTip = "Currently active"
+        }
+        activeIndicator.translatesAutoresizingMaskIntoConstraints = false
 
         // Speaker icon
         let icon = NSImageView()
@@ -684,20 +681,25 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         let leadingOffset: CGFloat = (isInGroup && !isGroupCoordinator) ? 20 : 8
 
-        card.addSubview(starButton)
+        // Add click gesture to card (since we removed the interactive star button)
+        let cardClick = NSClickGestureRecognizer(target: self, action: #selector(selectSpeaker(_:)))
+        cardClick.delegate = self
+        card.addGestureRecognizer(cardClick)
+
+        card.addSubview(activeIndicator)
         card.addSubview(icon)
         card.addSubview(textStack)
         card.addSubview(checkbox)
 
         NSLayoutConstraint.activate([
-            // Star button on the left
-            starButton.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: leadingOffset),
-            starButton.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            starButton.widthAnchor.constraint(equalToConstant: 24),
-            starButton.heightAnchor.constraint(equalToConstant: 24),
+            // Active indicator (blue dot) on the left
+            activeIndicator.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: leadingOffset),
+            activeIndicator.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            activeIndicator.widthAnchor.constraint(equalToConstant: 8),
+            activeIndicator.heightAnchor.constraint(equalToConstant: 8),
 
-            // Icon follows the star button
-            icon.leadingAnchor.constraint(equalTo: starButton.trailingAnchor, constant: 6),
+            // Icon follows the active indicator
+            icon.leadingAnchor.constraint(equalTo: activeIndicator.trailingAnchor, constant: 8),
             icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 20),
             icon.heightAnchor.constraint(equalToConstant: 20),
@@ -1026,7 +1028,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         // Welcome text
-        let text = NSTextField(labelWithString: "Welcome! Select your default speaker below to get started.")
+        let text = NSTextField(labelWithString: "Welcome! Click any speaker below to start controlling it with volume hotkeys.")
         text.font = .systemFont(ofSize: 12, weight: .medium)
         text.textColor = .labelColor
         text.alignment = .left
