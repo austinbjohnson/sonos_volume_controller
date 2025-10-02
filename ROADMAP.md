@@ -11,8 +11,6 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
-- **Individual speaker volume controls group volume bug** (branch: bug/individual-speaker-volume-in-groups, @austinbjohnson)
-
 ---
 
 ## App Store Readiness
@@ -27,7 +25,11 @@ _When starting work on a task, add it here with your branch name and username to
 _Issues that break core functionality. Must fix immediately._
 
 ### Bugs
-- **Individual speaker volume controls group volume**: When adjusting volume sliders for individual speakers within an expanded group view, it controls the entire group volume instead of the individual speaker volume. The `memberVolumeChanged` method exists but needs proper implementation using RenderingControl service for individual speaker adjustments. (MenuBarContentView.swift:1235-1245)
+- **Group volume changes don't update member sliders**: When adjusting the group volume slider, individual member speaker sliders within the expanded group do not update in real-time. The sliders should move proportionally to reflect how Sonos adjusts individual speaker volumes when the group volume changes. Currently only the group slider moves. (MenuBarContentView.swift:1076-1102, refreshMemberVolumes:1107-1140)
+
+- **Cannot select collapsed group for ungrouping**: When a group is collapsed, clicking the checkbox does not allow selecting it for the "Ungroup Selected" action. Must expand group first to select members. Should be able to select collapsed groups for ungrouping. (MenuBarContentView.swift)
+
+- **Line-in audio source stops when grouping**: When grouping a speaker playing line-in audio with another speaker, the audio pauses briefly, plays for one second after grouping completes, then cuts out entirely. The Sonos app shows the line-in source is no longer active for the group. This is likely because the non-line-in speaker becomes the group coordinator and line-in sources cannot be shared across groups (device-specific limitation). Need to detect line-in sources and either: (1) make the line-in speaker the coordinator, or (2) warn user before grouping. (SonosController.swift:937-998)
 
 ### UX Critical
 
@@ -43,6 +45,8 @@ _Major friction points impacting usability, significant missing features, or imp
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.
 
 ### Enhancements
+- **Simplify active speaker concept**: Remove "default speaker" concept and use "last active speaker" instead. On app launch, select the last speaker that was actively used (not a configured default). This makes the behavior more intuitive - the app remembers what you were last controlling. Remove default speaker setting from Preferences. (main.swift, PreferencesWindow.swift, AppSettings.swift)
+
 - **Real-time trigger device display update**: Trigger device display in menu bar popover only updates when popover is reopened. Add real-time notification/observer pattern so display updates immediately when changed in Preferences without requiring popover close/reopen. (MenuBarContentView.swift:1667, MenuBarPopover.swift:59) [Added by claudeCode]
 
 - **No visual indication when app disabled**: Menu bar icon doesn't change when app is in "Standby" mode (settings.enabled = false). Can't tell at a glance if hotkeys will work. Consider dimming icon or adding slash overlay. (main.swift:32-67) [Added by claudeCode]

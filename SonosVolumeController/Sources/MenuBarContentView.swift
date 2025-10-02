@@ -227,6 +227,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         volumeSlider.isEnabled = false // Disabled until volume is loaded
         volumeSlider.target = self
         volumeSlider.action = #selector(volumeChanged(_:))
+        volumeSlider.isContinuous = true // Real-time updates while dragging
         volumeSlider.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(volumeSlider)
 
@@ -522,10 +523,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         volumeSlider.action = #selector(memberVolumeChanged(_:))
         volumeSlider.identifier = NSUserInterfaceItemIdentifier(device.uuid)
         volumeSlider.translatesAutoresizingMaskIntoConstraints = false
+        volumeSlider.isContinuous = true // Real-time updates while dragging
 
-        // Load actual volume
+        // Load actual individual volume (bypassing group logic)
         Task { @MainActor in
-            await appDelegate?.sonosController.getCurrentVolume { @Sendable [weak volumeSlider] volume in
+            await appDelegate?.sonosController.getIndividualVolume(device: device) { @Sendable [weak volumeSlider] volume in
                 DispatchQueue.main.async {
                     if let vol = volume {
                         volumeSlider?.doubleValue = Double(vol)
@@ -878,11 +880,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
               let group = appDelegate?.sonosController.getCachedGroupForDevice(device) else {
             volumeTypeLabel.stringValue = "Volume"
             volumeTypeLabel.textColor = .secondaryLabelColor
+            volumeTypeLabel.font = .systemFont(ofSize: 11, weight: .medium)
             return
         }
 
         volumeTypeLabel.stringValue = "Group Volume (\(group.members.count) speakers)"
         volumeTypeLabel.textColor = .systemBlue
+        volumeTypeLabel.font = .systemFont(ofSize: 11, weight: .semibold) // Bolder for groups
     }
 
     // MARK: - Trigger Device Section
@@ -1057,10 +1061,29 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     @objc private func volumeChanged(_ sender: NSSlider) {
         let volume = Int(sender.doubleValue)
         volumeLabel.stringValue = "\(volume)%"
-        volumeLabel.textColor = .labelColor
+
+        // Visual feedback: briefly highlight the label
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.15
+            volumeLabel.textColor = .systemBlue
+        }, completionHandler: {
+            Task { @MainActor in
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.3
+                    self.volumeLabel.textColor = .labelColor
+                })
+            }
+        })
+
         // Set the actual Sonos volume
         Task {
             await appDelegate?.sonosController.setVolume(volume)
+
+            // After setting group volume, refresh all member volumes
+            // (Sonos adjusts member volumes proportionally)
+            await MainActor.run {
+                self.refreshMemberVolumes()
+            }
         }
     }
 
@@ -1076,6 +1099,43 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Enable slider now that we have actual volume
         if !volumeSlider.isEnabled {
             volumeSlider.isEnabled = true
+        }
+
+        // If this is a group volume change, refresh member volumes
+        // (Sonos adjusts member volumes proportionally when group volume changes)
+        refreshMemberVolumes()
+    }
+
+    private func refreshMemberVolumes() {
+        // Find all member cards and refresh their volume sliders
+        let memberCards = speakerCardsContainer.arrangedSubviews.filter { view in
+            guard let identifier = view.identifier?.rawValue else { return false }
+            return identifier.contains("_member_")
+        }
+
+        for card in memberCards {
+            // Find the volume slider in this member card
+            if let volumeSlider = card.subviews.compactMap({ $0 as? NSSlider }).first,
+               let deviceUUID = volumeSlider.identifier?.rawValue,
+               let device = appDelegate?.sonosController.cachedDiscoveredDevices.first(where: { $0.uuid == deviceUUID }) {
+
+                // Refresh this speaker's individual volume
+                Task { @MainActor in
+                    await appDelegate?.sonosController.getIndividualVolume(device: device) { @Sendable [weak volumeSlider] volume in
+                        DispatchQueue.main.async {
+                            if let vol = volume {
+                                // Animate slider movement smoothly
+                                NSAnimationContext.runAnimationGroup({ context in
+                                    context.duration = 0.25
+                                    context.allowsImplicitAnimation = true
+                                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                                    volumeSlider?.animator().doubleValue = Double(vol)
+                                })
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1311,10 +1371,30 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
 
         let volume = Int(sender.doubleValue)
+
         // Set individual speaker volume within the group
         // This uses RenderingControl service directly, bypassing group volume logic
         Task {
             await appDelegate?.sonosController.setIndividualVolume(device: device, volume: volume)
+
+            // After changing individual speaker, update group volume slider
+            // Group volume = average of all member volumes in Sonos
+            if let group = await appDelegate?.sonosController.getGroupForDevice(device) {
+                await appDelegate?.sonosController.getGroupVolume(group: group) { @Sendable [weak self] newGroupVolume in
+                    guard let self = self, let groupVol = newGroupVolume else { return }
+
+                    DispatchQueue.main.async {
+                        // Update group volume slider with smooth animation
+                        NSAnimationContext.runAnimationGroup({ context in
+                            context.duration = 0.25
+                            context.allowsImplicitAnimation = true
+                            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                            self.volumeSlider.animator().doubleValue = Double(groupVol)
+                            self.volumeLabel.stringValue = "\(groupVol)%"
+                        })
+                    }
+                }
+            }
         }
     }
 

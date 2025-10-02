@@ -879,6 +879,19 @@ actor SonosController {
         }
     }
 
+    /// Get volume for a specific device, bypassing group logic
+    /// Used for reading individual speaker volumes within a group
+    /// - Parameters:
+    ///   - device: The specific device to query
+    ///   - completion: Callback with volume level (0-100) or nil if failed
+    func getIndividualVolume(device: SonosDevice, completion: @escaping (Int?) -> Void) {
+        // Always query individual speaker volume, even if in a group
+        // This bypasses the group-aware logic in getCurrentVolume()
+        sendSonosCommand(to: device, action: "GetVolume") { volumeStr in
+            completion(Int(volumeStr))
+        }
+    }
+
     /// Set volume for a specific device, bypassing group logic
     /// Used for controlling individual speakers within a group
     /// - Parameters:
