@@ -1378,6 +1378,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }, completionHandler: { [weak self] in
             // Update popover size AFTER cards are inserted (so we calculate correct height)
             DispatchQueue.main.async {
+                // Force complete layout of all newly inserted cards before measuring
+                self?.speakerCardsContainer.layoutSubtreeIfNeeded()
                 self?.updatePopoverSize(animated: true)
             }
         })
@@ -1408,7 +1410,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     self?.speakerCardsContainer.removeArrangedSubview(view)
                     view.removeFromSuperview()
                 }
-                // Update popover size AFTER cards are removed (so we calculate correct height)
+
+                // Force layout to complete removal before measuring
+                self?.speakerCardsContainer.layoutSubtreeIfNeeded()
+
+                // Update popover size AFTER cards are removed and layout is complete
                 self?.updatePopoverSize(animated: true)
             }
         })
