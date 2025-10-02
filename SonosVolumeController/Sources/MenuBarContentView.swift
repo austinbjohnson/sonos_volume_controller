@@ -55,6 +55,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var triggerDeviceLabel: NSTextField!  // Display current audio trigger device
     private var isAdjustingGroupVolume: Bool = false  // Track when group volume is being adjusted
     private var memberVolumeThrottleTimer: Timer?  // Throttle member volume refresh calls
+    private var lastKnownVolume: Int?  // Cache last volume for delta calculation
 
     init(appDelegate: AppDelegate?) {
         self.appDelegate = appDelegate
@@ -1064,6 +1065,15 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let volume = Int(sender.doubleValue)
         volumeLabel.stringValue = "\(volume)%"
 
+        // Calculate delta for proportional volume adjustment (maintains speaker ratios)
+        let delta: Int?
+        if let lastVol = lastKnownVolume {
+            delta = volume - lastVol
+        } else {
+            delta = nil  // First adjustment, use absolute
+        }
+        lastKnownVolume = volume
+
         // Mark that we're adjusting group volume
         isAdjustingGroupVolume = true
         updateMemberCardVisualState(isGroupAdjusting: true)
@@ -1083,10 +1093,16 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Set the actual Sonos volume
         Task {
-            await appDelegate?.sonosController.setVolume(volume)
+            // Use relative adjustment if we have a delta (maintains speaker ratios)
+            // Otherwise fall back to absolute (first adjustment)
+            if let delta = delta, delta != 0 {
+                await appDelegate?.sonosController.changeVolumeBy(delta)
+            } else {
+                await appDelegate?.sonosController.setVolume(volume)
+            }
 
             // After setting group volume, refresh all member volumes
-            // (Sonos adjusts member volumes proportionally)
+            // (Sonos adjusts member volumes proportionally when using relative control)
             await MainActor.run {
                 self.refreshMemberVolumes()
                 self.isAdjustingGroupVolume = false
@@ -1103,6 +1119,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         volumeSlider.doubleValue = Double(volume)
         volumeLabel.stringValue = "\(volume)%"
         volumeLabel.textColor = .labelColor
+
+        // Cache volume for delta calculation
+        lastKnownVolume = volume
 
         // Enable slider now that we have actual volume
         if !volumeSlider.isEnabled {
