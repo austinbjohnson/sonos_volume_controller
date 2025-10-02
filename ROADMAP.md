@@ -27,6 +27,8 @@ _When starting work on a task, add it here with your branch name and username to
 _Issues that break core functionality. Must fix immediately._
 
 ### Bugs
+- **Hotkeys not working in clean install - no permission feedback**: On clean install, hotkeys produce system "bonk" sound but don't control volume. User gets no indication that accessibility permission is missing or that hotkeys are disabled. Need better permission status visibility and actionable feedback when hotkeys fail. Current permission check only shows alert on first launch, but doesn't help diagnose why hotkeys aren't working after that. Consider: (1) Show permission status in menu bar popover or Preferences, (2) Add HUD notification when hotkeys pressed without required permissions, (3) Add "Test Hotkeys" button in Preferences to verify they're working. (main.swift:193-243, VolumeKeyMonitor.swift)
+
 - **Cannot select collapsed group for ungrouping**: When a group is collapsed, clicking the checkbox does not allow selecting it for the "Ungroup Selected" action. Must expand group first to select members. Should be able to select collapsed groups for ungrouping. (MenuBarContentView.swift)
 
 - **Line-in audio source stops when grouping**: When grouping a speaker playing line-in audio with another speaker, the audio pauses briefly, plays for one second after grouping completes, then cuts out entirely. The Sonos app shows the line-in source is no longer active for the group. This is likely because the non-line-in speaker becomes the group coordinator and line-in sources cannot be shared across groups (device-specific limitation). Need to detect line-in sources and either: (1) make the line-in speaker the coordinator, or (2) warn user before grouping. (SonosController.swift:937-998)
