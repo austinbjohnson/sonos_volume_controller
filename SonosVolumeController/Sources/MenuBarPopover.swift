@@ -31,6 +31,9 @@ class MenuBarPopover: NSPopover, NSPopoverDelegate {
         // Create content view controller
         menuContentViewController = MenuBarContentViewController(appDelegate: appDelegate)
         self.contentViewController = menuContentViewController
+
+        // Set fixed width, initial height (will be updated dynamically)
+        self.contentSize = NSSize(width: 380, height: 700)
     }
 
     func toggle(from button: NSStatusBarButton) {
