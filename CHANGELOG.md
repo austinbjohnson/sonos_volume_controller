@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Technical
 - Infrastructure layer extraction - refactored SonosController god object by extracting infrastructure components (SSDPSocket, SSDPDiscoveryService, SonosNetworkClient, XMLParsingHelpers) into separate, focused modules with clean interfaces and improved testability, reduced SonosController from 1,732 to 1,471 lines (-15%)
+- Complete SOAP migration - migrated all 6 remaining SOAP operations (group volume, grouping/ungrouping, playback control) to use SonosNetworkClient, eliminated 229 lines of boilerplate URLSession code, added type-safe AVTransport convenience methods, fixed pre-existing thread safety issues
 
 ### Fixed
 - Popover height calculation - fixed tiny scroll area on initial display by forcing Auto Layout before measurement, increased max scroll height to accommodate expanded groups with 6+ cards, smooth expand/collapse animations without flicker (PR #41)
