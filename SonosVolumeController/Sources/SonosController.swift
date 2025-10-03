@@ -629,7 +629,7 @@ actor SonosController {
         return _cachedGroups.first(where: { $0.coordinatorUUID == coordUUID && $0.members.count > 1 })
     }
 
-    func getCurrentVolume(completion: @escaping (Int?) -> Void) {
+    func getCurrentVolume(completion: @escaping @Sendable (Int?) -> Void) {
         guard let device = _selectedDevice else {
             completion(nil)
             return
@@ -690,7 +690,7 @@ actor SonosController {
         }
     }
 
-    func getVolume(completion: @escaping (Int) -> Void) {
+    func getVolume(completion: @escaping @Sendable (Int) -> Void) {
         guard let device = _selectedDevice else {
             print("❌ No Sonos device selected")
             completion(50) // Default
@@ -752,7 +752,7 @@ actor SonosController {
     /// - Parameters:
     ///   - device: The specific device to query
     ///   - completion: Callback with volume level (0-100) or nil if failed
-    func getIndividualVolume(device: SonosDevice, completion: @escaping (Int?) -> Void) {
+    func getIndividualVolume(device: SonosDevice, completion: @escaping @Sendable (Int?) -> Void) {
         // Always query individual speaker volume, even if in a group
         // This bypasses the group-aware logic in getCurrentVolume()
         sendSonosCommand(to: device, action: "GetVolume") { volumeStr in
@@ -826,50 +826,33 @@ actor SonosController {
         }
     }
 
-    private func sendSonosCommand(to device: SonosDevice, action: String, arguments: [String: String] = [:], completion: ((String) -> Void)? = nil) {
-        let url = URL(string: "http://\(device.ipAddress):1400/MediaRenderer/RenderingControl/Control")!
+    nonisolated private func sendSonosCommand(to device: SonosDevice, action: String, arguments: [String: String] = [:], completion: (@Sendable (String) -> Void)? = nil) {
+        // Build arguments with required defaults for RenderingControl
+        var fullArguments = arguments
+        fullArguments["InstanceID"] = "0"
+        fullArguments["Channel"] = "Master"
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.addValue("\"urn:schemas-upnp-org:service:RenderingControl:1#\(action)\"", forHTTPHeaderField: "SOAPACTION")
+        let request = SonosNetworkClient.SOAPRequest(
+            service: .renderingControl,
+            action: action,
+            arguments: fullArguments
+        )
 
-        var argsXML = "<InstanceID>0</InstanceID><Channel>Master</Channel>"
-        for (key, value) in arguments {
-            argsXML += "<\(key)>\(value)</\(key)>"
-        }
-
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-            <s:Body>
-                <u:\(action) xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
-                    \(argsXML)
-                </u:\(action)>
-            </s:Body>
-        </s:Envelope>
-        """
-
-        request.httpBody = soapBody.data(using: .utf8)
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        networkClient.sendSOAPRequest(request, to: device.ipAddress) { data, error in
             if let error = error {
                 print("Sonos command error: \(error)")
                 return
             }
 
             if let data = data, let responseStr = String(data: data, encoding: .utf8) {
-                // Simple XML value extraction
+                // Extract value using XML helpers
                 if let completion = completion {
-                    if let valueRange = responseStr.range(of: "<Current[^>]*>([^<]+)</Current", options: .regularExpression) {
-                        let valueString = String(responseStr[valueRange])
-                        let value = valueString.replacingOccurrences(of: #"<Current[^>]*>"#, with: "", options: .regularExpression)
-                            .replacingOccurrences(of: "</Current", with: "")
+                    if let value = XMLParsingHelpers.extractValue(from: responseStr, tagPattern: "Current[^>]*") {
                         completion(value)
                     }
                 }
             }
-        }.resume()
+        }
     }
 
     // MARK: - Group Management Commands
@@ -1310,30 +1293,17 @@ actor SonosController {
 
     /// Get the group volume (average across all members)
     /// Must be called on the group coordinator
-    func getGroupVolume(group: SonosGroup, completion: @escaping (Int?) -> Void) {
+    func getGroupVolume(group: SonosGroup, completion: @escaping @Sendable (Int?) -> Void) {
         let coordinator = group.coordinator
         print("🎚️ Getting group volume for: \(group.displayName)")
 
-        let url = URL(string: "http://\(coordinator.ipAddress):1400/MediaRenderer/GroupRenderingControl/Control")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.addValue("\"urn:schemas-upnp-org:service:GroupRenderingControl:1#GetGroupVolume\"", forHTTPHeaderField: "SOAPACTION")
+        let request = SonosNetworkClient.SOAPRequest(
+            service: .groupRenderingControl,
+            action: "GetGroupVolume",
+            arguments: ["InstanceID": "0"]
+        )
 
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-            <s:Body>
-                <u:GetGroupVolume xmlns:u="urn:schemas-upnp-org:service:GroupRenderingControl:1">
-                    <InstanceID>0</InstanceID>
-                </u:GetGroupVolume>
-            </s:Body>
-        </s:Envelope>
-        """
-
-        request.httpBody = soapBody.data(using: .utf8)
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        networkClient.sendSOAPRequest(request, to: coordinator.ipAddress) { data, error in
             if let error = error {
                 print("❌ Failed to get group volume: \(error)")
                 completion(nil)
@@ -1345,49 +1315,30 @@ actor SonosController {
                 return
             }
 
-            // Parse volume from response
-            if let volumeRange = responseStr.range(of: "<CurrentVolume>([^<]+)</CurrentVolume>", options: .regularExpression) {
-                let volumeString = String(responseStr[volumeRange])
-                let volumeValue = volumeString.replacingOccurrences(of: "<CurrentVolume>", with: "")
-                    .replacingOccurrences(of: "</CurrentVolume>", with: "")
-                if let volume = Int(volumeValue) {
-                    print("   Group volume: \(volume)")
-                    completion(volume)
-                    return
-                }
+            // Parse volume from response using XML helpers
+            if let volume = XMLParsingHelpers.extractIntValue(from: responseStr, tag: "CurrentVolume") {
+                print("   Group volume: \(volume)")
+                completion(volume)
+            } else {
+                completion(nil)
             }
-
-            completion(nil)
-        }.resume()
+        }
     }
 
     /// Snapshot the current group volume ratios
     /// This captures the relative volume between all players for use by SetGroupVolume
     /// Must be called on the group coordinator before SetGroupVolume
-    private func snapshotGroupVolume(group: SonosGroup, completion: @escaping (Bool) -> Void) {
+    private func snapshotGroupVolume(group: SonosGroup, completion: @escaping @Sendable (Bool) -> Void) {
         let coordinator = group.coordinator
         print("📸 Taking group volume snapshot for \(group.displayName)")
 
-        let url = URL(string: "http://\(coordinator.ipAddress):1400/MediaRenderer/GroupRenderingControl/Control")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.addValue("\"urn:schemas-upnp-org:service:GroupRenderingControl:1#SnapshotGroupVolume\"", forHTTPHeaderField: "SOAPACTION")
+        let request = SonosNetworkClient.SOAPRequest(
+            service: .groupRenderingControl,
+            action: "SnapshotGroupVolume",
+            arguments: ["InstanceID": "0"]
+        )
 
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-            <s:Body>
-                <u:SnapshotGroupVolume xmlns:u="urn:schemas-upnp-org:service:GroupRenderingControl:1">
-                    <InstanceID>0</InstanceID>
-                </u:SnapshotGroupVolume>
-            </s:Body>
-        </s:Envelope>
-        """
-
-        request.httpBody = soapBody.data(using: .utf8)
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        networkClient.sendSOAPRequest(request, to: coordinator.ipAddress) { data, error in
             if let error = error {
                 print("❌ Failed to snapshot group volume: \(error)")
                 completion(false)
@@ -1396,7 +1347,7 @@ actor SonosController {
 
             print("✅ Group volume snapshot captured")
             completion(true)
-        }.resume()
+        }
     }
 
     /// Set the group volume (proportionally adjusts all members)
