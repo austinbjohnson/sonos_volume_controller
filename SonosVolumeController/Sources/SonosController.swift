@@ -1367,52 +1367,32 @@ actor SonosController {
 
         // First, snapshot the current volume ratios
         snapshotGroupVolume(group: group) { [weak self] success in
-            guard success else {
+            guard let self = self, success else {
                 print("❌ Failed to snapshot group volume, aborting SetGroupVolume")
                 return
             }
 
-            // Now set the group volume with the captured ratios
-            let url = URL(string: "http://\(coordinator.ipAddress):1400/MediaRenderer/GroupRenderingControl/Control")!
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-            request.addValue("\"urn:schemas-upnp-org:service:GroupRenderingControl:1#SetGroupVolume\"", forHTTPHeaderField: "SOAPACTION")
+            // Now set the group volume with the captured ratios using network client
+            Task {
+                do {
+                    try await self.networkClient.setGroupVolume(clampedVolume, for: coordinator.ipAddress)
+                    print("✅ Group volume set to \(clampedVolume) with snapshot-preserved ratios")
 
-            let soapBody = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-                <s:Body>
-                    <u:SetGroupVolume xmlns:u="urn:schemas-upnp-org:service:GroupRenderingControl:1">
-                        <InstanceID>0</InstanceID>
-                        <DesiredVolume>\(clampedVolume)</DesiredVolume>
-                    </u:SetGroupVolume>
-                </s:Body>
-            </s:Envelope>
-            """
+                    // Show HUD
+                    Task { @MainActor in
+                        VolumeHUD.shared.show(speaker: group.displayName, volume: clampedVolume)
 
-            request.httpBody = soapBody.data(using: .utf8)
-
-            URLSession.shared.dataTask(with: request) { data, response, error in
-                if let error = error {
+                        // Post notification for UI updates
+                        NotificationCenter.default.post(
+                            name: NSNotification.Name("SonosVolumeDidChange"),
+                            object: nil,
+                            userInfo: ["volume": clampedVolume]
+                        )
+                    }
+                } catch {
                     print("❌ Failed to set group volume: \(error)")
-                    return
                 }
-
-                print("✅ Group volume set to \(clampedVolume) with snapshot-preserved ratios")
-
-                // Show HUD
-                Task { @MainActor in
-                    VolumeHUD.shared.show(speaker: group.displayName, volume: clampedVolume)
-
-                    // Post notification for UI updates
-                    NotificationCenter.default.post(
-                        name: NSNotification.Name("SonosVolumeDidChange"),
-                        object: nil,
-                        userInfo: ["volume": clampedVolume]
-                    )
-                }
-            }.resume()
+            }
         }
     }
 
@@ -1422,35 +1402,13 @@ actor SonosController {
         let coordinator = group.coordinator
         print("🎚️ Changing group volume for \(group.displayName) by \(delta)")
 
-        let url = URL(string: "http://\(coordinator.ipAddress):1400/MediaRenderer/GroupRenderingControl/Control")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.addValue("\"urn:schemas-upnp-org:service:GroupRenderingControl:1#SetRelativeGroupVolume\"", forHTTPHeaderField: "SOAPACTION")
+        Task { [weak self] in
+            guard let self = self else { return }
 
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-            <s:Body>
-                <u:SetRelativeGroupVolume xmlns:u="urn:schemas-upnp-org:service:GroupRenderingControl:1">
-                    <InstanceID>0</InstanceID>
-                    <Adjustment>\(delta)</Adjustment>
-                </u:SetRelativeGroupVolume>
-            </s:Body>
-        </s:Envelope>
-        """
+            do {
+                try await self.networkClient.setRelativeGroupVolume(delta, for: coordinator.ipAddress)
 
-        request.httpBody = soapBody.data(using: .utf8)
-
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            if let error = error {
-                print("❌ Failed to change group volume: \(error)")
-                return
-            }
-
-            // Get the new volume to show in HUD
-            Task { [weak self] in
-                guard let self = self else { return }
+                // Get the new volume to show in HUD
                 await self.getGroupVolume(group: group) { newVolume in
                     guard let volume = newVolume else { return }
 
@@ -1464,8 +1422,10 @@ actor SonosController {
                         )
                     }
                 }
+            } catch {
+                print("❌ Failed to change group volume: \(error)")
             }
-        }.resume()
+        }
     }
 }
 
