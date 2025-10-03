@@ -137,68 +137,26 @@ actor SonosController {
     }
 
     private func performSSDPDiscovery(completion: (@Sendable () -> Void)? = nil) async {
-        // Increased MX from 1 to 3 to give devices more time to respond
-        let ssdpMessage = """
-        M-SEARCH * HTTP/1.1\r
-        HOST: 239.255.255.250:1900\r
-        MAN: "ssdp:discover"\r
-        MX: 3\r
-        ST: urn:schemas-upnp-org:device:ZonePlayer:1\r
-        \r
-
-        """
-
         do {
-            let socket = try SSDPSocket()
+            let discoveryService = SSDPDiscoveryService()
+            let discoveredDevices = try await discoveryService.discoverDevices()
 
-            // Send multiple discovery packets to catch devices that might miss the first one
-            print("📡 Sending discovery packet 1/3...")
-            try socket.send(ssdpMessage, to: "239.255.255.250", port: 1900)
-
-            try await Task.sleep(nanoseconds: 500_000_000)
-
-            print("📡 Sending discovery packet 2/3...")
-            try socket.send(ssdpMessage, to: "239.255.255.250", port: 1900)
-
-            try await Task.sleep(nanoseconds: 500_000_000)
-
-            print("📡 Sending discovery packet 3/3...")
-            try socket.send(ssdpMessage, to: "239.255.255.250", port: 1900)
-
-            // Listen for responses with extended timeout (increased from 3 to 5 seconds)
-            let timeout = DispatchTime.now() + .seconds(5)
-            var foundDevices: [SonosDevice] = []
-
-            print("👂 Listening for responses...")
-            while DispatchTime.now() < timeout {
-                if let response = try? socket.receive(timeout: 1.0) {
-                    if let device = parseSSDPResponse(response.data, from: response.address) {
-                        foundDevices.append(device)
-                    }
-                }
+            // Convert discovery results to SonosDevice
+            // Topology information (group membership, stereo pairs) will be updated later
+            let devices = discoveredDevices.map { result in
+                SonosDevice(
+                    name: result.name,
+                    ipAddress: result.ipAddress,
+                    uuid: result.uuid,
+                    isGroupCoordinator: false,      // Will be updated after topology loads
+                    groupCoordinatorUUID: nil,      // Will be updated after topology loads
+                    channelMapSet: nil,             // Will be updated after topology loads
+                    pairPartnerUUID: nil            // Will be updated after topology loads
+                )
             }
 
-            // Process discovered devices - now in async actor context
-            // Deduplicate devices by UUID (not name, since stereo pairs have duplicate names)
-            var uniqueDevices: [SonosDevice] = []
-            var seenUUIDs = Set<String>()
-
-            for device in foundDevices {
-                if !seenUUIDs.contains(device.uuid) {
-                    uniqueDevices.append(device)
-                    seenUUIDs.insert(device.uuid)
-                }
-            }
-
-            // Apply cached topology if available (but we'll refresh it anyway)
-            // Just keep the devices as-is, topology will be updated in updateGroupTopology()
-
-            self.devices = uniqueDevices
+            self.devices = devices
             self.updateCachedValues() // Update thread-safe copies
-            print("Found \(foundDevices.count) Sonos devices (\(uniqueDevices.count) unique)")
-            for device in uniqueDevices {
-                print("  - \(device.name) at \(device.ipAddress)")
-            }
 
             // Only fetch topology if not cached
             let needsTopology = !self.hasLoadedTopology
@@ -446,79 +404,6 @@ actor SonosController {
         return groupSignatures
     }
 
-    private func parseSSDPResponse(_ data: String, from address: String) -> SonosDevice? {
-        // Extract location URL from SSDP response
-        guard let locationLine = data.components(separatedBy: "\r\n")
-            .first(where: { $0.uppercased().hasPrefix("LOCATION:") }) else {
-            return nil
-        }
-
-        let location = locationLine.components(separatedBy: ":").dropFirst().joined(separator: ":").trimmingCharacters(in: .whitespaces)
-
-        guard let url = URL(string: location),
-              let host = url.host else {
-            return nil
-        }
-
-        // Fetch device description to get friendly name and UUID
-        let (name, uuid) = fetchDeviceInfo(from: location)
-        let deviceName = name ?? host
-
-        return SonosDevice(
-            name: deviceName,
-            ipAddress: host,
-            uuid: uuid ?? location,
-            isGroupCoordinator: false,      // Will be updated after topology loads
-            groupCoordinatorUUID: nil,      // Will be updated after topology loads
-            channelMapSet: nil,             // Will be updated after topology loads
-            pairPartnerUUID: nil            // Will be updated after topology loads
-        )
-    }
-
-    private func fetchDeviceInfo(from location: String) -> (name: String?, uuid: String?) {
-        guard let url = URL(string: location) else { return (nil, nil) }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 2.0
-
-        var resultName: String?
-        var resultUUID: String?
-        let semaphore = DispatchSemaphore(value: 0)
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            defer { semaphore.signal() }
-
-            guard let data = data,
-                  let xml = String(data: data, encoding: .utf8) else {
-                return
-            }
-
-            // Parse roomName or friendlyName
-            if let nameRange = xml.range(of: "<roomName>([^<]+)</roomName>", options: .regularExpression) {
-                let nameString = String(xml[nameRange])
-                resultName = nameString.replacingOccurrences(of: "<roomName>", with: "")
-                    .replacingOccurrences(of: "</roomName>", with: "")
-            } else if let nameRange = xml.range(of: "<friendlyName>([^<]+)</friendlyName>", options: .regularExpression) {
-                let nameString = String(xml[nameRange])
-                resultName = nameString.replacingOccurrences(of: "<friendlyName>", with: "")
-                    .replacingOccurrences(of: "</friendlyName>", with: "")
-            }
-
-            // Parse UDN (Unique Device Name) which contains the UUID
-            if let udnRange = xml.range(of: "<UDN>([^<]+)</UDN>", options: .regularExpression) {
-                let udnString = String(xml[udnRange])
-                let udn = udnString.replacingOccurrences(of: "<UDN>", with: "")
-                    .replacingOccurrences(of: "</UDN>", with: "")
-                // UDN format is typically "uuid:RINCON_XXXXXXXXXXXX"
-                if let uuidPart = udn.components(separatedBy: ":").last {
-                    resultUUID = uuidPart
-                }
-            }
-        }.resume()
-
-        _ = semaphore.wait(timeout: .now() + 3)
-        return (resultName, resultUUID)
-    }
 
     func selectDevice(name: String) {
         _selectedDevice = devices.first { $0.name == name }
