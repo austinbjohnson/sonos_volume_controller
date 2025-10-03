@@ -3,6 +3,7 @@ import Network
 
 actor SonosController {
     private let settings: AppSettings
+    private let networkClient: SonosNetworkClient
     private var devices: [SonosDevice] = []
     private var groups: [SonosGroup] = []
     private var _selectedDevice: SonosDevice?
@@ -113,6 +114,7 @@ actor SonosController {
 
     init(settings: AppSettings) {
         self.settings = settings
+        self.networkClient = SonosNetworkClient()
     }
 
     func discoverDevices(forceRefreshTopology: Bool = false, completion: (@Sendable () -> Void)? = nil) {
@@ -137,68 +139,26 @@ actor SonosController {
     }
 
     private func performSSDPDiscovery(completion: (@Sendable () -> Void)? = nil) async {
-        // Increased MX from 1 to 3 to give devices more time to respond
-        let ssdpMessage = """
-        M-SEARCH * HTTP/1.1\r
-        HOST: 239.255.255.250:1900\r
-        MAN: "ssdp:discover"\r
-        MX: 3\r
-        ST: urn:schemas-upnp-org:device:ZonePlayer:1\r
-        \r
-
-        """
-
         do {
-            let socket = try Socket()
+            let discoveryService = SSDPDiscoveryService()
+            let discoveredDevices = try await discoveryService.discoverDevices()
 
-            // Send multiple discovery packets to catch devices that might miss the first one
-            print("📡 Sending discovery packet 1/3...")
-            try socket.send(ssdpMessage, to: "239.255.255.250", port: 1900)
-
-            try await Task.sleep(nanoseconds: 500_000_000)
-
-            print("📡 Sending discovery packet 2/3...")
-            try socket.send(ssdpMessage, to: "239.255.255.250", port: 1900)
-
-            try await Task.sleep(nanoseconds: 500_000_000)
-
-            print("📡 Sending discovery packet 3/3...")
-            try socket.send(ssdpMessage, to: "239.255.255.250", port: 1900)
-
-            // Listen for responses with extended timeout (increased from 3 to 5 seconds)
-            let timeout = DispatchTime.now() + .seconds(5)
-            var foundDevices: [SonosDevice] = []
-
-            print("👂 Listening for responses...")
-            while DispatchTime.now() < timeout {
-                if let response = try? socket.receive(timeout: 1.0) {
-                    if let device = parseSSDPResponse(response.data, from: response.address) {
-                        foundDevices.append(device)
-                    }
-                }
+            // Convert discovery results to SonosDevice
+            // Topology information (group membership, stereo pairs) will be updated later
+            let devices = discoveredDevices.map { result in
+                SonosDevice(
+                    name: result.name,
+                    ipAddress: result.ipAddress,
+                    uuid: result.uuid,
+                    isGroupCoordinator: false,      // Will be updated after topology loads
+                    groupCoordinatorUUID: nil,      // Will be updated after topology loads
+                    channelMapSet: nil,             // Will be updated after topology loads
+                    pairPartnerUUID: nil            // Will be updated after topology loads
+                )
             }
 
-            // Process discovered devices - now in async actor context
-            // Deduplicate devices by UUID (not name, since stereo pairs have duplicate names)
-            var uniqueDevices: [SonosDevice] = []
-            var seenUUIDs = Set<String>()
-
-            for device in foundDevices {
-                if !seenUUIDs.contains(device.uuid) {
-                    uniqueDevices.append(device)
-                    seenUUIDs.insert(device.uuid)
-                }
-            }
-
-            // Apply cached topology if available (but we'll refresh it anyway)
-            // Just keep the devices as-is, topology will be updated in updateGroupTopology()
-
-            self.devices = uniqueDevices
+            self.devices = devices
             self.updateCachedValues() // Update thread-safe copies
-            print("Found \(foundDevices.count) Sonos devices (\(uniqueDevices.count) unique)")
-            for device in uniqueDevices {
-                print("  - \(device.name) at \(device.ipAddress)")
-            }
 
             // Only fetch topology if not cached
             let needsTopology = !self.hasLoadedTopology
@@ -237,26 +197,12 @@ actor SonosController {
             return
         }
 
-        let url = URL(string: "http://\(anyDevice.ipAddress):1400/ZoneGroupTopology/Control")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.addValue("\"urn:schemas-upnp-org:service:ZoneGroupTopology:1#GetZoneGroupState\"", forHTTPHeaderField: "SOAPACTION")
-
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-            <s:Body>
-                <u:GetZoneGroupState xmlns:u="urn:schemas-upnp-org:service:ZoneGroupTopology:1">
-                </u:GetZoneGroupState>
-            </s:Body>
-        </s:Envelope>
-        """
-
-        request.httpBody = soapBody.data(using: .utf8)
-
         do {
-            let (data, _) = try await URLSession.shared.data(for: request)
+            let request = SonosNetworkClient.SOAPRequest(
+                service: .zoneGroupTopology,
+                action: "GetZoneGroupState"
+            )
+            let data = try await networkClient.sendSOAPRequest(request, to: anyDevice.ipAddress)
 
             guard let responseStr = String(data: data, encoding: .utf8) else {
                 print("Failed to decode response")
@@ -271,20 +217,14 @@ actor SonosController {
 
     private func parseGroupTopology(_ xml: String, completion: (@Sendable () -> Void)? = nil) {
         // Extract ZoneGroupState XML from SOAP response
-        guard let stateRange = xml.range(of: "<ZoneGroupState>([\\s\\S]*?)</ZoneGroupState>", options: .regularExpression) else {
+        guard let stateXML = XMLParsingHelpers.extractSection(from: xml, tag: "ZoneGroupState") else {
             print("Could not find ZoneGroupState in response")
             completion?()
             return
         }
 
-        let stateXML = String(xml[stateRange])
-
         // Decode HTML entities to parse actual XML structure
-        let decodedXML = stateXML
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&amp;", with: "&")
+        let decodedXML = XMLParsingHelpers.decodeHTMLEntities(stateXML)
 
         // Parse each ZoneGroup to find coordinators and invisible devices
         let groupPattern = "<ZoneGroup Coordinator=\"([^\"]+)\"[^>]*>([\\s\\S]*?)</ZoneGroup>"
@@ -446,79 +386,6 @@ actor SonosController {
         return groupSignatures
     }
 
-    private func parseSSDPResponse(_ data: String, from address: String) -> SonosDevice? {
-        // Extract location URL from SSDP response
-        guard let locationLine = data.components(separatedBy: "\r\n")
-            .first(where: { $0.uppercased().hasPrefix("LOCATION:") }) else {
-            return nil
-        }
-
-        let location = locationLine.components(separatedBy: ":").dropFirst().joined(separator: ":").trimmingCharacters(in: .whitespaces)
-
-        guard let url = URL(string: location),
-              let host = url.host else {
-            return nil
-        }
-
-        // Fetch device description to get friendly name and UUID
-        let (name, uuid) = fetchDeviceInfo(from: location)
-        let deviceName = name ?? host
-
-        return SonosDevice(
-            name: deviceName,
-            ipAddress: host,
-            uuid: uuid ?? location,
-            isGroupCoordinator: false,      // Will be updated after topology loads
-            groupCoordinatorUUID: nil,      // Will be updated after topology loads
-            channelMapSet: nil,             // Will be updated after topology loads
-            pairPartnerUUID: nil            // Will be updated after topology loads
-        )
-    }
-
-    private func fetchDeviceInfo(from location: String) -> (name: String?, uuid: String?) {
-        guard let url = URL(string: location) else { return (nil, nil) }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 2.0
-
-        var resultName: String?
-        var resultUUID: String?
-        let semaphore = DispatchSemaphore(value: 0)
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            defer { semaphore.signal() }
-
-            guard let data = data,
-                  let xml = String(data: data, encoding: .utf8) else {
-                return
-            }
-
-            // Parse roomName or friendlyName
-            if let nameRange = xml.range(of: "<roomName>([^<]+)</roomName>", options: .regularExpression) {
-                let nameString = String(xml[nameRange])
-                resultName = nameString.replacingOccurrences(of: "<roomName>", with: "")
-                    .replacingOccurrences(of: "</roomName>", with: "")
-            } else if let nameRange = xml.range(of: "<friendlyName>([^<]+)</friendlyName>", options: .regularExpression) {
-                let nameString = String(xml[nameRange])
-                resultName = nameString.replacingOccurrences(of: "<friendlyName>", with: "")
-                    .replacingOccurrences(of: "</friendlyName>", with: "")
-            }
-
-            // Parse UDN (Unique Device Name) which contains the UUID
-            if let udnRange = xml.range(of: "<UDN>([^<]+)</UDN>", options: .regularExpression) {
-                let udnString = String(xml[udnRange])
-                let udn = udnString.replacingOccurrences(of: "<UDN>", with: "")
-                    .replacingOccurrences(of: "</UDN>", with: "")
-                // UDN format is typically "uuid:RINCON_XXXXXXXXXXXX"
-                if let uuidPart = udn.components(separatedBy: ":").last {
-                    resultUUID = uuidPart
-                }
-            }
-        }.resume()
-
-        _ = semaphore.wait(timeout: .now() + 3)
-        return (resultName, resultUUID)
-    }
 
     func selectDevice(name: String) {
         _selectedDevice = devices.first { $0.name == name }
@@ -762,7 +629,7 @@ actor SonosController {
         return _cachedGroups.first(where: { $0.coordinatorUUID == coordUUID && $0.members.count > 1 })
     }
 
-    func getCurrentVolume(completion: @escaping (Int?) -> Void) {
+    func getCurrentVolume(completion: @escaping @Sendable (Int?) -> Void) {
         guard let device = _selectedDevice else {
             completion(nil)
             return
@@ -823,7 +690,7 @@ actor SonosController {
         }
     }
 
-    func getVolume(completion: @escaping (Int) -> Void) {
+    func getVolume(completion: @escaping @Sendable (Int) -> Void) {
         guard let device = _selectedDevice else {
             print("❌ No Sonos device selected")
             completion(50) // Default
@@ -885,7 +752,7 @@ actor SonosController {
     /// - Parameters:
     ///   - device: The specific device to query
     ///   - completion: Callback with volume level (0-100) or nil if failed
-    func getIndividualVolume(device: SonosDevice, completion: @escaping (Int?) -> Void) {
+    func getIndividualVolume(device: SonosDevice, completion: @escaping @Sendable (Int?) -> Void) {
         // Always query individual speaker volume, even if in a group
         // This bypasses the group-aware logic in getCurrentVolume()
         sendSonosCommand(to: device, action: "GetVolume") { volumeStr in
@@ -959,50 +826,33 @@ actor SonosController {
         }
     }
 
-    private func sendSonosCommand(to device: SonosDevice, action: String, arguments: [String: String] = [:], completion: ((String) -> Void)? = nil) {
-        let url = URL(string: "http://\(device.ipAddress):1400/MediaRenderer/RenderingControl/Control")!
+    nonisolated private func sendSonosCommand(to device: SonosDevice, action: String, arguments: [String: String] = [:], completion: (@Sendable (String) -> Void)? = nil) {
+        // Build arguments with required defaults for RenderingControl
+        var fullArguments = arguments
+        fullArguments["InstanceID"] = "0"
+        fullArguments["Channel"] = "Master"
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.addValue("\"urn:schemas-upnp-org:service:RenderingControl:1#\(action)\"", forHTTPHeaderField: "SOAPACTION")
+        let request = SonosNetworkClient.SOAPRequest(
+            service: .renderingControl,
+            action: action,
+            arguments: fullArguments
+        )
 
-        var argsXML = "<InstanceID>0</InstanceID><Channel>Master</Channel>"
-        for (key, value) in arguments {
-            argsXML += "<\(key)>\(value)</\(key)>"
-        }
-
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-            <s:Body>
-                <u:\(action) xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
-                    \(argsXML)
-                </u:\(action)>
-            </s:Body>
-        </s:Envelope>
-        """
-
-        request.httpBody = soapBody.data(using: .utf8)
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        networkClient.sendSOAPRequest(request, to: device.ipAddress) { data, error in
             if let error = error {
                 print("Sonos command error: \(error)")
                 return
             }
 
             if let data = data, let responseStr = String(data: data, encoding: .utf8) {
-                // Simple XML value extraction
+                // Extract value using XML helpers
                 if let completion = completion {
-                    if let valueRange = responseStr.range(of: "<Current[^>]*>([^<]+)</Current", options: .regularExpression) {
-                        let valueString = String(responseStr[valueRange])
-                        let value = valueString.replacingOccurrences(of: #"<Current[^>]*>"#, with: "", options: .regularExpression)
-                            .replacingOccurrences(of: "</Current", with: "")
+                    if let value = XMLParsingHelpers.extractValue(from: responseStr, tagPattern: "Current[^>]*") {
                         completion(value)
                     }
                 }
             }
-        }.resume()
+        }
     }
 
     // MARK: - Group Management Commands
@@ -1443,30 +1293,17 @@ actor SonosController {
 
     /// Get the group volume (average across all members)
     /// Must be called on the group coordinator
-    func getGroupVolume(group: SonosGroup, completion: @escaping (Int?) -> Void) {
+    func getGroupVolume(group: SonosGroup, completion: @escaping @Sendable (Int?) -> Void) {
         let coordinator = group.coordinator
         print("🎚️ Getting group volume for: \(group.displayName)")
 
-        let url = URL(string: "http://\(coordinator.ipAddress):1400/MediaRenderer/GroupRenderingControl/Control")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.addValue("\"urn:schemas-upnp-org:service:GroupRenderingControl:1#GetGroupVolume\"", forHTTPHeaderField: "SOAPACTION")
+        let request = SonosNetworkClient.SOAPRequest(
+            service: .groupRenderingControl,
+            action: "GetGroupVolume",
+            arguments: ["InstanceID": "0"]
+        )
 
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-            <s:Body>
-                <u:GetGroupVolume xmlns:u="urn:schemas-upnp-org:service:GroupRenderingControl:1">
-                    <InstanceID>0</InstanceID>
-                </u:GetGroupVolume>
-            </s:Body>
-        </s:Envelope>
-        """
-
-        request.httpBody = soapBody.data(using: .utf8)
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        networkClient.sendSOAPRequest(request, to: coordinator.ipAddress) { data, error in
             if let error = error {
                 print("❌ Failed to get group volume: \(error)")
                 completion(nil)
@@ -1478,49 +1315,30 @@ actor SonosController {
                 return
             }
 
-            // Parse volume from response
-            if let volumeRange = responseStr.range(of: "<CurrentVolume>([^<]+)</CurrentVolume>", options: .regularExpression) {
-                let volumeString = String(responseStr[volumeRange])
-                let volumeValue = volumeString.replacingOccurrences(of: "<CurrentVolume>", with: "")
-                    .replacingOccurrences(of: "</CurrentVolume>", with: "")
-                if let volume = Int(volumeValue) {
-                    print("   Group volume: \(volume)")
-                    completion(volume)
-                    return
-                }
+            // Parse volume from response using XML helpers
+            if let volume = XMLParsingHelpers.extractIntValue(from: responseStr, tag: "CurrentVolume") {
+                print("   Group volume: \(volume)")
+                completion(volume)
+            } else {
+                completion(nil)
             }
-
-            completion(nil)
-        }.resume()
+        }
     }
 
     /// Snapshot the current group volume ratios
     /// This captures the relative volume between all players for use by SetGroupVolume
     /// Must be called on the group coordinator before SetGroupVolume
-    private func snapshotGroupVolume(group: SonosGroup, completion: @escaping (Bool) -> Void) {
+    private func snapshotGroupVolume(group: SonosGroup, completion: @escaping @Sendable (Bool) -> Void) {
         let coordinator = group.coordinator
         print("📸 Taking group volume snapshot for \(group.displayName)")
 
-        let url = URL(string: "http://\(coordinator.ipAddress):1400/MediaRenderer/GroupRenderingControl/Control")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.addValue("\"urn:schemas-upnp-org:service:GroupRenderingControl:1#SnapshotGroupVolume\"", forHTTPHeaderField: "SOAPACTION")
+        let request = SonosNetworkClient.SOAPRequest(
+            service: .groupRenderingControl,
+            action: "SnapshotGroupVolume",
+            arguments: ["InstanceID": "0"]
+        )
 
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-            <s:Body>
-                <u:SnapshotGroupVolume xmlns:u="urn:schemas-upnp-org:service:GroupRenderingControl:1">
-                    <InstanceID>0</InstanceID>
-                </u:SnapshotGroupVolume>
-            </s:Body>
-        </s:Envelope>
-        """
-
-        request.httpBody = soapBody.data(using: .utf8)
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        networkClient.sendSOAPRequest(request, to: coordinator.ipAddress) { data, error in
             if let error = error {
                 print("❌ Failed to snapshot group volume: \(error)")
                 completion(false)
@@ -1529,7 +1347,7 @@ actor SonosController {
 
             print("✅ Group volume snapshot captured")
             completion(true)
-        }.resume()
+        }
     }
 
     /// Set the group volume (proportionally adjusts all members)
@@ -1651,82 +1469,3 @@ actor SonosController {
     }
 }
 
-// BSD socket for SSDP discovery
-import Darwin
-
-class Socket {
-    private var sockfd: Int32 = -1
-
-    init() throws {
-        sockfd = socket(AF_INET, SOCK_DGRAM, 0)
-        guard sockfd >= 0 else {
-            throw NSError(domain: "Socket", code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "Failed to create socket"])
-        }
-
-        // Allow socket reuse
-        var reuseAddr: Int32 = 1
-        setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuseAddr, socklen_t(MemoryLayout<Int32>.size))
-
-        #if os(macOS)
-        var reusePort: Int32 = 1
-        setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &reusePort, socklen_t(MemoryLayout<Int32>.size))
-        #endif
-
-        // Set timeout for receives
-        var timeout = timeval(tv_sec: 1, tv_usec: 0)
-        setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-    }
-
-    deinit {
-        if sockfd >= 0 {
-            close(sockfd)
-        }
-    }
-
-    func send(_ message: String, to address: String, port: UInt16) throws {
-        guard let data = message.data(using: .utf8) else { return }
-
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = port.bigEndian
-        inet_pton(AF_INET, address, &addr.sin_addr)
-
-        let sent = data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) -> Int in
-            return withUnsafePointer(to: addr) { addrPtr in
-                addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    return sendto(sockfd, buffer.baseAddress, buffer.count, 0, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
-                }
-            }
-        }
-
-        guard sent >= 0 else {
-            throw NSError(domain: "Socket", code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "Failed to send"])
-        }
-    }
-
-    func receive(timeout: TimeInterval) throws -> (data: String, address: String)? {
-        var buffer = [UInt8](repeating: 0, count: 8192)
-        var addr = sockaddr_in()
-        var addrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
-
-        let received = withUnsafeMutablePointer(to: &addr) { addrPtr in
-            addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                recvfrom(sockfd, &buffer, buffer.count, 0, sockaddrPtr, &addrLen)
-            }
-        }
-
-        guard received > 0 else {
-            return nil
-        }
-
-        guard let string = String(bytes: buffer[..<received], encoding: .utf8) else {
-            return nil
-        }
-
-        var hostBuffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-        inet_ntop(AF_INET, &addr.sin_addr, &hostBuffer, socklen_t(INET_ADDRSTRLEN))
-        let host = String(cString: hostBuffer)
-
-        return (string, host)
-    }
-}
