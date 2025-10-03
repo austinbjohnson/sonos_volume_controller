@@ -1567,14 +1567,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         ungroupButton.title = "Ungrouping..."
 
         // Use a class wrapper to track completion count across async callbacks
-        class CompletionTracker {
+        class CompletionTracker: @unchecked Sendable {
             var successCount = 0
             var completionCount = 0
         }
         let tracker = CompletionTracker()
 
         // Completion handler
-        let handleCompletion: (Bool) -> Void = { [weak self] success in
+        let handleCompletion: @Sendable (Bool) -> Void = { [weak self] success in
             DispatchQueue.main.async {
                 tracker.completionCount += 1
                 if success {
