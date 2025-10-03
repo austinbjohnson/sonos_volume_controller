@@ -195,4 +195,54 @@ extension SonosNetworkClient {
         let data = try await sendSOAPRequest(request, to: coordinatorIP)
         return String(data: data, encoding: .utf8) ?? ""
     }
+
+    // MARK: - AVTransport Operations
+
+    /// Sets the AVTransport URI for a device (used for grouping)
+    func setAVTransportURI(_ uri: String, for deviceIP: String, metadata: String = "") async throws {
+        let request = SOAPRequest(
+            service: .avTransport,
+            action: "SetAVTransportURI",
+            arguments: [
+                "InstanceID": "0",
+                "CurrentURI": uri,
+                "CurrentURIMetaData": metadata
+            ]
+        )
+        _ = try await sendSOAPRequest(request, to: deviceIP)
+    }
+
+    /// Makes a device become a standalone coordinator (used for ungrouping)
+    func becomeStandaloneCoordinator(for deviceIP: String) async throws {
+        let request = SOAPRequest(
+            service: .avTransport,
+            action: "BecomeCoordinatorOfStandaloneGroup",
+            arguments: ["InstanceID": "0"]
+        )
+        _ = try await sendSOAPRequest(request, to: deviceIP)
+    }
+
+    /// Sends a Play command to start/resume playback
+    func play(for deviceIP: String, speed: String = "1") async throws {
+        let request = SOAPRequest(
+            service: .avTransport,
+            action: "Play",
+            arguments: [
+                "InstanceID": "0",
+                "Speed": speed
+            ]
+        )
+        _ = try await sendSOAPRequest(request, to: deviceIP)
+    }
+
+    /// Gets the current transport state (PLAYING, PAUSED, STOPPED)
+    func getTransportInfo(for deviceIP: String) async throws -> String {
+        let request = SOAPRequest(
+            service: .avTransport,
+            action: "GetTransportInfo",
+            arguments: ["InstanceID": "0"]
+        )
+        let data = try await sendSOAPRequest(request, to: deviceIP)
+        return String(data: data, encoding: .utf8) ?? ""
+    }
 }

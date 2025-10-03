@@ -877,138 +877,81 @@ actor SonosController {
             return
         }
 
-        let url = URL(string: "http://\(device.ipAddress):1400/MediaRenderer/AVTransport/Control")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.addValue("\"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI\"", forHTTPHeaderField: "SOAPACTION")
-
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-            <s:Body>
-                <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                    <InstanceID>0</InstanceID>
-                    <CurrentURI>x-rincon:\(coordinatorUUID)</CurrentURI>
-                    <CurrentURIMetaData></CurrentURIMetaData>
-                </u:SetAVTransportURI>
-            </s:Body>
-        </s:Envelope>
-        """
-
         print("📤 Sending SetAVTransportURI to \(device.ipAddress)")
         print("   Target URI: x-rincon:\(coordinatorUUID)")
 
-        request.httpBody = soapBody.data(using: .utf8)
+        Task { [weak self] in
+            guard let self = self else { return }
 
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                print("❌ Failed to add device to group: \(error)")
-                completion?(false)
-                return
-            }
+            do {
+                try await self.networkClient.setAVTransportURI("x-rincon:\(coordinatorUUID)", for: device.ipAddress)
+                print("✅ Successfully added \(device.name) to group")
 
-            // Check HTTP status code
-            if let httpResponse = response as? HTTPURLResponse {
-                print("📡 HTTP Status: \(httpResponse.statusCode) for \(device.name)")
-                if httpResponse.statusCode != 200 {
-                    print("❌ Failed to add \(device.name) to group - HTTP \(httpResponse.statusCode)")
-                    if let data = data, let responseStr = String(data: data, encoding: .utf8) {
-                        print("   Response: \(responseStr)")
-                        // Parse UPnP error code if available
-                        if let errorRange = responseStr.range(of: "<errorCode>([^<]+)</errorCode>", options: .regularExpression) {
-                            let errorString = String(responseStr[errorRange])
-                            let errorCode = errorString.replacingOccurrences(of: "<errorCode>", with: "").replacingOccurrences(of: "</errorCode>", with: "")
-                            print("   UPnP Error Code: \(errorCode)")
-                        }
-                    }
-                    DispatchQueue.main.async {
-                        completion?(false)
-                    }
-                    return
-                }
-            }
-
-            print("✅ Successfully added \(device.name) to group")
-
-            // Optionally refresh topology before calling completion
-            if shouldRefreshTopology {
-                Task { [weak self] in
+                // Optionally refresh topology before calling completion
+                if shouldRefreshTopology {
                     // Wait a bit before refreshing topology
                     try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
-                    guard let self = self else { return }
 
                     await self.updateGroupTopology {
                         DispatchQueue.main.async {
                             completion?(true)
                         }
                     }
+                } else {
+                    DispatchQueue.main.async {
+                        completion?(true)
+                    }
                 }
-            } else {
+            } catch {
+                print("❌ Failed to add device to group: \(error)")
                 DispatchQueue.main.async {
-                    completion?(true)
+                    completion?(false)
                 }
             }
-        }.resume()
+        }
     }
 
     /// Remove a device from its current group (make it standalone)
     /// Uses AVTransport BecomeGroupCoordinatorAndSource
-    func removeDeviceFromGroup(device: SonosDevice, completion: ((Bool) -> Void)? = nil) {
+    func removeDeviceFromGroup(device: SonosDevice, completion: (@Sendable (Bool) -> Void)? = nil) {
         print("🔓 Removing \(device.name) from group")
 
-        let url = URL(string: "http://\(device.ipAddress):1400/MediaRenderer/AVTransport/Control")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.addValue("\"urn:schemas-upnp-org:service:AVTransport:1#BecomeCoordinatorOfStandaloneGroup\"", forHTTPHeaderField: "SOAPACTION")
+        Task { [weak self] in
+            guard let self = self else { return }
 
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-            <s:Body>
-                <u:BecomeCoordinatorOfStandaloneGroup xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                    <InstanceID>0</InstanceID>
-                </u:BecomeCoordinatorOfStandaloneGroup>
-            </s:Body>
-        </s:Envelope>
-        """
+            do {
+                try await self.networkClient.becomeStandaloneCoordinator(for: device.ipAddress)
+                print("✅ Successfully removed \(device.name) from group")
+                completion?(true)
 
-        request.httpBody = soapBody.data(using: .utf8)
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
+                // Refresh topology after a short delay
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                await self.updateGroupTopology(completion: nil)
+            } catch {
                 print("❌ Failed to remove device from group: \(error)")
                 completion?(false)
-                return
             }
-
-            print("✅ Successfully removed \(device.name) from group")
-            completion?(true)
-
-            // Refresh topology after a short delay
-            Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-                await self?.updateGroupTopology(completion: nil)
-            }
-        }.resume()
+        }
     }
 
     /// Create a new group with specified devices
     /// The first device becomes the coordinator
     /// Get playback states for multiple devices
     /// Returns dictionary mapping device UUID to transport state
-    func getPlaybackStates(devices: [SonosDevice], completion: @escaping ([String: String]) -> Void) {
+    func getPlaybackStates(devices: [SonosDevice], completion: @escaping @Sendable ([String: String]) -> Void) {
+        let queue = DispatchQueue(label: "com.sonos.playbackStates")
         var states: [String: String] = [:]
         let dispatchGroup = DispatchGroup()
 
         for device in devices {
             dispatchGroup.enter()
             getTransportState(device: device) { state in
-                if let state = state {
-                    states[device.uuid] = state
+                queue.async {
+                    if let state = state {
+                        states[device.uuid] = state
+                    }
+                    dispatchGroup.leave()
                 }
-                dispatchGroup.leave()
             }
         }
 
@@ -1018,7 +961,7 @@ actor SonosController {
     }
 
     /// Get list of devices that are currently playing
-    func getPlayingDevices(from devices: [SonosDevice], completion: @escaping ([SonosDevice]) -> Void) {
+    func getPlayingDevices(from devices: [SonosDevice], completion: @escaping @Sendable ([SonosDevice]) -> Void) {
         getPlaybackStates(devices: devices) { states in
             let playingDevices = devices.filter { device in
                 states[device.uuid] == "PLAYING"
@@ -1180,7 +1123,7 @@ actor SonosController {
     }
 
     /// Dissolve a group by ungrouping all members
-    func dissolveGroup(group: SonosGroup, completion: ((Bool) -> Void)? = nil) {
+    func dissolveGroup(group: SonosGroup, completion: (@Sendable (Bool) -> Void)? = nil) {
         print("💥 Dissolving group: \(group.displayName)")
 
         let nonCoordinatorMembers = group.members.filter { $0.uuid != group.coordinatorUUID }
@@ -1191,19 +1134,22 @@ actor SonosController {
             return
         }
 
+        let queue = DispatchQueue(label: "com.sonos.dissolveGroup")
         var successCount = 0
         let totalMembers = nonCoordinatorMembers.count
 
         for member in nonCoordinatorMembers {
             removeDeviceFromGroup(device: member) { success in
-                if success {
-                    successCount += 1
-                }
+                queue.async {
+                    if success {
+                        successCount += 1
+                    }
 
-                if successCount + (totalMembers - successCount) == totalMembers {
-                    let allSuccess = successCount == totalMembers
-                    print(allSuccess ? "✅ Group dissolved successfully" : "⚠️ Group dissolved with some failures")
-                    completion?(allSuccess)
+                    if successCount + (totalMembers - successCount) == totalMembers {
+                        let allSuccess = successCount == totalMembers
+                        print(allSuccess ? "✅ Group dissolved successfully" : "⚠️ Group dissolved with some failures")
+                        completion?(allSuccess)
+                    }
                 }
             }
         }
@@ -1212,81 +1158,40 @@ actor SonosController {
     /// Send Play command to a device
     /// Uses AVTransport Play
     private func sendPlayCommand(to device: SonosDevice) {
-        let url = URL(string: "http://\(device.ipAddress):1400/MediaRenderer/AVTransport/Control")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.addValue("\"urn:schemas-upnp-org:service:AVTransport:1#Play\"", forHTTPHeaderField: "SOAPACTION")
+        Task { [weak self] in
+            guard let self = self else { return }
 
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-            <s:Body>
-                <u:Play xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                    <InstanceID>0</InstanceID>
-                    <Speed>1</Speed>
-                </u:Play>
-            </s:Body>
-        </s:Envelope>
-        """
-
-        request.httpBody = soapBody.data(using: .utf8)
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
+            do {
+                try await self.networkClient.play(for: device.ipAddress)
+                print("▶️ Play command sent to \(device.name)")
+            } catch {
                 print("❌ Failed to send play command: \(error)")
-                return
             }
-            print("▶️ Play command sent to \(device.name)")
-        }.resume()
+        }
     }
 
     /// Get the transport state of a device (PLAYING, PAUSED_PLAYBACK, STOPPED, etc.)
     /// Uses AVTransport GetTransportInfo
-    func getTransportState(device: SonosDevice, completion: @escaping (String?) -> Void) {
-        let url = URL(string: "http://\(device.ipAddress):1400/MediaRenderer/AVTransport/Control")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.addValue("\"urn:schemas-upnp-org:service:AVTransport:1#GetTransportInfo\"", forHTTPHeaderField: "SOAPACTION")
+    func getTransportState(device: SonosDevice, completion: @escaping @Sendable (String?) -> Void) {
+        Task { [weak self] in
+            guard let self = self else { return }
 
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-            <s:Body>
-                <u:GetTransportInfo xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                    <InstanceID>0</InstanceID>
-                </u:GetTransportInfo>
-            </s:Body>
-        </s:Envelope>
-        """
+            do {
+                let responseStr = try await self.networkClient.getTransportInfo(for: device.ipAddress)
 
-        request.httpBody = soapBody.data(using: .utf8)
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                print("❌ Failed to get transport state: \(error)")
-                completion(nil)
-                return
-            }
-
-            if let data = data, let responseStr = String(data: data, encoding: .utf8) {
-                // Extract CurrentTransportState value
-                if let stateRange = responseStr.range(of: "<CurrentTransportState>([^<]+)</CurrentTransportState>", options: .regularExpression) {
-                    let stateString = String(responseStr[stateRange])
-                    let state = stateString
-                        .replacingOccurrences(of: "<CurrentTransportState>", with: "")
-                        .replacingOccurrences(of: "</CurrentTransportState>", with: "")
+                // Extract CurrentTransportState value using XMLParsingHelpers
+                if let state = XMLParsingHelpers.extractValue(from: responseStr, tag: "CurrentTransportState") {
                     print("🎵 Transport state for \(device.name): \(state)")
                     completion(state)
                 } else {
                     print("⚠️ Could not parse transport state for \(device.name)")
                     completion(nil)
                 }
-            } else {
+            } catch {
+                print("❌ Failed to get transport state: \(error)")
                 completion(nil)
             }
-        }.resume()
+        }
     }
 
     // MARK: - Group Volume Control
@@ -1367,52 +1272,32 @@ actor SonosController {
 
         // First, snapshot the current volume ratios
         snapshotGroupVolume(group: group) { [weak self] success in
-            guard success else {
+            guard let self = self, success else {
                 print("❌ Failed to snapshot group volume, aborting SetGroupVolume")
                 return
             }
 
-            // Now set the group volume with the captured ratios
-            let url = URL(string: "http://\(coordinator.ipAddress):1400/MediaRenderer/GroupRenderingControl/Control")!
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-            request.addValue("\"urn:schemas-upnp-org:service:GroupRenderingControl:1#SetGroupVolume\"", forHTTPHeaderField: "SOAPACTION")
+            // Now set the group volume with the captured ratios using network client
+            Task {
+                do {
+                    try await self.networkClient.setGroupVolume(clampedVolume, for: coordinator.ipAddress)
+                    print("✅ Group volume set to \(clampedVolume) with snapshot-preserved ratios")
 
-            let soapBody = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-                <s:Body>
-                    <u:SetGroupVolume xmlns:u="urn:schemas-upnp-org:service:GroupRenderingControl:1">
-                        <InstanceID>0</InstanceID>
-                        <DesiredVolume>\(clampedVolume)</DesiredVolume>
-                    </u:SetGroupVolume>
-                </s:Body>
-            </s:Envelope>
-            """
+                    // Show HUD
+                    Task { @MainActor in
+                        VolumeHUD.shared.show(speaker: group.displayName, volume: clampedVolume)
 
-            request.httpBody = soapBody.data(using: .utf8)
-
-            URLSession.shared.dataTask(with: request) { data, response, error in
-                if let error = error {
+                        // Post notification for UI updates
+                        NotificationCenter.default.post(
+                            name: NSNotification.Name("SonosVolumeDidChange"),
+                            object: nil,
+                            userInfo: ["volume": clampedVolume]
+                        )
+                    }
+                } catch {
                     print("❌ Failed to set group volume: \(error)")
-                    return
                 }
-
-                print("✅ Group volume set to \(clampedVolume) with snapshot-preserved ratios")
-
-                // Show HUD
-                Task { @MainActor in
-                    VolumeHUD.shared.show(speaker: group.displayName, volume: clampedVolume)
-
-                    // Post notification for UI updates
-                    NotificationCenter.default.post(
-                        name: NSNotification.Name("SonosVolumeDidChange"),
-                        object: nil,
-                        userInfo: ["volume": clampedVolume]
-                    )
-                }
-            }.resume()
+            }
         }
     }
 
@@ -1422,35 +1307,13 @@ actor SonosController {
         let coordinator = group.coordinator
         print("🎚️ Changing group volume for \(group.displayName) by \(delta)")
 
-        let url = URL(string: "http://\(coordinator.ipAddress):1400/MediaRenderer/GroupRenderingControl/Control")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.addValue("\"urn:schemas-upnp-org:service:GroupRenderingControl:1#SetRelativeGroupVolume\"", forHTTPHeaderField: "SOAPACTION")
+        Task { [weak self] in
+            guard let self = self else { return }
 
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-            <s:Body>
-                <u:SetRelativeGroupVolume xmlns:u="urn:schemas-upnp-org:service:GroupRenderingControl:1">
-                    <InstanceID>0</InstanceID>
-                    <Adjustment>\(delta)</Adjustment>
-                </u:SetRelativeGroupVolume>
-            </s:Body>
-        </s:Envelope>
-        """
+            do {
+                try await self.networkClient.setRelativeGroupVolume(delta, for: coordinator.ipAddress)
 
-        request.httpBody = soapBody.data(using: .utf8)
-
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            if let error = error {
-                print("❌ Failed to change group volume: \(error)")
-                return
-            }
-
-            // Get the new volume to show in HUD
-            Task { [weak self] in
-                guard let self = self else { return }
+                // Get the new volume to show in HUD
                 await self.getGroupVolume(group: group) { newVolume in
                     guard let volume = newVolume else { return }
 
@@ -1464,8 +1327,10 @@ actor SonosController {
                         )
                     }
                 }
+            } catch {
+                print("❌ Failed to change group volume: \(error)")
             }
-        }.resume()
+        }
     }
 }
 
