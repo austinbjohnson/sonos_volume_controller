@@ -25,7 +25,6 @@ _When starting work on a task, add it here with your branch name and username to
 _Issues that break core functionality. Must fix immediately._
 
 ### Bugs
-- **Group volume slider flickers/glitches when adjusting**: When changing group volume on active speakers, the group slider visually glitches and flickers during adjustment. Member sliders update correctly with proper ratios, but the group slider itself has visual instability. Need to smooth out the slider update animation or debounce the visual feedback. (MenuBarContentView.swift - group volume slider handling)
 
 - **Hotkeys not working in clean install - no permission feedback**: On clean install, hotkeys produce system "bonk" sound but don't control volume. User gets no indication that accessibility permission is missing or that hotkeys are disabled. Need better permission status visibility and actionable feedback when hotkeys fail. Current permission check only shows alert on first launch, but doesn't help diagnose why hotkeys aren't working after that. Consider: (1) Show permission status in menu bar popover or Preferences, (2) Add HUD notification when hotkeys pressed without required permissions, (3) Add "Test Hotkeys" button in Preferences to verify they're working. (main.swift:193-243, VolumeKeyMonitor.swift)
 
