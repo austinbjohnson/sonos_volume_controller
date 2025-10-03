@@ -3,6 +3,7 @@ import Network
 
 actor SonosController {
     private let settings: AppSettings
+    private let networkClient: SonosNetworkClient
     private var devices: [SonosDevice] = []
     private var groups: [SonosGroup] = []
     private var _selectedDevice: SonosDevice?
@@ -113,6 +114,7 @@ actor SonosController {
 
     init(settings: AppSettings) {
         self.settings = settings
+        self.networkClient = SonosNetworkClient()
     }
 
     func discoverDevices(forceRefreshTopology: Bool = false, completion: (@Sendable () -> Void)? = nil) {
@@ -195,26 +197,12 @@ actor SonosController {
             return
         }
 
-        let url = URL(string: "http://\(anyDevice.ipAddress):1400/ZoneGroupTopology/Control")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.addValue("\"urn:schemas-upnp-org:service:ZoneGroupTopology:1#GetZoneGroupState\"", forHTTPHeaderField: "SOAPACTION")
-
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-            <s:Body>
-                <u:GetZoneGroupState xmlns:u="urn:schemas-upnp-org:service:ZoneGroupTopology:1">
-                </u:GetZoneGroupState>
-            </s:Body>
-        </s:Envelope>
-        """
-
-        request.httpBody = soapBody.data(using: .utf8)
-
         do {
-            let (data, _) = try await URLSession.shared.data(for: request)
+            let request = SonosNetworkClient.SOAPRequest(
+                service: .zoneGroupTopology,
+                action: "GetZoneGroupState"
+            )
+            let data = try await networkClient.sendSOAPRequest(request, to: anyDevice.ipAddress)
 
             guard let responseStr = String(data: data, encoding: .utf8) else {
                 print("Failed to decode response")
@@ -229,20 +217,14 @@ actor SonosController {
 
     private func parseGroupTopology(_ xml: String, completion: (@Sendable () -> Void)? = nil) {
         // Extract ZoneGroupState XML from SOAP response
-        guard let stateRange = xml.range(of: "<ZoneGroupState>([\\s\\S]*?)</ZoneGroupState>", options: .regularExpression) else {
+        guard let stateXML = XMLParsingHelpers.extractSection(from: xml, tag: "ZoneGroupState") else {
             print("Could not find ZoneGroupState in response")
             completion?()
             return
         }
 
-        let stateXML = String(xml[stateRange])
-
         // Decode HTML entities to parse actual XML structure
-        let decodedXML = stateXML
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&amp;", with: "&")
+        let decodedXML = XMLParsingHelpers.decodeHTMLEntities(stateXML)
 
         // Parse each ZoneGroup to find coordinators and invisible devices
         let groupPattern = "<ZoneGroup Coordinator=\"([^\"]+)\"[^>]*>([\\s\\S]*?)</ZoneGroup>"
