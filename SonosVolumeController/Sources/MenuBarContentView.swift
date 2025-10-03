@@ -54,6 +54,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var isPopulatingInProgress: Bool = false  // Prevent multiple simultaneous populates
     private var triggerDeviceLabel: NSTextField!  // Display current audio trigger device
     private var isAdjustingGroupVolume: Bool = false  // Track when group volume is being adjusted
+    private var pendingGroupVolumeUpdate: Int?  // Store latest volume from Sonos while user drags
+    private var groupVolumeResetTimer: Timer?  // Debounce network updates until drag settles
     private var memberVolumeThrottleTimer: Timer?  // Throttle member volume refresh calls
 
     init(appDelegate: AppDelegate?) {
@@ -1074,6 +1076,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Mark that we're adjusting group volume
         isAdjustingGroupVolume = true
+        groupVolumeResetTimer?.invalidate()
+        pendingGroupVolumeUpdate = nil
         updateMemberCardVisualState(isGroupAdjusting: true)
 
         // Visual feedback: briefly highlight the label
@@ -1100,8 +1104,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             await MainActor.run {
                 print("📊 [UI] Refreshing member volumes to reflect changes")
                 self.refreshMemberVolumes()
-                self.isAdjustingGroupVolume = false
-                self.updateMemberCardVisualState(isGroupAdjusting: false)
+                self.scheduleGroupVolumeAdjustmentReset()
             }
         }
     }
@@ -1113,26 +1116,55 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         print("📊 [UI] Volume notification received: \(volume)%")
 
+        if isAdjustingGroupVolume {
+            pendingGroupVolumeUpdate = volume
+            return
+        }
+
+        applyGroupVolumeUpdate(volume, refreshMembers: true)
+    }
+
+    private func applyGroupVolumeUpdate(_ volume: Int, refreshMembers: Bool) {
         volumeSlider.doubleValue = Double(volume)
         volumeLabel.stringValue = "\(volume)%"
         volumeLabel.textColor = .labelColor
 
-        // Enable slider now that we have actual volume
         if !volumeSlider.isEnabled {
             volumeSlider.isEnabled = true
         }
 
-        // If this is a group volume change, refresh member volumes
-        // (Sonos adjusts member volumes proportionally when group volume changes)
-        refreshMemberVolumes()
+        if refreshMembers {
+            refreshMemberVolumes()
+        }
+    }
+
+    private func applyPendingGroupVolumeIfNeeded() {
+        guard let pendingVolume = pendingGroupVolumeUpdate else { return }
+        pendingGroupVolumeUpdate = nil
+        applyGroupVolumeUpdate(pendingVolume, refreshMembers: true)
+    }
+
+    private func scheduleGroupVolumeAdjustmentReset() {
+        groupVolumeResetTimer?.invalidate()
+        groupVolumeResetTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                self.isAdjustingGroupVolume = false
+                self.updateMemberCardVisualState(isGroupAdjusting: false)
+                self.applyPendingGroupVolumeIfNeeded()
+                self.groupVolumeResetTimer = nil
+            }
+        }
     }
 
     private func refreshMemberVolumes() {
         // Throttle member volume updates to prevent excessive network requests
         memberVolumeThrottleTimer?.invalidate()
         memberVolumeThrottleTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                self?.performMemberVolumeRefresh()
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                self.memberVolumeThrottleTimer = nil
+                self.performMemberVolumeRefresh()
             }
         }
     }
@@ -1901,14 +1933,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 DispatchQueue.main.async {
                     guard let self = self else { return }
 
-                    self.volumeSlider.doubleValue = Double(volume)
-                    self.volumeLabel.stringValue = "\(volume)%"
-                    self.volumeLabel.textColor = .labelColor
-
-                    // Enable slider now that we have actual volume
-                    if !self.volumeSlider.isEnabled {
-                        self.volumeSlider.isEnabled = true
-                    }
+                    self.applyGroupVolumeUpdate(volume, refreshMembers: false)
                 }
             }
         }
