@@ -939,19 +939,19 @@ actor SonosController {
     /// Get playback states for multiple devices
     /// Returns dictionary mapping device UUID to transport state
     func getPlaybackStates(devices: [SonosDevice], completion: @escaping @Sendable ([String: String]) -> Void) {
-        let queue = DispatchQueue(label: "com.sonos.playbackStates", attributes: .concurrent)
+        let queue = DispatchQueue(label: "com.sonos.playbackStates")
         var states: [String: String] = [:]
         let dispatchGroup = DispatchGroup()
 
         for device in devices {
             dispatchGroup.enter()
             getTransportState(device: device) { state in
-                if let state = state {
-                    queue.async(flags: .barrier) {
+                queue.async {
+                    if let state = state {
                         states[device.uuid] = state
                     }
+                    dispatchGroup.leave()
                 }
-                dispatchGroup.leave()
             }
         }
 
