@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed default hotkeys to Cmd+Shift+9/0 for better ergonomics (PR #20)
 - Fixed hotkeys not working in installed app - reverted to F11/F12 defaults, fixed CGEventFlags conversion, added network entitlements, improved permission flow with auto-restart (PR #22)
 
+### Technical
+- Infrastructure layer extraction - refactored SonosController god object by extracting infrastructure components (SSDPSocket, SSDPDiscoveryService, SonosNetworkClient, XMLParsingHelpers) into separate, focused modules with clean interfaces and improved testability, reduced SonosController from 1,732 to 1,471 lines (-15%)
+
 ### Fixed
 - Popover height calculation - fixed tiny scroll area on initial display by forcing Auto Layout before measurement, increased max scroll height to accommodate expanded groups with 6+ cards, smooth expand/collapse animations without flicker (PR #41)
 - Real-time group volume slider synchronization - member sliders within expanded groups now update immediately when adjusting group volume, with smooth animations and visual feedback via pulsing connection lines (PR #39)

@@ -11,8 +11,6 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
-- **God object refactoring: Split SonosController and MenuBarContentView** (branch: refactor/god-object-architecture, @austinbjohnson)
-
 ---
 
 ## App Store Readiness
