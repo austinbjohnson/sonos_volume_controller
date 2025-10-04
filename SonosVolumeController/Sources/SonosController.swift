@@ -1464,7 +1464,9 @@ actor SonosController {
     /// Must be called on the group coordinator
     func getGroupVolume(group: SonosGroup, completion: @escaping @Sendable (Int?) -> Void) {
         let coordinator = group.coordinator
+        #if DEBUG
         print("🎚️ Getting group volume for: \(group.displayName)")
+        #endif
 
         let request = SonosNetworkClient.SOAPRequest(
             service: .groupRenderingControl,
@@ -1524,15 +1526,6 @@ actor SonosController {
     func setGroupVolume(group: SonosGroup, volume: Int) {
         let coordinator = group.coordinator
         let clampedVolume = max(0, min(100, volume))
-        print("🎚️ ========================================")
-        print("🎚️ Setting group volume for \(group.displayName) to \(clampedVolume)")
-        print("🎚️ Group has \(group.members.count) members:")
-        for member in group.members {
-            print("🎚️   - \(member.name)")
-        }
-        print("🎚️ Step 1: Taking snapshot to capture current speaker ratios")
-        print("🎚️ Step 2: SetGroupVolume will use snapshot to maintain ratios")
-        print("🎚️ ========================================")
 
         // First, snapshot the current volume ratios
         snapshotGroupVolume(group: group) { [weak self] success in

@@ -47,6 +47,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var groupProgressIndicator: NSProgressIndicator!
     private var ungroupProgressIndicator: NSProgressIndicator!
     private var powerButton: NSButton!
+    private var refreshButton: NSButton!
     private var isLoadingDevices: Bool = false
     private var welcomeBanner: NSView!
     private var permissionBanner: NSView!
@@ -195,6 +196,19 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         speakerNameLabel.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(speakerNameLabel)
 
+        // Refresh button
+        refreshButton = NSButton()
+        refreshButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh")
+        refreshButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        refreshButton.bezelStyle = .inline
+        refreshButton.isBordered = false
+        refreshButton.contentTintColor = .tertiaryLabelColor
+        refreshButton.target = self
+        refreshButton.action = #selector(refreshTopology)
+        refreshButton.translatesAutoresizingMaskIntoConstraints = false
+        refreshButton.toolTip = "Refresh speaker topology"
+        container.addSubview(refreshButton)
+
         // Power toggle
         powerButton = NSButton()
         powerButton.image = NSImage(systemSymbolName: "power", accessibilityDescription: "Power")
@@ -230,6 +244,12 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             powerButton.centerYAnchor.constraint(equalTo: speakerNameLabel.centerYAnchor, constant: -8),
             powerButton.widthAnchor.constraint(equalToConstant: 40),
             powerButton.heightAnchor.constraint(equalToConstant: 40),
+
+            // Refresh button (to the left of power button)
+            refreshButton.trailingAnchor.constraint(equalTo: powerButton.leadingAnchor, constant: -4),
+            refreshButton.centerYAnchor.constraint(equalTo: powerButton.centerYAnchor),
+            refreshButton.widthAnchor.constraint(equalToConstant: 40),
+            refreshButton.heightAnchor.constraint(equalToConstant: 40),
 
             // Divider
             divider1.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
@@ -1473,11 +1493,27 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         updateStatus()
     }
 
+    @objc private func refreshTopology() {
+        print("🔄 User requested topology refresh")
+
+        // Show loading state
+        isLoadingDevices = true
+        populateSpeakers()
+
+        // Trigger discovery with topology refresh
+        Task {
+            guard let controller = appDelegate?.sonosController else { return }
+            await controller.discoverDevices(forceRefreshTopology: true) { [weak self] in
+                Task { @MainActor in
+                    self?.refresh()
+                }
+            }
+        }
+    }
+
     @objc private func volumeChanged(_ sender: NSSlider) {
         let volume = Int(sender.doubleValue)
         volumeLabel.stringValue = "\(volume)%"
-
-        print("📊 [UI] Volume slider changed to: \(volume)%")
 
         // Mark that we're adjusting group volume
         isAdjustingGroupVolume = true
@@ -1501,13 +1537,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Set the actual Sonos volume using absolute SetGroupVolume
         // According to Sonos docs, this should maintain speaker ratios
         Task {
-            print("📊 [UI] Calling setVolume(\(volume)) - should maintain speaker ratios per Sonos docs")
             await appDelegate?.sonosController.setVolume(volume)
 
             // After setting group volume, refresh all member volumes
             // (Sonos adjusts member volumes proportionally)
             await MainActor.run {
-                print("📊 [UI] Refreshing member volumes to reflect changes")
                 self.refreshMemberVolumes()
                 self.scheduleGroupVolumeAdjustmentReset()
             }
@@ -1518,8 +1552,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Update slider when volume changes via hotkeys or initial load
         guard let userInfo = notification.userInfo,
               let volume = userInfo["volume"] as? Int else { return }
-
-        print("📊 [UI] Volume notification received: \(volume)%")
 
         if isAdjustingGroupVolume {
             pendingGroupVolumeUpdate = volume
@@ -1581,7 +1613,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             return identifier.contains("_member_")
         }
 
+        #if DEBUG
         print("📊 [UI] Refreshing \(memberContainers.count) member speaker volumes...")
+        #endif
 
         for paddedContainer in memberContainers {
             // Navigate: paddedContainer -> memberCard -> find slider
@@ -1592,17 +1626,12 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                let deviceUUID = volumeSlider.identifier?.rawValue,
                let device = appDelegate?.sonosController.cachedDiscoveredDevices.first(where: { $0.uuid == deviceUUID }) {
 
-                let currentSliderValue = Int(volumeSlider.doubleValue)
-                print("📊 [UI] Querying \(device.name) - current UI slider: \(currentSliderValue)%")
-
                 // Refresh this speaker's individual volume
                 // Capture container reference for later use
                 let containerRef = paddedContainer
                 Task { @MainActor in
                     await appDelegate?.sonosController.getIndividualVolume(device: device) { @Sendable volume in
                         guard let vol = volume else { return }
-
-                        print("📊 [UI] ✅ \(device.name) actual volume from Sonos: \(vol)%")
 
                         Task { @MainActor [weak containerRef] in
                             guard let container = containerRef else { return }
@@ -1613,7 +1642,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                                 return
                             }
 
+                            #if DEBUG
                             print("📊 [UI] Updating \(device.name) slider: \(Int(currentSlider.doubleValue))% → \(vol)%")
+                            #endif
 
                             // Animate slider movement smoothly
                             NSAnimationContext.runAnimationGroup({ context in
@@ -2089,29 +2120,30 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     // MARK: - Dynamic Sizing
 
     private func calculateContentHeight() -> CGFloat {
+        #if DEBUG
         print("🔍 [CALC] calculateContentHeight() called")
+        #endif
 
         // Force layout to ensure all card frames are calculated
         speakerCardsContainer.layoutSubtreeIfNeeded()
 
         // Calculate total height of speaker cards
         var cardsHeight: CGFloat = 0
-        for (index, view) in speakerCardsContainer.arrangedSubviews.enumerated() {
-            print("🔍 [CALC] Card \(index): \(view.frame.height)pt")
+        for (_, view) in speakerCardsContainer.arrangedSubviews.enumerated() {
             cardsHeight += view.frame.height
         }
 
         // Add spacing between cards (8pt per gap)
-        let spacing: CGFloat
         if speakerCardsContainer.arrangedSubviews.count > 1 {
-            spacing = CGFloat(speakerCardsContainer.arrangedSubviews.count - 1) * 8
+            let spacing = CGFloat(speakerCardsContainer.arrangedSubviews.count - 1) * 8
             cardsHeight += spacing
-            print("🔍 [CALC] Added spacing: \(spacing)pt")
         }
 
         // Add bottom padding
         cardsHeight += 8
+        #if DEBUG
         print("🔍 [CALC] Final content height: \(cardsHeight)pt (cards: \(speakerCardsContainer.arrangedSubviews.count))")
+        #endif
 
         return cardsHeight
     }
@@ -2127,8 +2159,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let maxScrollHeight: CGFloat = 400 // Max height before scroll appears (increased to accommodate expanded groups)
         let newScrollHeight = min(contentHeight, maxScrollHeight)
 
+        #if DEBUG
         print("🔍 [RESIZE] updatePopoverSize(animated: \(animated), duration: \(duration))")
         print("🔍 [RESIZE] Content height: \(contentHeight), scroll height: \(newScrollHeight)")
+        #endif
 
         // Update scroll view height
         if animated {
