@@ -43,8 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed hotkeys not working in installed app - reverted to F11/F12 defaults, fixed CGEventFlags conversion, added network entitlements, improved permission flow with auto-restart (PR #22)
 
 ### Fixed
-- Transport state updates for all speakers - fixed critical bug where play/pause events weren't triggering UI updates. Root cause: Sonos sends AVTransport events with HTML-encoded XML (`&lt;TransportState&gt;`) rather than raw tags. Added HTML entity decoding before parsing. Also fixed concurrency crash by ensuring NotificationCenter posts happen on main thread via MainActor. All speakers now receive real-time play/pause UI updates (PR #XX)
-- Now playing metadata overlapping text - fixed UI bug where track metadata would overlap instead of replacing when tracks changed. Methods now update existing UI elements instead of creating new ones on top of old ones (PR #XX)
+- Transport state updates for all speakers - fixed critical bug where play/pause events weren't triggering UI updates. Root cause: Sonos sends AVTransport events with HTML-encoded XML (`&lt;TransportState&gt;`) rather than raw tags. Added HTML entity decoding before parsing. Also fixed concurrency crash by ensuring NotificationCenter posts happen on main thread via MainActor. All speakers now receive real-time play/pause UI updates (PR #53)
+- Now playing metadata overlapping text - fixed UI bug where track metadata would overlap instead of replacing when tracks changed. Methods now update existing UI elements instead of creating new ones on top of old ones (PR #53)
 - Line-in audio preservation during grouping - detects line-in sources (turntables, aux inputs) and automatically makes the line-in speaker the group coordinator to prevent audio interruption, includes smart priority system (Line-In > TV > Streaming > Idle) and TOCTOU race condition protection (PR #47)
 
 ### Technical
