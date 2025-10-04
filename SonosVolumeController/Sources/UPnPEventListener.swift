@@ -415,14 +415,27 @@ actor UPnPEventListener {
 
     /// Parse AVTransport LastChange XML and emit transport state event
     private func parseAndEmitTransportEvent(deviceUUID: String, xml: String) {
-        // Parse the LastChange XML to extract transport state
-        guard let transportState = extractValue(from: xml, key: "TransportState") else {
+        // First, extract the LastChange value (which is HTML-encoded)
+        guard let lastChangeEncoded = extractValue(from: xml, key: "LastChange") else {
+            print("⚠️ Failed to extract LastChange from AVTransport event")
+            return
+        }
+        
+        // Decode HTML entities to get the actual XML
+        let lastChangeXML = lastChangeEncoded
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&amp;", with: "&")
+        
+        // Now parse the decoded LastChange XML to extract transport state
+        guard let transportState = extractValue(from: lastChangeXML, key: "TransportState") else {
             print("⚠️ Failed to extract TransportState from AVTransport event")
             return
         }
 
-        let trackURI = extractValue(from: xml, key: "CurrentTrackURI")
-        let metadata = extractValue(from: xml, key: "CurrentTrackMetaData")
+        let trackURI = extractValue(from: lastChangeXML, key: "CurrentTrackURI")
+        let metadata = extractValue(from: lastChangeXML, key: "CurrentTrackMetaData")
 
         print("🎵 Transport state changed: \(transportState) for device \(deviceUUID)")
 
@@ -434,27 +447,31 @@ actor UPnPEventListener {
         ))
     }
 
-    /// Extract a value from LastChange XML (simple key-based extraction)
+    /// Extract a value from XML (handles both val="..." attributes and element content)
     private func extractValue(from xml: String, key: String) -> String? {
-        // Look for pattern: <key val="value"/>
-        let pattern = "<\(key)\\s+val=\"([^\"]*)\""
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return nil
+        // Try pattern 1: <key val="value"/> (for attributes)
+        let attrPattern = "<\(key)\\s+val=\"([^\"]*)\""
+        if let regex = try? NSRegularExpression(pattern: attrPattern),
+           let match = regex.firstMatch(in: xml, range: NSRange(xml.startIndex..., in: xml)),
+           match.numberOfRanges > 1,
+           let valueRange = Range(match.range(at: 1), in: xml) {
+            let value = String(xml[valueRange])
+            return value.replacingOccurrences(of: "&quot;", with: "\"")
+                        .replacingOccurrences(of: "&lt;", with: "<")
+                        .replacingOccurrences(of: "&gt;", with: ">")
+                        .replacingOccurrences(of: "&amp;", with: "&")
         }
-
-        let range = NSRange(xml.startIndex..., in: xml)
-        guard let match = regex.firstMatch(in: xml, range: range),
-              match.numberOfRanges > 1,
-              let valueRange = Range(match.range(at: 1), in: xml) else {
-            return nil
+        
+        // Try pattern 2: <key>content</key> (for element content)
+        let contentPattern = "<\(key)>([^<]*)</\(key)>"
+        if let regex = try? NSRegularExpression(pattern: contentPattern),
+           let match = regex.firstMatch(in: xml, range: NSRange(xml.startIndex..., in: xml)),
+           match.numberOfRanges > 1,
+           let valueRange = Range(match.range(at: 1), in: xml) {
+            return String(xml[valueRange])
         }
-
-        let value = String(xml[valueRange])
-        // Decode HTML entities if present
-        return value.replacingOccurrences(of: "&quot;", with: "\"")
-                    .replacingOccurrences(of: "&lt;", with: "<")
-                    .replacingOccurrences(of: "&gt;", with: ">")
-                    .replacingOccurrences(of: "&amp;", with: "&")
+        
+        return nil
     }
 }
 
