@@ -488,8 +488,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let divider2 = createDivider()
         container.addSubview(divider2)
 
-        // Find the previous divider to anchor to
-        let previousDivider = container.subviews.compactMap { $0 as? NSBox }.first
+        // Find the divider from the playback controls section (the second one)
+        // We need to anchor to the divider that comes AFTER the playback controls, not the first one
+        let allDividers = container.subviews.compactMap { $0 as? NSBox }
+        let previousDivider = allDividers.count >= 2 ? allDividers[1] : allDividers.first
 
         NSLayoutConstraint.activate([
             volumeTypeLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
