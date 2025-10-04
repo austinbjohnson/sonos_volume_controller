@@ -58,6 +58,7 @@ actor SonosNetworkClient {
     private enum Constants {
         static let sonosPort = 1400
         static let contentType = "text/xml; charset=\"utf-8\""
+        static let requestTimeout: TimeInterval = 10.0  // Increased for stereo pair operations
     }
 
     // MARK: - Public Methods
@@ -73,6 +74,7 @@ actor SonosNetworkClient {
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
+        urlRequest.timeoutInterval = Constants.requestTimeout
         urlRequest.addValue(Constants.contentType, forHTTPHeaderField: "Content-Type")
         urlRequest.addValue("\"\(request.service.namespace)#\(request.action)\"", forHTTPHeaderField: "SOAPACTION")
 
@@ -240,6 +242,17 @@ extension SonosNetworkClient {
         let request = SOAPRequest(
             service: .avTransport,
             action: "GetTransportInfo",
+            arguments: ["InstanceID": "0"]
+        )
+        let data = try await sendSOAPRequest(request, to: deviceIP)
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    /// Gets the current position info including track URI (used to detect line-in sources)
+    func getPositionInfo(for deviceIP: String) async throws -> String {
+        let request = SOAPRequest(
+            service: .avTransport,
+            action: "GetPositionInfo",
             arguments: ["InstanceID": "0"]
         )
         let data = try await sendSOAPRequest(request, to: deviceIP)

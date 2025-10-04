@@ -74,6 +74,46 @@ actor SonosController {
         let groupCoordinatorUUID: String? // UUID of the group coordinator (for grouped playback)
         let channelMapSet: String?        // Present if part of a stereo pair
         let pairPartnerUUID: String?      // UUID of the other speaker in the stereo pair
+        var audioSource: AudioSourceType? // Current audio source type
+        var transportState: String?       // Current transport state (PLAYING, PAUSED, STOPPED)
+    }
+
+    /// Audio source type detected from track URI
+    enum AudioSourceType {
+        case lineIn         // x-rincon-stream: (physical line-in input)
+        case tv             // x-sonos-htastream: (TV/home theater)
+        case streaming      // Spotify, radio, queue, etc.
+        case grouped        // x-rincon: (device is a group member)
+        case idle           // Not playing anything
+
+        var priority: Int {
+            switch self {
+            case .lineIn: return 3      // Highest priority - must be preserved
+            case .tv: return 2          // High priority - should be preserved
+            case .streaming: return 1   // Medium priority - can be interrupted
+            case .grouped: return 0     // Already grouped
+            case .idle: return 0        // No special handling
+            }
+        }
+
+        var description: String {
+            switch self {
+            case .lineIn: return "Line-In"
+            case .tv: return "TV"
+            case .streaming: return "Streaming"
+            case .grouped: return "Grouped"
+            case .idle: return "Idle"
+            }
+        }
+
+        var badgeColor: String {
+            switch self {
+            case .lineIn: return "orange"
+            case .tv: return "purple"
+            case .streaming: return "green"
+            case .grouped, .idle: return "gray"
+            }
+        }
     }
 
     struct SonosGroup {
@@ -859,7 +899,18 @@ actor SonosController {
 
     /// Add a device to an existing group (or create a new group)
     /// Uses AVTransport SetAVTransportURI with x-rincon URI
-    func addDeviceToGroup(device: SonosDevice, coordinatorUUID: String, shouldRefreshTopology: Bool = true, completion: (@Sendable (Bool) -> Void)? = nil) {
+    /// Async/await wrapper for adding device to group
+    nonisolated func addDeviceToGroup(device: SonosDevice, coordinatorUUID: String, shouldRefreshTopology: Bool = true) async -> Bool {
+        await withCheckedContinuation { continuation in
+            Task { @MainActor in
+                await self.addDeviceToGroupCallback(device: device, coordinatorUUID: coordinatorUUID, shouldRefreshTopology: shouldRefreshTopology) { success in
+                    continuation.resume(returning: success)
+                }
+            }
+        }
+    }
+
+    func addDeviceToGroupCallback(device: SonosDevice, coordinatorUUID: String, shouldRefreshTopology: Bool = true, completion: (@Sendable (Bool) -> Void)? = nil) {
         guard let coordinator = devices.first(where: { $0.uuid == coordinatorUUID }) else {
             print("❌ Coordinator not found: \(coordinatorUUID)")
             completion?(false)
@@ -970,8 +1021,8 @@ actor SonosController {
         }
     }
 
-    /// Create a group from multiple devices with smart coordinator selection
-    /// If coordinatorDevice is not specified, will choose intelligently based on playback state
+    /// Create a group from multiple devices with smart coordinator selection (async/await)
+    /// If coordinatorDevice is not specified, will choose intelligently based on audio sources
     func createGroup(devices deviceList: [SonosDevice], coordinatorDevice: SonosDevice? = nil, completion: (@Sendable (Bool) -> Void)? = nil) {
         guard deviceList.count > 1 else {
             print("❌ Need at least 2 devices to create a group")
@@ -979,147 +1030,167 @@ actor SonosController {
             return
         }
 
-        // If coordinator is explicitly specified, use it
-        if let explicitCoordinator = coordinatorDevice {
-            guard deviceList.contains(where: { $0.uuid == explicitCoordinator.uuid }) else {
-                print("❌ Specified coordinator not in device list")
-                completion?(false)
+        Task { [weak self] in
+            guard let self = self else { return }
+
+            // If coordinator is explicitly specified, use it
+            if let explicitCoordinator = coordinatorDevice {
+                guard deviceList.contains(where: { $0.uuid == explicitCoordinator.uuid }) else {
+                    print("❌ Specified coordinator not in device list")
+                    completion?(false)
+                    return
+                }
+                await self.performGrouping(devices: deviceList, coordinator: explicitCoordinator, completion: completion)
                 return
             }
-            Task { [weak self] in
-                await self?.performGrouping(devices: deviceList, coordinator: explicitCoordinator, completion: completion)
+
+            // Otherwise, intelligently select coordinator based on audio sources
+            print("🔍 Detecting audio sources to choose best coordinator...")
+            let coordinator = await self.selectBestCoordinator(from: deviceList)
+
+            await self.performGrouping(devices: deviceList, coordinator: coordinator, completion: completion)
+        }
+    }
+
+    /// Select the best coordinator from a list of devices based on audio source priority
+    private func selectBestCoordinator(from devices: [SonosDevice]) async -> SonosDevice {
+        // Get audio source info for all devices in parallel
+        let sourceInfos = await withTaskGroup(of: (String, (state: String, sourceType: AudioSourceType)?).self) { group in
+            for device in devices {
+                group.addTask {
+                    let info = await self.getAudioSourceInfo(for: device)
+                    return (device.uuid, info)
+                }
             }
+
+            var results: [String: (state: String, sourceType: AudioSourceType)] = [:]
+            for await (uuid, info) in group {
+                if let info = info {
+                    results[uuid] = info
+                }
+            }
+            return results
+        }
+
+        // Categorize devices by source type
+        let lineInDevices = devices.filter { sourceInfos[$0.uuid]?.sourceType == .lineIn }
+        let tvDevices = devices.filter { sourceInfos[$0.uuid]?.sourceType == .tv }
+        let streamingDevices = devices.filter {
+            sourceInfos[$0.uuid]?.sourceType == .streaming && sourceInfos[$0.uuid]?.state == "PLAYING"
+        }
+
+        // Priority 1: Line-in sources (highest priority - must be preserved)
+        if let coordinator = lineInDevices.first {
+            print("🎙️ Line-in audio detected on \(coordinator.name) - using as coordinator to preserve audio")
+            if coordinator.channelMapSet != nil {
+                print("⚠️ Coordinator is a stereo pair - grouping may fail (Sonos limitation)")
+            }
+            return coordinator
+        }
+
+        // Priority 2: TV/Home theater sources
+        if let coordinator = tvDevices.first {
+            print("📺 TV audio detected on \(coordinator.name) - using as coordinator to preserve audio")
+            if coordinator.channelMapSet != nil {
+                print("⚠️ Coordinator is a stereo pair - grouping may fail (Sonos limitation)")
+            }
+            return coordinator
+        }
+
+        // Priority 3: Streaming sources
+        if streamingDevices.count == 1, let coordinator = streamingDevices.first {
+            print("🎵 One device streaming (\(coordinator.name)) - using as coordinator to preserve playback")
+            if coordinator.channelMapSet != nil {
+                print("⚠️ Coordinator is a stereo pair - grouping may fail (Sonos limitation)")
+            }
+            return coordinator
+        } else if streamingDevices.count > 1 {
+            let nonStereoPair = streamingDevices.first { $0.channelMapSet == nil }
+            let coordinator = nonStereoPair ?? streamingDevices.first!
+            print("⚠️ Multiple devices streaming - choosing \(coordinator.name) as coordinator")
+            print("   Note: Other streaming devices will stop playback")
+            return coordinator
+        }
+
+        // Priority 4: No devices playing - prefer non-stereo-pair
+        let nonStereoPair = devices.first { $0.channelMapSet == nil }
+        let coordinator = nonStereoPair ?? devices.first!
+        print("📍 No devices playing - using \(coordinator.name) as coordinator")
+        return coordinator
+    }
+
+    /// Internal helper to perform the actual grouping with a specified coordinator (async/await)
+    /// Includes TOCTOU protection by re-verifying audio source immediately before grouping
+    private func performGrouping(devices: [SonosDevice], coordinator: SonosDevice, retry: Bool = true, completion: (@Sendable (Bool) -> Void)?) async {
+        print("🎵 Creating group with coordinator: \(coordinator.name)")
+
+        // Verify coordinator's audio source immediately before grouping (TOCTOU protection)
+        guard let sourceInfo = await getAudioSourceInfo(for: coordinator) else {
+            print("❌ Could not verify coordinator audio source")
+            completion?(false)
             return
         }
 
-        // Otherwise, intelligently select coordinator based on playback state
-        print("🔍 Checking playback states to choose coordinator...")
-        getPlaybackStates(devices: deviceList) { [weak self] states in
-            guard let self = self else { return }
-
-            // Find devices that are currently playing
-            let playingDevices = deviceList.filter { device in
-                states[device.uuid] == "PLAYING"
-            }
-
-            let coordinator: SonosDevice
-            if playingDevices.isEmpty {
-                // No devices playing, prefer non-stereo-pair as coordinator
-                let nonStereoPairDevices = deviceList.filter { $0.channelMapSet == nil }
-                if !nonStereoPairDevices.isEmpty {
-                    coordinator = nonStereoPairDevices.first!
-                    print("📍 No devices playing, using first non-stereo-pair as coordinator: \(coordinator.name)")
-                } else {
-                    coordinator = deviceList.first!
-                    print("📍 No devices playing, using first device as coordinator: \(coordinator.name)")
-                }
-            } else if playingDevices.count == 1 {
-                // One device playing, use it as coordinator to preserve playback
-                coordinator = playingDevices.first!
-                print("🎵 One device playing, using it as coordinator to preserve audio: \(coordinator.name)")
-                if coordinator.channelMapSet != nil {
-                    print("⚠️ Coordinator is a stereo pair - grouping may fail (Sonos limitation)")
-                }
-            } else {
-                // Multiple devices playing - prefer non-stereo-pair
-                let nonStereoPairPlaying = playingDevices.filter { $0.channelMapSet == nil }
-                if !nonStereoPairPlaying.isEmpty {
-                    coordinator = nonStereoPairPlaying.first!
-                    print("⚠️ Multiple devices playing, choosing first non-stereo-pair: \(coordinator.name)")
-                } else {
-                    coordinator = playingDevices.first!
-                    print("⚠️ Multiple devices playing (\(playingDevices.count)), defaulting to first: \(coordinator.name)")
-                }
-                print("   Note: Other playing devices will stop playback")
-            }
-
-            Task { [weak self] in
-                await self?.performGrouping(devices: deviceList, coordinator: coordinator, completion: completion)
-            }
+        let coordinatorWasPlaying = (sourceInfo.state == "PLAYING")
+        if coordinatorWasPlaying {
+            print("📝 Coordinator is playing \(sourceInfo.sourceType.description) - will resume after grouping if needed")
         }
+
+        // Perform the actual grouping
+        let success = await performGroupingInternal(
+            devices: devices,
+            coordinator: coordinator,
+            coordinatorWasPlaying: coordinatorWasPlaying,
+            retry: retry
+        )
+
+        completion?(success)
     }
 
-    /// Internal helper to perform the actual grouping with a specified coordinator
-    /// If retry is true and coordinator is a stereo pair, will automatically retry with a different coordinator on failure
-    private func performGrouping(devices: [SonosDevice], coordinator: SonosDevice, retry: Bool = true, completion: (@Sendable (Bool) -> Void)?) {
-        print("🎵 Creating group with coordinator: \(coordinator.name)")
-
-        // Check if coordinator is currently playing - we'll resume it after grouping
-        getTransportState(device: coordinator) { [weak self] initialState in
-            guard let self = self else { return }
-            let coordinatorWasPlaying = (initialState == "PLAYING")
-            if coordinatorWasPlaying {
-                print("📝 Coordinator is playing - will resume after grouping if needed")
-            }
-
-            Task { [weak self] in
-                await self?.performGroupingInternal(devices: devices, coordinator: coordinator, coordinatorWasPlaying: coordinatorWasPlaying, retry: retry, completion: completion)
-            }
-        }
-    }
-
-    /// Internal grouping logic after checking coordinator state
-    private func performGroupingInternal(devices: [SonosDevice], coordinator: SonosDevice, coordinatorWasPlaying: Bool, retry: Bool, completion: (@Sendable (Bool) -> Void)?) {
+    /// Internal grouping logic using async/await for clean concurrent operations
+    private func performGroupingInternal(devices: [SonosDevice], coordinator: SonosDevice, coordinatorWasPlaying: Bool, retry: Bool) async -> Bool {
         let membersToAdd = devices.filter { $0.uuid != coordinator.uuid }
-        let dispatchGroup = DispatchGroup()
-        let queue = DispatchQueue(label: "com.sonos.grouping")
-        var successCount = 0
 
-        // Add each member to the coordinator's group
-        for member in membersToAdd {
-            dispatchGroup.enter()
-            addDeviceToGroup(device: member, coordinatorUUID: coordinator.uuid, shouldRefreshTopology: false) { success in
-                queue.async {
-                    if success {
-                        successCount += 1
-                    }
-                    dispatchGroup.leave()
+        // Add all members to coordinator's group in parallel
+        let results = await withTaskGroup(of: Bool.self) { group in
+            for member in membersToAdd {
+                group.addTask {
+                    await self.addDeviceToGroup(device: member, coordinatorUUID: coordinator.uuid, shouldRefreshTopology: false)
                 }
+            }
+
+            var successCount = 0
+            for await success in group {
+                if success {
+                    successCount += 1
+                }
+            }
+            return successCount
+        }
+
+        let allSuccess = results == membersToAdd.count
+        print(allSuccess ? "✅ All members added (\(results)/\(membersToAdd.count))" : "⚠️ Some members failed (\(results)/\(membersToAdd.count))")
+
+        // If failed and coordinator is a stereo pair, retry with different coordinator
+        if !allSuccess && retry && coordinator.channelMapSet != nil && membersToAdd.count == 1 {
+            print("🔄 Retrying with \(membersToAdd[0].name) as coordinator (stereo pair limitation)")
+            return await performGroupingInternal(devices: devices, coordinator: membersToAdd[0], coordinatorWasPlaying: false, retry: false)
+        }
+
+        // Refresh topology after grouping
+        try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
+        await updateGroupTopology()
+
+        // If coordinator was playing, resume if needed
+        if coordinatorWasPlaying {
+            if let currentInfo = await getAudioSourceInfo(for: coordinator), currentInfo.state != "PLAYING" {
+                print("🔄 Coordinator paused during grouping - resuming playback")
+                await sendPlayCommand(to: coordinator)
             }
         }
 
-        // Wait for all additions to complete
-        dispatchGroup.notify(queue: .main) { [weak self] in
-            guard let self = self else { return }
-            let allSuccess = successCount == membersToAdd.count
-            print(allSuccess ? "✅ All members added (\(successCount)/\(membersToAdd.count))" : "⚠️ Some members failed to add (\(successCount)/\(membersToAdd.count))")
-
-            // If failed and coordinator is a stereo pair, retry with different coordinator
-            if !allSuccess && retry && coordinator.channelMapSet != nil && membersToAdd.count == 1 {
-                print("🔄 Retrying with \(membersToAdd[0].name) as coordinator (stereo pair limitation)")
-                Task { [weak self] in
-                    await self?.performGrouping(devices: devices, coordinator: membersToAdd[0], retry: false, completion: completion)
-                }
-                return
-            }
-
-            // Refresh topology once after all additions complete
-            Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
-                guard let self = self else { return }
-
-                await self.updateGroupTopology {
-                    // If coordinator was playing, check if it's still playing and resume if needed
-                    if coordinatorWasPlaying {
-                        Task { [weak self] in
-                            guard let self = self else { return }
-                            await self.getTransportState(device: coordinator) { state in
-                                if state != "PLAYING" {
-                                    print("🔄 Coordinator paused during grouping - resuming playback")
-                                    Task { [weak self] in
-                                        guard let self = self else { return }
-                                        await self.sendPlayCommand(to: coordinator)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    print(allSuccess ? "✅ Group created successfully" : "⚠️ Group created with some failures")
-                    completion?(allSuccess)
-                }
-            }
-        }
+        print(allSuccess ? "✅ Group created successfully" : "⚠️ Group created with some failures")
+        return allSuccess
     }
 
     /// Dissolve a group by ungrouping all members
@@ -1192,6 +1263,57 @@ actor SonosController {
                 completion(nil)
             }
         }
+    }
+
+    // MARK: - Audio Source Detection
+
+    /// Get audio source information for a device (async/await)
+    /// Returns tuple of (transportState, audioSource) or nil if unable to determine
+    func getAudioSourceInfo(for device: SonosDevice) async -> (state: String, sourceType: AudioSourceType)? {
+        do {
+            // Get transport state and position info in parallel
+            async let transportResponse = networkClient.getTransportInfo(for: device.ipAddress)
+            async let positionResponse = networkClient.getPositionInfo(for: device.ipAddress)
+
+            let (transportStr, positionStr) = try await (transportResponse, positionResponse)
+
+            // Parse transport state
+            guard let state = XMLParsingHelpers.extractValue(from: transportStr, tag: "CurrentTransportState") else {
+                print("⚠️ Could not parse transport state for \(device.name)")
+                return nil
+            }
+
+            // Parse track URI
+            let uri = XMLParsingHelpers.extractValue(from: positionStr, tag: "TrackURI")
+            let sourceType = detectAudioSourceType(from: uri, state: state)
+
+            print("🎵 \(device.name): \(state) - \(sourceType.description)")
+            return (state: state, sourceType: sourceType)
+
+        } catch {
+            print("❌ Failed to get audio source info for \(device.name): \(error)")
+            return nil
+        }
+    }
+
+    /// Detect audio source type from track URI and transport state
+    nonisolated func detectAudioSourceType(from uri: String?, state: String) -> AudioSourceType {
+        // If not playing, it's idle
+        guard state == "PLAYING", let uri = uri else {
+            return .idle
+        }
+
+        if uri.hasPrefix("x-rincon-stream:") {
+            return .lineIn
+        } else if uri.hasPrefix("x-sonos-htastream:") {
+            return .tv
+        } else if uri.hasPrefix("x-rincon:") {
+            return .grouped
+        } else if uri.hasPrefix("x-rincon-queue:") || uri.hasPrefix("x-rincon-mp3radio:") || uri.hasPrefix("x-sonos-spotify:") {
+            return .streaming
+        }
+
+        return .streaming // Default to streaming for unknown URIs when playing
     }
 
     // MARK: - Group Volume Control

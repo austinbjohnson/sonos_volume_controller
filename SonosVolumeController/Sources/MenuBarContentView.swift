@@ -1783,26 +1783,55 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Disable button during operation
         groupButton.isEnabled = false
-        groupButton.title = "Checking playback..."
+        groupButton.title = "Grouping..."
 
-        // Check which devices are currently playing
-        Task {
-            await controller.getPlayingDevices(from: selectedDevices) { @Sendable [weak self] playingDevices in
-                guard let self = self else { return }
+        // Proceed with smart coordinator selection (backend now handles audio source detection)
+        performGrouping(devices: selectedDevices, coordinator: nil)
+    }
 
-                DispatchQueue.main.async {
-                    // If multiple devices are playing, ask user which audio to keep
-                    if playingDevices.count > 1 {
-                        self.showCoordinatorSelectionDialog(
-                            playingDevices: playingDevices,
-                            allDevices: selectedDevices
-                        )
-                    } else {
-                        // Proceed with smart coordinator selection (0 or 1 playing)
-                        self.performGrouping(devices: selectedDevices, coordinator: nil)
-                    }
-                }
-            }
+    private func showSourcePreservationDialog(
+        lineInDevices: [SonosController.SonosDevice],
+        tvDevices: [SonosController.SonosDevice],
+        streamingDevices: [SonosController.SonosDevice],
+        allDevices: [SonosController.SonosDevice]
+    ) {
+        let alert = NSAlert()
+
+        if !lineInDevices.isEmpty {
+            let lineInNames = lineInDevices.map { $0.name }.joined(separator: ", ")
+            alert.messageText = "Line-In Audio Detected"
+            alert.informativeText = """
+            \(lineInNames) \(lineInDevices.count == 1 ? "is" : "are") playing from a physical audio input (line-in).
+
+            When grouped, all speakers will play from the line-in source. Any streaming audio will stop.
+
+            The line-in speaker will be used as the group coordinator to preserve the audio.
+            """
+        } else if !tvDevices.isEmpty {
+            let tvNames = tvDevices.map { $0.name }.joined(separator: ", ")
+            alert.messageText = "TV Audio Detected"
+            alert.informativeText = """
+            \(tvNames) \(tvDevices.count == 1 ? "is" : "are") playing TV/home theater audio.
+
+            When grouped, all speakers will play the TV audio. Any streaming audio will stop.
+
+            The TV speaker will be used as the group coordinator to preserve the audio.
+            """
+        }
+
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Continue")
+        alert.addButton(withTitle: "Cancel")
+
+        let response = alert.runModal()
+
+        if response == .alertFirstButtonReturn {
+            print("✅ User confirmed grouping with line-in/TV audio preservation")
+            performGrouping(devices: allDevices, coordinator: nil)
+        } else {
+            print("❌ User cancelled grouping")
+            groupButton.isEnabled = true
+            groupButton.title = "Group \(selectedSpeakerCards.count) Speakers"
         }
     }
 

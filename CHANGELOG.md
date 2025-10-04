@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed default hotkeys to Cmd+Shift+9/0 for better ergonomics (PR #20)
 - Fixed hotkeys not working in installed app - reverted to F11/F12 defaults, fixed CGEventFlags conversion, added network entitlements, improved permission flow with auto-restart (PR #22)
 
+### Fixed
+- Line-in audio preservation during grouping - detects line-in sources (turntables, aux inputs) and automatically makes the line-in speaker the group coordinator to prevent audio interruption, includes smart priority system (Line-In > TV > Streaming > Idle) and TOCTOU race condition protection (PR #47)
+
 ### Technical
 - Infrastructure layer extraction - refactored SonosController god object by extracting infrastructure components (SSDPSocket, SSDPDiscoveryService, SonosNetworkClient, XMLParsingHelpers) into separate, focused modules with clean interfaces and improved testability, reduced SonosController from 1,732 to 1,471 lines (-15%)
 - Complete SOAP migration - migrated all 6 remaining SOAP operations (group volume, grouping/ungrouping, playback control) to use SonosNetworkClient, eliminated 229 lines of boilerplate URLSession code, added type-safe AVTransport convenience methods, fixed pre-existing thread safety issues
