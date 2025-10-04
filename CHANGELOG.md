@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hierarchical group UI with expandable member controls - groups display as primary cards with drill-down capability to control individual speakers within groups (PR #27)
 - Real-time topology updates via UPnP event subscriptions - automatically detects and reflects speaker grouping changes made from Sonos app or other controllers without manual refresh (PR #36)
 - Audio trigger source dropdown in Preferences window for selecting which audio device activates Sonos control (PR #37)
-- Accessibility permission feedback system: Warning banner in menu bar popover when permission not granted, HUD notification when hotkeys pressed without permission (with "Open Settings" button), real-time permission status monitoring with automatic UI updates
+- Accessibility permission feedback system: Warning banner in menu bar popover when permission not granted, HUD notification when hotkeys pressed without permission (with "Open Settings" button), real-time permission status monitoring with automatic UI updates (PR #45)
 
 ### Changed
 - Simplified active speaker concept - replaced manual "default speaker" configuration with automatic "last active speaker" tracking, app now remembers what you were last controlling, replaced yellow star button with blue dot indicator, hover-only checkboxes for cleaner UI (PR #40)
