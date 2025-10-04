@@ -802,17 +802,19 @@ actor SonosController {
                     devices[index].nowPlaying = nowPlaying
                 }
 
-                // Notify UI of the change
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("SonosTransportStateDidChange"),
-                    object: nil,
-                    userInfo: [
-                        "deviceUUID": deviceUUID,
-                        "state": state,
-                        "trackURI": trackURI as Any,
-                        "metadata": metadata as Any
-                    ]
-                )
+                // Notify UI of the change (must happen on main thread)
+                await MainActor.run {
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("SonosTransportStateDidChange"),
+                        object: nil,
+                        userInfo: [
+                            "deviceUUID": deviceUUID,
+                            "state": state,
+                            "trackURI": trackURI as Any,
+                            "metadata": metadata as Any
+                        ]
+                    )
+                }
             }
 
         case .subscriptionExpired(let sid):

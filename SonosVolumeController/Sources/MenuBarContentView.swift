@@ -1090,6 +1090,15 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
     /// Add Now Playing text label to card
     private func addNowPlayingLabel(to card: NSView, text: String, albumArtURL: String? = nil, sourceType: SonosController.AudioSourceType = .streaming, skipResize: Bool = false) {
+        // Check if label already exists - if so, just update the text
+        if let existingLabel = card.subviews.first(where: { $0.identifier?.rawValue == "nowPlayingLabel" }) as? NSTextField {
+            existingLabel.stringValue = text
+            // Still update album art in case it changed
+            addAlbumArtImage(to: card, url: albumArtURL, sourceType: sourceType)
+            addSourceBadge(to: card, sourceType: sourceType)
+            return
+        }
+        
         let nowPlayingLabel = NSTextField(labelWithString: text)
         nowPlayingLabel.font = .systemFont(ofSize: 11, weight: .regular)
         nowPlayingLabel.textColor = .secondaryLabelColor
@@ -1175,6 +1184,49 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
     /// Add album art image to card with fallback SF Symbol
     private func addAlbumArtImage(to card: NSView, url: String?, sourceType: SonosController.AudioSourceType) {
+        // Check if imageView already exists - if so, just update the image
+        if let existingImageView = card.subviews.first(where: { $0.identifier?.rawValue == "albumArtImageView" }) as? NSImageView {
+            // Update the fallback symbol
+            let fallbackSymbol: String
+            switch sourceType {
+            case .streaming:
+                fallbackSymbol = "music.note"
+            case .lineIn:
+                fallbackSymbol = "waveform"
+            case .tv:
+                fallbackSymbol = "tv"
+            default:
+                fallbackSymbol = "music.note"
+            }
+            
+            let symbolConfig = NSImage.SymbolConfiguration(pointSize: 20, weight: .regular)
+            if let symbolImage = NSImage(systemSymbolName: fallbackSymbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(symbolConfig) {
+                let fallbackImage = NSImage(size: NSSize(width: 40, height: 40))
+                fallbackImage.lockFocus()
+                NSColor.quaternaryLabelColor.setFill()
+                NSBezierPath(rect: NSRect(x: 0, y: 0, width: 40, height: 40)).fill()
+                let symbolSize = symbolImage.size
+                let x = (40 - symbolSize.width) / 2
+                let y = (40 - symbolSize.height) / 2
+                symbolImage.draw(at: NSPoint(x: x, y: y), from: .zero, operation: .sourceOver, fraction: 0.5)
+                fallbackImage.unlockFocus()
+                existingImageView.image = fallbackImage
+            }
+            
+            // Async load album art if URL provided
+            if let urlString = url, let controller = appDelegate?.sonosController {
+                Task {
+                    if let albumArt = await controller.fetchAlbumArt(url: urlString) {
+                        await MainActor.run {
+                            existingImageView.image = albumArt
+                        }
+                    }
+                }
+            }
+            return
+        }
+        
         let imageView = NSImageView()
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.identifier = NSUserInterfaceItemIdentifier("albumArtImageView")
@@ -1256,12 +1308,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
     /// Add colored source badge to card
     private func addSourceBadge(to card: NSView, sourceType: SonosController.AudioSourceType) {
-        let badge = NSView()
-        badge.wantsLayer = true
-        badge.layer?.cornerRadius = 5
-        badge.translatesAutoresizingMaskIntoConstraints = false
-        badge.identifier = NSUserInterfaceItemIdentifier("sourceBadge")
-
         // Set badge color based on source type
         let badgeColor: NSColor
         switch sourceType {
@@ -1274,7 +1320,18 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         case .idle:
             badgeColor = .tertiaryLabelColor
         }
-
+        
+        // Check if badge already exists - if so, just update the color
+        if let existingBadge = card.subviews.first(where: { $0.identifier?.rawValue == "sourceBadge" }) {
+            existingBadge.layer?.backgroundColor = badgeColor.cgColor
+            return
+        }
+        
+        let badge = NSView()
+        badge.wantsLayer = true
+        badge.layer?.cornerRadius = 5
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        badge.identifier = NSUserInterfaceItemIdentifier("sourceBadge")
         badge.layer?.backgroundColor = badgeColor.cgColor
         card.addSubview(badge)
 

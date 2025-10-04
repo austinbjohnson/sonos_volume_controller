@@ -11,7 +11,7 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
-- **Real-time playing state updates and remove audio source indicator**: Listen for UPnP AVTransport events to update content display in real-time even when paused, and remove the blue dot indicator showing audio source state for cleaner UI (branch: enhancement/realtime-state-updates-and-ui-polish, @austinbjohnson)
+- **Fix transport state updates for grouped speakers**: Investigate and fix P0 bug where Bathroom and Bedroom speakers don't receive real-time transport state updates. Using evidence-based approach: research UPnP/GENA best practices, add diagnostic logging, analyze root cause, then implement fix. (branch: fix/transport-state-uuid-mismatch, @austinbjohnson)
 
 ---
 
@@ -28,7 +28,7 @@ _Issues that break core functionality. Must fix immediately._
 
 ### Bugs
 
-- **Transport state updates not working for certain speakers**: Bathroom and Bedroom don't receive real-time transport state updates when playback changes, but Kitchen Move works correctly. NOTE: Bedroom is a stereo pair but Bathroom is NOT, so this is not stereo-pair specific. All speakers subscribe successfully and receive initial events, but play/pause changes don't trigger UI updates for these two speakers. Attempted fix with satellite-to-visible UUID mapping didn't resolve. Need to investigate if there's a UUID mismatch between subscription, NOTIFY callback, and card identifier, or if these specific speakers send events differently. (SonosController.swift:363-397, 783-825, MenuBarContentView.swift:177-231) [Added 2025-10-04]
+- **Non-Apple Music sources not updating UI**: Transport state updates work for Apple Music and most streaming services, but certain sources (e.g., Beats 1 radio, possibly other radio stations) don't trigger UI metadata updates. Core play/pause state changes work, but track/station information doesn't refresh. May be related to different metadata formats or missing fields in non-music-streaming content. (MenuBarContentView.swift, SonosController.swift) [Added 2025-10-04]
 
 ### UX Critical
 
@@ -150,3 +150,7 @@ _(Moved to P0/P1 sections)_
 ## Known Limitations
 
 - **Line-in audio lost when grouping with stereo pairs**: When a stereo pair is playing line-in audio and grouped with another speaker, the line-in audio stops because the non-stereo-pair becomes coordinator and line-in sources are device-specific (cannot be shared). Workaround: Manually set the stereo pair with line-in as the coordinator in the Sonos app, or use streaming sources instead of line-in when grouping.
+
+## Recently Resolved
+
+- **Transport state updates not working for certain speakers** ✅ FIXED (2025-10-04): Root cause was HTML-encoded XML in AVTransport LastChange events. Sonos sends transport state wrapped in `&lt;TransportState&gt;` entities rather than raw XML tags. Added HTML entity decoding (`&quot;`, `&lt;`, `&gt;`, `&amp;`) before XML parsing. Also fixed concurrency crash by wrapping NotificationCenter.post in MainActor.run. All speakers now receive real-time play/pause UI updates. (PR #XX)
