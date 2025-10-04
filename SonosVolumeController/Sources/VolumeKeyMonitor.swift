@@ -7,6 +7,8 @@ class VolumeKeyMonitor: @unchecked Sendable {
     private let settings: AppSettings
     private var eventTap: CFMachPort?
     private var lastPermissionHUDTime: Date?
+    private var isPaused: Bool = false
+    private let pauseLock = NSLock()
 
     init(audioMonitor: AudioDeviceMonitor, sonosController: SonosController, settings: AppSettings) {
         self.audioMonitor = audioMonitor
@@ -59,6 +61,16 @@ class VolumeKeyMonitor: @unchecked Sendable {
     }
 
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent> {
+        // Check if paused (for Test Hotkeys feature)
+        pauseLock.lock()
+        let paused = isPaused
+        pauseLock.unlock()
+
+        if paused {
+            // Pass through all events when paused
+            return Unmanaged.passUnretained(event)
+        }
+
         // Re-enable tap if it was disabled
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             print("⚠️ Event tap was disabled, re-enabling...")
@@ -173,5 +185,43 @@ class VolumeKeyMonitor: @unchecked Sendable {
 
         // Pass through - we've handled it but can't truly suppress F-keys
         return Unmanaged.passUnretained(event)
+    }
+
+    // MARK: - Pause/Resume for Testing
+
+    /// Temporarily pause event processing (for Test Hotkeys feature)
+    /// Does not tear down the event tap, just ignores events
+    func pause() {
+        pauseLock.lock()
+        defer { pauseLock.unlock() }
+
+        guard !isPaused else {
+            print("⏸️ VolumeKeyMonitor already paused")
+            return
+        }
+
+        isPaused = true
+        print("⏸️ VolumeKeyMonitor paused (test mode)")
+    }
+
+    /// Resume event processing after pause
+    func resume() {
+        pauseLock.lock()
+        defer { pauseLock.unlock() }
+
+        guard isPaused else {
+            print("▶️ VolumeKeyMonitor already running")
+            return
+        }
+
+        isPaused = false
+        print("▶️ VolumeKeyMonitor resumed")
+    }
+
+    /// Check if monitor is currently paused
+    var isPausedState: Bool {
+        pauseLock.lock()
+        defer { pauseLock.unlock() }
+        return isPaused
     }
 }
