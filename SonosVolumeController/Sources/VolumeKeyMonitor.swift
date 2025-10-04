@@ -6,6 +6,7 @@ class VolumeKeyMonitor: @unchecked Sendable {
     private let sonosController: SonosController
     private let settings: AppSettings
     private var eventTap: CFMachPort?
+    private var lastPermissionHUDTime: Date?
 
     init(audioMonitor: AudioDeviceMonitor, sonosController: SonosController, settings: AppSettings) {
         self.audioMonitor = audioMonitor
@@ -113,11 +114,32 @@ class VolumeKeyMonitor: @unchecked Sendable {
         }
 
         print("🎹 Volume hotkey detected! Checking if should intercept...")
-        print("   Current device: \(audioMonitor.currentDeviceName)")
-        print("   Should intercept: \(audioMonitor.shouldInterceptVolumeKeys)")
         print("   Settings enabled: \(settings.enabled)")
 
-        // Check if we should intercept
+        // Check permission first (more fundamental than device check)
+        Task { @MainActor in
+            guard settings.isAccessibilityPermissionGranted else {
+                print("   ❌ Not intercepting - accessibility permission not granted")
+
+                // Show permission required HUD with debouncing (max once per 5 seconds)
+                let now = Date()
+                if let lastTime = self.lastPermissionHUDTime {
+                    if now.timeIntervalSince(lastTime) < 5.0 {
+                        print("   ⏱️ Skipping HUD - shown recently")
+                        return
+                    }
+                }
+                self.lastPermissionHUDTime = now
+
+                VolumeHUD.shared.showPermissionRequired()
+                return
+            }
+        }
+
+        print("   Current device: \(audioMonitor.currentDeviceName)")
+        print("   Should intercept: \(audioMonitor.shouldInterceptVolumeKeys)")
+
+        // Check if we should intercept based on audio device
         guard audioMonitor.shouldInterceptVolumeKeys else {
             print("   ❌ Not intercepting - wrong audio device")
 

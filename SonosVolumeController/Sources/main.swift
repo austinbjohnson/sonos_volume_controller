@@ -85,6 +85,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         audioMonitor.start()
         volumeKeyMonitor.start()
 
+        // Start permission monitoring for reactive UI updates
+        settings.startPermissionMonitoring()
+
         // Listen for device discovery completion
         NotificationCenter.default.addObserver(
             self,
@@ -300,6 +303,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Quit current instance
         NSApplication.shared.terminate(nil)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Clean up permission monitoring timer
+        settings.stopPermissionMonitoring()
     }
 }
 

@@ -47,10 +47,12 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var powerButton: NSButton!
     private var isLoadingDevices: Bool = false
     private var welcomeBanner: NSView!
+    private var permissionBanner: NSView!
     private var expandedGroups: Set<String> = []  // Track which groups are expanded
     private var scrollViewHeightConstraint: NSLayoutConstraint!
     private var containerView: NSView!
     private var welcomeBannerHeightConstraint: NSLayoutConstraint!
+    private var permissionBannerHeightConstraint: NSLayoutConstraint!
     private var isPopulatingInProgress: Bool = false  // Prevent multiple simultaneous populates
     private var triggerDeviceLabel: NSTextField!  // Display current audio trigger device
     private var isAdjustingGroupVolume: Bool = false  // Track when group volume is being adjusted
@@ -130,6 +132,21 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Now that view is loaded, populate speakers with proper layout
         populateSpeakers()
+
+        // Listen for permission status changes to update banner
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handlePermissionStatusChanged(_:)),
+            name: NSNotification.Name("PermissionStatusChanged"),
+            object: nil
+        )
+    }
+
+    @objc private func handlePermissionStatusChanged(_ notification: Notification) {
+        // Refresh to update permission banner visibility
+        Task { @MainActor in
+            self.populateSpeakers()
+        }
     }
 
     deinit {
@@ -287,6 +304,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         speakersTitle.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(speakersTitle)
 
+        // Permission banner (shows when accessibility permission not granted)
+        permissionBanner = createPermissionBanner()
+        container.addSubview(permissionBanner)
+
         // Welcome banner for first launch
         welcomeBanner = createWelcomeBanner()
         container.addSubview(welcomeBanner)
@@ -351,15 +372,21 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Create height constraints for dynamic sizing
         scrollViewHeightConstraint = scrollView.heightAnchor.constraint(equalToConstant: 200)
+        permissionBannerHeightConstraint = permissionBanner.heightAnchor.constraint(equalToConstant: 0) // Start hidden
         welcomeBannerHeightConstraint = welcomeBanner.heightAnchor.constraint(equalToConstant: 0) // Start hidden
 
         NSLayoutConstraint.activate([
             speakersTitle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             speakersTitle.topAnchor.constraint(equalTo: previousDivider.bottomAnchor, constant: 12),
 
+            permissionBanner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            permissionBanner.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+            permissionBanner.topAnchor.constraint(equalTo: speakersTitle.bottomAnchor, constant: 12),
+            permissionBannerHeightConstraint,
+
             welcomeBanner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             welcomeBanner.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
-            welcomeBanner.topAnchor.constraint(equalTo: speakersTitle.bottomAnchor, constant: 12),
+            welcomeBanner.topAnchor.constraint(equalTo: permissionBanner.bottomAnchor, constant: 8),
             welcomeBannerHeightConstraint,
 
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
@@ -789,6 +816,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let groups = controller.cachedDiscoveredGroups
         let devices = controller.cachedDiscoveredDevices
 
+        // Show/hide permission banner based on accessibility permission status
+        let hasPermission = appDelegate?.settings.isAccessibilityPermissionGranted ?? true
+        if let banner = permissionBanner, let heightConstraint = permissionBannerHeightConstraint {
+            banner.isHidden = hasPermission
+            // Collapse height when hidden to prevent ghost spacing
+            heightConstraint.constant = hasPermission ? 0 : 60
+        }
+
         // Show/hide welcome banner based on whether a speaker is selected
         let shouldShowBanner = currentSpeaker?.isEmpty ?? true
         if let banner = welcomeBanner, let heightConstraint = welcomeBannerHeightConstraint {
@@ -1058,6 +1093,71 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         banner.isHidden = true
 
         return banner
+    }
+
+    private func createPermissionBanner() -> NSView {
+        let banner = NSView()
+        banner.wantsLayer = true
+        banner.layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.15).cgColor
+        banner.layer?.borderColor = NSColor.systemOrange.withAlphaComponent(0.3).cgColor
+        banner.layer?.borderWidth = 1
+        banner.layer?.cornerRadius = 6
+        banner.translatesAutoresizingMaskIntoConstraints = false
+
+        // Warning icon
+        let icon = NSImageView()
+        icon.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Warning")
+        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        icon.contentTintColor = .systemOrange
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        // Warning text
+        let text = NSTextField(labelWithString: "Hotkeys require accessibility permission")
+        text.font = .systemFont(ofSize: 13, weight: .medium)
+        text.textColor = .labelColor
+        text.alignment = .left
+        text.translatesAutoresizingMaskIntoConstraints = false
+
+        // Link button
+        let linkButton = NSButton()
+        linkButton.title = "Enable in System Settings →"
+        linkButton.bezelStyle = .inline
+        linkButton.isBordered = false
+        linkButton.font = .systemFont(ofSize: 13, weight: .medium)
+        linkButton.contentTintColor = .systemBlue
+        linkButton.target = self
+        linkButton.action = #selector(openAccessibilitySettings)
+        linkButton.translatesAutoresizingMaskIntoConstraints = false
+
+        banner.addSubview(icon)
+        banner.addSubview(text)
+        banner.addSubview(linkButton)
+
+        NSLayoutConstraint.activate([
+            icon.leadingAnchor.constraint(equalTo: banner.leadingAnchor, constant: 12),
+            icon.topAnchor.constraint(equalTo: banner.topAnchor, constant: 10),
+            icon.widthAnchor.constraint(equalToConstant: 20),
+            icon.heightAnchor.constraint(equalToConstant: 20),
+
+            text.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
+            text.trailingAnchor.constraint(equalTo: banner.trailingAnchor, constant: -12),
+            text.topAnchor.constraint(equalTo: banner.topAnchor, constant: 10),
+
+            linkButton.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
+            linkButton.topAnchor.constraint(equalTo: text.bottomAnchor, constant: 2),
+            linkButton.bottomAnchor.constraint(equalTo: banner.bottomAnchor, constant: -10)
+        ])
+
+        // Initially hidden - will be shown when permission not granted
+        banner.isHidden = true
+
+        return banner
+    }
+
+    @objc private func openAccessibilitySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     // MARK: - Actions
