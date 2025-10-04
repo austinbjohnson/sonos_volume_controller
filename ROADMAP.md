@@ -11,6 +11,8 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
+- **Real-time playing state updates and remove audio source indicator**: Listen for UPnP AVTransport events to update content display in real-time even when paused, and remove the blue dot indicator showing audio source state for cleaner UI (branch: enhancement/realtime-state-updates-and-ui-polish, @austinbjohnson)
+
 ---
 
 ## App Store Readiness
