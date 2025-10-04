@@ -12,6 +12,10 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
     private var isRecordingUp = false
     private var audioDeviceMonitor: AudioDeviceMonitor?
     private var triggerDevicePopup: NSPopUpButton?
+    private var permissionStatusLabel: NSTextField?
+    private var permissionIconView: NSImageView?
+    private var testHotkeysButton: NSButton?
+    private var hotkeyTester: HotkeyTester?
 
     init(appDelegate: AppDelegate) {
         self.appDelegate = appDelegate
@@ -39,7 +43,7 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
     }
 
     private func createWindow() {
-        let windowRect = NSRect(x: 0, y: 0, width: 500, height: 480)
+        let windowRect = NSRect(x: 0, y: 0, width: 500, height: 620)
         let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
 
         window = NSWindow(
@@ -61,8 +65,8 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
     }
 
     private func createGeneralTab() -> NSView {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 480))
-        var yPos: CGFloat = 440
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 620))
+        var yPos: CGFloat = 580
 
         // Enable/Disable checkbox
         let enableCheckbox = NSButton(frame: NSRect(x: 30, y: yPos, width: 300, height: 25))
@@ -193,6 +197,81 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
         infoLabel.textColor = .secondaryLabelColor
         infoLabel.font = NSFont.systemFont(ofSize: 11)
         view.addSubview(infoLabel)
+
+        yPos -= 50
+
+        // Hotkey Diagnostics section
+        let diagnosticsLabel = createLabel("Hotkey Diagnostics:", frame: NSRect(x: 30, y: yPos, width: 250, height: 20))
+        diagnosticsLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        view.addSubview(diagnosticsLabel)
+
+        yPos -= 40
+
+        // Permission status container
+        let statusContainer = NSView(frame: NSRect(x: 30, y: yPos, width: 440, height: 60))
+        statusContainer.wantsLayer = true
+        statusContainer.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        statusContainer.layer?.cornerRadius = 6
+        view.addSubview(statusContainer)
+
+        // Permission icon
+        let icon = NSImageView(frame: NSRect(x: 12, y: 20, width: 20, height: 20))
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        statusContainer.addSubview(icon)
+        permissionIconView = icon
+
+        // Permission status text (primary)
+        let statusText = createLabel("", frame: NSRect(x: 40, y: 26, width: 350, height: 20))
+        statusText.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+        statusContainer.addSubview(statusText)
+        permissionStatusLabel = statusText
+
+        // Permission subtitle
+        let subtitleText = createLabel("", frame: NSRect(x: 40, y: 8, width: 350, height: 16))
+        subtitleText.font = NSFont.systemFont(ofSize: 13, weight: .regular)
+        subtitleText.textColor = .secondaryLabelColor
+        subtitleText.tag = 1002 // For updating
+        statusContainer.addSubview(subtitleText)
+
+        // Open Settings button (shown when permission denied)
+        let settingsButton = NSButton(frame: NSRect(x: 310, y: 15, width: 120, height: 28))
+        settingsButton.title = "Open Settings"
+        settingsButton.bezelStyle = .rounded
+        settingsButton.target = self
+        settingsButton.action = #selector(openAccessibilitySettings)
+        settingsButton.tag = 1003 // For show/hide
+        statusContainer.addSubview(settingsButton)
+
+        yPos -= 75
+
+        // Test Hotkeys button
+        let testButton = NSButton(frame: NSRect(x: 30, y: yPos, width: 140, height: 32))
+        testButton.title = "Test Hotkeys"
+        testButton.bezelStyle = .rounded
+        testButton.target = self
+        testButton.action = #selector(testHotkeys(_:))
+        view.addSubview(testButton)
+        testHotkeysButton = testButton
+
+        // Help text
+        let helpText = createLabel(
+            "Verify that your hotkeys are working correctly.",
+            frame: NSRect(x: 180, y: yPos + 6, width: 290, height: 20)
+        )
+        helpText.textColor = .secondaryLabelColor
+        helpText.font = NSFont.systemFont(ofSize: 11)
+        view.addSubview(helpText)
+
+        // Update permission status display
+        updatePermissionStatus()
+
+        // Listen for permission changes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handlePermissionStatusChanged),
+            name: NSNotification.Name("PermissionStatusChanged"),
+            object: nil
+        )
 
         return view
     }
@@ -374,6 +453,114 @@ class PreferencesWindow: NSObject, NSWindowDelegate {
             self.volumeUpTextField?.stringValue = keyCombo
 
             print("✅ Volume up key set to: \(keyCombo) (code: \(keyCode), modifiers: \(modifiers))")
+        }
+    }
+
+    // MARK: - Permission & Testing Actions
+
+    @objc private func openAccessibilitySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func handlePermissionStatusChanged() {
+        updatePermissionStatus()
+    }
+
+    private func updatePermissionStatus() {
+        let hasPermission = appDelegate?.settings.isAccessibilityPermissionGranted ?? false
+
+        // Find status container to update elements
+        guard let contentView = window?.contentView else { return }
+
+        // Update icon
+        if let icon = permissionIconView {
+            if hasPermission {
+                icon.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Permission Granted")
+                icon.contentTintColor = .systemGreen
+            } else {
+                icon.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Permission Required")
+                icon.contentTintColor = .systemOrange
+            }
+        }
+
+        // Update status text
+        if let statusLabel = permissionStatusLabel {
+            statusLabel.stringValue = hasPermission ? "Accessibility access enabled" : "Accessibility access required"
+            statusLabel.textColor = hasPermission ? .labelColor : .labelColor
+        }
+
+        // Update subtitle
+        if let subtitleLabel = contentView.viewWithTag(1002) as? NSTextField {
+            subtitleLabel.stringValue = hasPermission ? "Hotkeys are ready to use" : "Hotkeys won't work without this permission"
+        }
+
+        // Show/hide Open Settings button
+        if let settingsButton = contentView.viewWithTag(1003) as? NSButton {
+            settingsButton.isHidden = hasPermission
+        }
+
+        // Enable/disable Test button
+        testHotkeysButton?.isEnabled = hasPermission
+    }
+
+    @objc private func testHotkeys(_ sender: NSButton) {
+        print("🧪 Test Hotkeys button clicked")
+
+        // Disable button during test
+        sender.isEnabled = false
+        sender.title = "Testing..."
+
+        // Create tester if needed
+        if hotkeyTester == nil, let monitor = appDelegate?.volumeKeyMonitor {
+            hotkeyTester = HotkeyTester(volumeKeyMonitor: monitor, settings: appDelegate!.settings)
+        }
+
+        // Run test
+        hotkeyTester?.testHotkeys { [weak self, weak sender] success in
+            Task { @MainActor in
+                // Re-enable button
+                sender?.isEnabled = true
+                sender?.title = "Test Hotkeys"
+
+                // Show result modal
+                self?.showTestResult(success: success)
+            }
+        }
+    }
+
+    private func showTestResult(success: Bool) {
+        guard let window = window else { return }
+
+        let alert = NSAlert()
+
+        if success {
+            // Success
+            alert.messageText = "✅ Hotkeys Working!"
+            alert.informativeText = "Volume hotkeys are working correctly.\nTry pressing F11 or F12."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "Done")
+        } else {
+            // Failure
+            alert.messageText = "❌ Hotkeys Not Working"
+            alert.informativeText = "The test could not detect hotkey events.\n\nPossible issues:\n• Accessibility permission not properly granted\n• Another app is intercepting the keys\n• System settings need to be refreshed\n\nTry restarting the app or your Mac."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "Retry")
+            alert.addButton(withTitle: "Close")
+        }
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            if !success {
+                if response == .alertFirstButtonReturn {
+                    // Open Settings
+                    self?.openAccessibilitySettings()
+                } else if response == .alertSecondButtonReturn {
+                    // Retry
+                    self?.testHotkeys(self!.testHotkeysButton!)
+                }
+            }
         }
     }
 
