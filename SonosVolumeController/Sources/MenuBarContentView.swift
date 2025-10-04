@@ -62,6 +62,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var groupVolumeResetTimer: Timer?  // Debounce network updates until drag settles
     private var memberVolumeThrottleTimer: Timer?  // Throttle member volume refresh calls
 
+    // Cache now-playing data to prevent flicker during card rebuilds
+    private var nowPlayingCache: [String: (state: String?, sourceType: SonosController.AudioSourceType?, nowPlaying: SonosController.NowPlayingInfo?)] = [:]
+
     init(appDelegate: AppDelegate?) {
         self.appDelegate = appDelegate
         super.init(nibName: nil, bundle: nil)
@@ -150,6 +153,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             name: NSNotification.Name("TriggerDeviceDidChange"),
             object: nil
         )
+
+        // Listen for transport state changes to update now playing in real-time
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTransportStateChanged(_:)),
+            name: NSNotification.Name("SonosTransportStateDidChange"),
+            object: nil
+        )
     }
 
     @objc private func handlePermissionStatusChanged(_ notification: Notification) {
@@ -163,6 +174,62 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Update trigger device label with new value
         Task { @MainActor in
             self.updateTriggerDeviceLabel()
+        }
+    }
+
+    @objc private func handleTransportStateChanged(_ notification: Notification) {
+        // Update the specific card with new transport state and metadata
+        guard let userInfo = notification.userInfo,
+              let deviceUUID = userInfo["deviceUUID"] as? String,
+              let state = userInfo["state"] as? String else {
+            return
+        }
+
+        print("🎵 UI received transport state change: \(state) for device \(deviceUUID)")
+
+        Task { @MainActor in
+            // Find the card for this device
+            guard let cardIndex = speakerCardsContainer.arrangedSubviews.firstIndex(where: { view in
+                view.identifier?.rawValue == deviceUUID
+            }) else {
+                print("⚠️ Card not found for device \(deviceUUID)")
+                return
+            }
+
+            let card = speakerCardsContainer.arrangedSubviews[cardIndex]
+
+            // For now, just refresh the now playing info for this card
+            // Future: Add visual indicator for play/pause state
+            Task {
+                await self.refreshNowPlayingForCard(card)
+            }
+        }
+    }
+
+    /// Refresh now playing info for a specific card
+    private func refreshNowPlayingForCard(_ card: NSView) async {
+        guard let deviceUUID = card.identifier?.rawValue,
+              let controller = appDelegate?.sonosController else {
+            return
+        }
+
+        // Get the device
+        let devices = controller.cachedDiscoveredDevices
+        guard let device = devices.first(where: { $0.uuid == deviceUUID }) else {
+            return
+        }
+
+        // Fetch fresh now playing info
+        if let (state, sourceType, nowPlaying) = await controller.getAudioSourceInfo(for: device) {
+            await MainActor.run {
+                // Update the card with the fresh info
+                updateCardWithNowPlaying(
+                    uuid: deviceUUID,
+                    state: state,
+                    sourceType: sourceType,
+                    nowPlaying: nowPlaying
+                )
+            }
         }
     }
 
@@ -482,16 +549,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         card.layer?.cornerRadius = 10
         card.translatesAutoresizingMaskIntoConstraints = false
 
-        // Active indicator (blue dot) - non-interactive visual indicator
-        let activeIndicator = NSView()
-        if isActive {
-            activeIndicator.wantsLayer = true
-            activeIndicator.layer?.backgroundColor = NSColor.systemBlue.cgColor
-            activeIndicator.layer?.cornerRadius = 4
-            activeIndicator.toolTip = "Currently active"
-        }
-        activeIndicator.translatesAutoresizingMaskIntoConstraints = false
-
         // Group icon (multiple speakers)
         let icon = NSImageView()
         icon.image = NSImage(systemSymbolName: "hifispeaker.2.fill", accessibilityDescription: "Group")
@@ -536,20 +593,28 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         cardClick.delegate = self
         card.addGestureRecognizer(cardClick)
 
-        card.addSubview(activeIndicator)
         card.addSubview(icon)
         card.addSubview(nameLabel)
         card.addSubview(checkbox)
 
-        NSLayoutConstraint.activate([
-            // Active indicator (blue dot) on the left
-            activeIndicator.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
-            activeIndicator.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            activeIndicator.widthAnchor.constraint(equalToConstant: 8),
-            activeIndicator.heightAnchor.constraint(equalToConstant: 8),
+        // Check cache and add now-playing content immediately if available (use coordinator UUID)
+        if let cached = nowPlayingCache[group.coordinator.uuid] {
+            if let nowPlaying = cached.nowPlaying, let sourceType = cached.sourceType, sourceType == .streaming {
+                addNowPlayingLabel(to: card, text: nowPlaying.displayText, albumArtURL: nowPlaying.albumArtURL, sourceType: sourceType, skipResize: true)
+            } else if let sourceType = cached.sourceType, sourceType == .lineIn {
+                addNowPlayingLabel(to: card, text: "Line-In Audio", albumArtURL: nil, sourceType: sourceType, skipResize: true)
+            } else if let sourceType = cached.sourceType, sourceType == .tv {
+                addNowPlayingLabel(to: card, text: "TV Audio", albumArtURL: nil, sourceType: sourceType, skipResize: true)
+            }
 
-            // Position icon after active indicator (no chevron)
-            icon.leadingAnchor.constraint(equalTo: activeIndicator.trailingAnchor, constant: 8),
+            if let sourceType = cached.sourceType {
+                addSourceBadge(to: card, sourceType: sourceType)
+            }
+        }
+
+        NSLayoutConstraint.activate([
+            // Position icon at leading edge
+            icon.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
             icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 20),
             icon.heightAnchor.constraint(equalToConstant: 20),
@@ -685,16 +750,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             ])
         }
 
-        // Active indicator (blue dot) - non-interactive visual indicator
-        let activeIndicator = NSView()
-        if isActive {
-            activeIndicator.wantsLayer = true
-            activeIndicator.layer?.backgroundColor = NSColor.systemBlue.cgColor
-            activeIndicator.layer?.cornerRadius = 4
-            activeIndicator.toolTip = "Currently active"
-        }
-        activeIndicator.translatesAutoresizingMaskIntoConstraints = false
-
         // Speaker icon
         let icon = NSImageView()
         let iconName = isGroupCoordinator ? "person.3.fill" : "hifispeaker.fill"
@@ -774,20 +829,28 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         cardClick.delegate = self
         card.addGestureRecognizer(cardClick)
 
-        card.addSubview(activeIndicator)
         card.addSubview(icon)
         card.addSubview(textStack)
         card.addSubview(checkbox)
 
-        NSLayoutConstraint.activate([
-            // Active indicator (blue dot) on the left
-            activeIndicator.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: leadingOffset),
-            activeIndicator.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            activeIndicator.widthAnchor.constraint(equalToConstant: 8),
-            activeIndicator.heightAnchor.constraint(equalToConstant: 8),
+        // Check cache and add now-playing content immediately if available
+        if let cached = nowPlayingCache[device.uuid] {
+            if let nowPlaying = cached.nowPlaying, let sourceType = cached.sourceType, sourceType == .streaming {
+                addNowPlayingLabel(to: card, text: nowPlaying.displayText, albumArtURL: nowPlaying.albumArtURL, sourceType: sourceType, skipResize: true)
+            } else if let sourceType = cached.sourceType, sourceType == .lineIn {
+                addNowPlayingLabel(to: card, text: "Line-In Audio", albumArtURL: nil, sourceType: sourceType, skipResize: true)
+            } else if let sourceType = cached.sourceType, sourceType == .tv {
+                addNowPlayingLabel(to: card, text: "TV Audio", albumArtURL: nil, sourceType: sourceType, skipResize: true)
+            }
 
-            // Icon follows the active indicator
-            icon.leadingAnchor.constraint(equalTo: activeIndicator.trailingAnchor, constant: 8),
+            if let sourceType = cached.sourceType {
+                addSourceBadge(to: card, sourceType: sourceType)
+            }
+        }
+
+        NSLayoutConstraint.activate([
+            // Icon at leading edge
+            icon.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: leadingOffset),
             icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 20),
             icon.heightAnchor.constraint(equalToConstant: 20),
@@ -1000,6 +1063,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     /// Update a specific card with Now Playing info
     @MainActor
     private func updateCardWithNowPlaying(uuid: String, state: String?, sourceType: SonosController.AudioSourceType?, nowPlaying: SonosController.NowPlayingInfo?, skipResize: Bool = false) {
+        // Update cache first
+        nowPlayingCache[uuid] = (state, sourceType, nowPlaying)
+
         // Find the card by UUID (stored in identifier)
         for subview in speakerCardsContainer.arrangedSubviews {
             if subview.identifier?.rawValue == uuid {
@@ -1078,16 +1144,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 ])
             }
 
-            // Hide icon and indicator for speaker cards (replaced by album art)
+            // Hide icon for speaker cards (replaced by album art)
             if let icon = card.subviews.first(where: { $0 is NSImageView && $0.identifier?.rawValue != "albumArtImageView" }) as? NSImageView {
                 icon.isHidden = true
-            }
-
-            let activeIndicator = card.subviews.first { view in
-                view.layer?.backgroundColor == NSColor.systemBlue.cgColor && view.layer?.cornerRadius == 4
-            }
-            if let indicator = activeIndicator {
-                indicator.isHidden = true
             }
         }
 
@@ -1732,12 +1791,19 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         Task {
             await appDelegate?.sonosController.selectDevice(name: deviceName)
+
+            // Subscribe to transport state updates for this device
+            if let controller = appDelegate?.sonosController,
+               let device = controller.cachedDiscoveredDevices.first(where: { $0.name == deviceName }) {
+                await controller.subscribeToTransportUpdates(for: device.uuid)
+            }
         }
         // Track this speaker as last active
         appDelegate?.settings.trackSpeakerActivity(deviceName)
 
         speakerNameLabel.stringValue = deviceName
-        populateSpeakers()
+        // Note: populateSpeakers() removed - cache prevents flicker during rebuilds
+        // Rebuild will still happen on discovery/grouping, but with cached data
 
         // Update volume slider for the newly selected speaker
         updateVolumeFromSonos()
@@ -1799,7 +1865,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
             // Update UI to show group name
             speakerNameLabel.stringValue = group.name
-            populateSpeakers()
+            // Note: populateSpeakers() removed - cache prevents flicker during rebuilds
 
             // Update volume slider for the group
             updateVolumeFromSonos()

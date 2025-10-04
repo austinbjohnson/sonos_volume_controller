@@ -28,6 +28,8 @@ _Issues that break core functionality. Must fix immediately._
 
 ### Bugs
 
+- **Transport state updates not working for certain speakers**: Bathroom and Bedroom don't receive real-time transport state updates when playback changes, but Kitchen Move works correctly. NOTE: Bedroom is a stereo pair but Bathroom is NOT, so this is not stereo-pair specific. All speakers subscribe successfully and receive initial events, but play/pause changes don't trigger UI updates for these two speakers. Attempted fix with satellite-to-visible UUID mapping didn't resolve. Need to investigate if there's a UUID mismatch between subscription, NOTIFY callback, and card identifier, or if these specific speakers send events differently. (SonosController.swift:363-397, 783-825, MenuBarContentView.swift:177-231) [Added 2025-10-04]
+
 ### UX Critical
 
 ### Architecture Critical

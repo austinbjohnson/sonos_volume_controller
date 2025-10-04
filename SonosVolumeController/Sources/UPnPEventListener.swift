@@ -40,6 +40,11 @@ actor UPnPEventListener {
         case subscriptionExpired(sid: String)
     }
 
+    enum TransportEvent: Sendable {
+        case transportStateChanged(deviceUUID: String, state: String, trackURI: String?, metadata: String?)
+        case subscriptionExpired(sid: String)
+    }
+
     enum SubscriptionError: Error {
         case invalidResponse
         case serverNotRunning
@@ -59,6 +64,10 @@ actor UPnPEventListener {
     private let eventContinuation: AsyncStream<TopologyEvent>.Continuation
     let events: AsyncStream<TopologyEvent>
 
+    // Event stream for transport state changes
+    private let transportContinuation: AsyncStream<TransportEvent>.Continuation
+    let transportEvents: AsyncStream<TransportEvent>
+
     // MARK: - Initialization
 
     init() async throws {
@@ -71,12 +80,18 @@ actor UPnPEventListener {
         self.localIP = Self.getLocalIPAddress()
         print("📡 Local IP: \(localIP)")
 
-        // Create event stream
+        // Create event streams
         var continuation: AsyncStream<TopologyEvent>.Continuation!
         self.events = AsyncStream { cont in
             continuation = cont
         }
         self.eventContinuation = continuation
+
+        var transportCont: AsyncStream<TransportEvent>.Continuation!
+        self.transportEvents = AsyncStream { cont in
+            transportCont = cont
+        }
+        self.transportContinuation = transportCont
 
         // Initialize port to 0 temporarily
         self.port = 0
@@ -379,15 +394,67 @@ actor UPnPEventListener {
         }
 
         // Verify subscription exists
-        guard subscriptions[sid] != nil else {
+        guard let subscription = subscriptions[sid] else {
             print("⚠️ Unknown subscription: \(sid)")
             return
         }
 
-        print("✅ Processing event for subscription: \(sid)")
+        print("✅ Processing \(subscription.service.rawValue) event for subscription: \(sid)")
 
-        // Parse event XML and emit topology change
-        eventContinuation.yield(.topologyChanged(xml: body))
+        // Route event to appropriate stream based on service type
+        switch subscription.service {
+        case .zoneGroupTopology:
+            eventContinuation.yield(.topologyChanged(xml: body))
+        case .avTransport:
+            parseAndEmitTransportEvent(deviceUUID: subscription.deviceUUID, xml: body)
+        case .renderingControl:
+            // Future: Handle rendering control events (volume changes, etc.)
+            print("⚠️ RenderingControl events not yet implemented")
+        }
+    }
+
+    /// Parse AVTransport LastChange XML and emit transport state event
+    private func parseAndEmitTransportEvent(deviceUUID: String, xml: String) {
+        // Parse the LastChange XML to extract transport state
+        guard let transportState = extractValue(from: xml, key: "TransportState") else {
+            print("⚠️ Failed to extract TransportState from AVTransport event")
+            return
+        }
+
+        let trackURI = extractValue(from: xml, key: "CurrentTrackURI")
+        let metadata = extractValue(from: xml, key: "CurrentTrackMetaData")
+
+        print("🎵 Transport state changed: \(transportState) for device \(deviceUUID)")
+
+        transportContinuation.yield(.transportStateChanged(
+            deviceUUID: deviceUUID,
+            state: transportState,
+            trackURI: trackURI,
+            metadata: metadata
+        ))
+    }
+
+    /// Extract a value from LastChange XML (simple key-based extraction)
+    private func extractValue(from xml: String, key: String) -> String? {
+        // Look for pattern: <key val="value"/>
+        let pattern = "<\(key)\\s+val=\"([^\"]*)\""
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+
+        let range = NSRange(xml.startIndex..., in: xml)
+        guard let match = regex.firstMatch(in: xml, range: range),
+              match.numberOfRanges > 1,
+              let valueRange = Range(match.range(at: 1), in: xml) else {
+            return nil
+        }
+
+        let value = String(xml[valueRange])
+        // Decode HTML entities if present
+        return value.replacingOccurrences(of: "&quot;", with: "\"")
+                    .replacingOccurrences(of: "&lt;", with: "<")
+                    .replacingOccurrences(of: "&gt;", with: ">")
+                    .replacingOccurrences(of: "&amp;", with: "&")
     }
 }
 
