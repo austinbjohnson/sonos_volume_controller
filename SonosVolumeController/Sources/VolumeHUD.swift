@@ -87,6 +87,32 @@ class VolumeHUD {
         }
     }
 
+    func showPermissionRequired() {
+        // Cancel any existing timer
+        dismissTimer?.invalidate()
+
+        // If we're fading out, cancel that animation
+        if isFadingOut {
+            isFadingOut = false
+            NSAnimationContext.current.duration = 0
+            panel?.alphaValue = 1.0
+        }
+
+        // Create permission panel with button
+        createPermissionPanel()
+
+        // Show with fade-in animation
+        panel?.alphaValue = 0
+        panel?.orderFront(nil)
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            panel?.animator().alphaValue = 1.0
+        }
+
+        // No auto-dismiss - requires user action or manual dismissal
+    }
+
     private func hide() {
         isFadingOut = true
         NSAnimationContext.runAnimationGroup({ context in
@@ -274,5 +300,116 @@ class VolumeHUD {
 
         visualEffect.addSubview(contentView)
         panel.contentView = visualEffect
+    }
+
+    private func createPermissionPanel() {
+        // Panel dimensions - larger for permission message
+        let width: CGFloat = 360
+        let height: CGFloat = 220
+
+        // Center on screen
+        guard let screen = NSScreen.main else { return }
+        let screenRect = screen.frame
+        let x = (screenRect.width - width) / 2
+        let y = (screenRect.height - height) / 2
+        let rect = NSRect(x: x, y: y, width: width, height: height)
+
+        // Create panel with HUD style
+        panel = NSPanel(
+            contentRect: rect,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+
+        guard let panel = panel else { return }
+
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.level = .popUpMenu
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        // Create visual effect view for Liquid Glass effect
+        let visualEffect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        visualEffect.material = .hudWindow
+        visualEffect.state = .active
+        visualEffect.blendingMode = .behindWindow
+        visualEffect.wantsLayer = true
+        visualEffect.layer?.cornerRadius = 20
+
+        // Create content container
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+
+        // Lock icon (SF Symbol)
+        let iconView = NSImageView(frame: NSRect(x: (width - 48) / 2, y: 146, width: 48, height: 48))
+        if let lockImage = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: "Permission Required") {
+            iconView.image = lockImage
+            iconView.contentTintColor = NSColor.systemBlue
+            iconView.imageScaling = .scaleProportionallyUpOrDown
+        }
+        contentView.addSubview(iconView)
+
+        // Title label
+        let titleLabel = NSTextField(labelWithString: "Hotkey Permission Required")
+        titleLabel.frame = NSRect(x: 20, y: 114, width: width - 40, height: 24)
+        titleLabel.alignment = .center
+        titleLabel.font = .systemFont(ofSize: 20, weight: .semibold)
+        titleLabel.textColor = .white
+        contentView.addSubview(titleLabel)
+
+        // Message label
+        let messageLabel = NSTextField(labelWithString: "Enable accessibility access in\nSystem Settings to use hotkeys")
+        messageLabel.frame = NSRect(x: 20, y: 68, width: width - 40, height: 42)
+        messageLabel.alignment = .center
+        messageLabel.font = .systemFont(ofSize: 15, weight: .regular)
+        messageLabel.textColor = .white
+        messageLabel.maximumNumberOfLines = 2
+        messageLabel.lineBreakMode = .byWordWrapping
+        contentView.addSubview(messageLabel)
+
+        // Open Settings button
+        let button = NSButton(frame: NSRect(x: (width - 160) / 2, y: 24, width: 160, height: 32))
+        button.title = "Open Settings"
+        button.bezelStyle = .rounded
+        button.isBordered = true
+        button.wantsLayer = true
+        button.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.1).cgColor
+        button.layer?.borderColor = NSColor.systemBlue.cgColor
+        button.layer?.borderWidth = 1
+        button.layer?.cornerRadius = 6
+        button.contentTintColor = NSColor.systemBlue
+        button.target = self
+        button.action = #selector(openSystemSettings)
+        contentView.addSubview(button)
+
+        visualEffect.addSubview(contentView)
+        panel.contentView = visualEffect
+
+        // Allow clicking outside to dismiss
+        panel.isMovableByWindowBackground = false
+
+        // Add click gesture to dismiss on outside click
+        let clickGesture = NSClickGestureRecognizer(target: self, action: #selector(handleOutsideClick(_:)))
+        visualEffect.addGestureRecognizer(clickGesture)
+    }
+
+    @objc private func openSystemSettings() {
+        // Open System Settings to Privacy & Security → Accessibility
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+
+        // Dismiss HUD after short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            Task { @MainActor in
+                self?.hide()
+            }
+        }
+    }
+
+    @objc private func handleOutsideClick(_ gesture: NSClickGestureRecognizer) {
+        // Dismiss on click
+        hide()
     }
 }

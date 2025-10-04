@@ -25,9 +25,6 @@ _When starting work on a task, add it here with your branch name and username to
 _Issues that break core functionality. Must fix immediately._
 
 ### Bugs
-- **Group volume slider flickers/glitches when adjusting**: When changing group volume on active speakers, the group slider visually glitches and flickers during adjustment. Member sliders update correctly with proper ratios, but the group slider itself has visual instability. Need to smooth out the slider update animation or debounce the visual feedback. (MenuBarContentView.swift - group volume slider handling)
-
-- **Hotkeys not working in clean install - no permission feedback**: On clean install, hotkeys produce system "bonk" sound but don't control volume. User gets no indication that accessibility permission is missing or that hotkeys are disabled. Need better permission status visibility and actionable feedback when hotkeys fail. Current permission check only shows alert on first launch, but doesn't help diagnose why hotkeys aren't working after that. Consider: (1) Show permission status in menu bar popover or Preferences, (2) Add HUD notification when hotkeys pressed without required permissions, (3) Add "Test Hotkeys" button in Preferences to verify they're working. (main.swift:193-243, VolumeKeyMonitor.swift)
 
 - **Line-in audio source stops when grouping**: When grouping a speaker playing line-in audio with another speaker, the audio pauses briefly, plays for one second after grouping completes, then cuts out entirely. The Sonos app shows the line-in source is no longer active for the group. This is likely because the non-line-in speaker becomes the group coordinator and line-in sources cannot be shared across groups (device-specific limitation). Need to detect line-in sources and either: (1) make the line-in speaker the coordinator, or (2) warn user before grouping. (SonosController.swift:937-998)
 
@@ -40,6 +37,7 @@ _Issues that break core functionality. Must fix immediately._
 _Major friction points impacting usability, significant missing features, or important architectural issues._
 
 ### Features
+- **Accessibility permission diagnostics (Phase 2)**: Add Preferences window "Hotkeys" section with permission status indicator, "Test Hotkeys" button to verify event tap functionality, and success/failure feedback overlays. Completes the permission feedback system started in Phase 1 by adding proactive verification tools for power users. Implementation: (1) Add new PreferencesWindow section with permission status display (green checkmark if granted, orange warning if denied), (2) Implement "Test Hotkeys" button that creates temporary event tap for 2 seconds to verify F11/F12 detection, (3) Show modal overlay with success ("✅ Hotkeys Working!") or failure ("❌ Hotkeys Not Working") result, (4) Add VolumeKeyMonitor pause/resume methods to prevent conflicts during test, (5) Handle edge cases (permission granted but event tap fails, test timeout, conflicts with other apps). (PreferencesWindow.swift, VolumeKeyMonitor.swift, from UX spec section 3)
 - **Trigger device cache management**: Add ability to refresh trigger sources and cache them persistently. Users should be able to manually delete cached devices that are no longer relevant (similar to WiFi network history - devices remain in cache even when not currently available, but can be manually removed).
 
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.
@@ -99,6 +97,10 @@ _Nice-to-have improvements that enhance UX or reduce technical debt._
 - **Offline/unreachable speaker detection**: Offline speakers remain in list, controls fail silently. Detect timeouts, show "Offline" badge, auto-refresh topology every 60s. (SonosController.swift) [Added by claudeCode]
 
 ### Architecture
+- **Permission monitoring observer cleanup**: AppSettings tracks permission observers in array but never removes them, potential memory leak if components are deallocated. Add `removePermissionObserver()` method or use weak references. Also consider converting to Combine Publishers for better lifecycle management. (AppSettings.swift:233-240) [Added by claudeCode - Phase 1 technical debt]
+
+- **VolumeKeyMonitor needs pause/resume for testing**: Test Hotkeys feature (Phase 2) requires temporarily disabling main event tap to avoid conflicts. Add `pause()` and `resume()` methods to VolumeKeyMonitor that disable/enable the event tap without full teardown. Store tap state to handle re-entrancy. (VolumeKeyMonitor.swift) [Added by claudeCode - Phase 2 requirement]
+
 - **Excessive debug logging from group volume work**: PR #39 added comprehensive 📊/🎚️ logging for debugging group volume synchronization. Now that it's working, clean up duplicate/verbose logs and wrap remaining debug statements in `#if DEBUG`. Focus on: MenuBarContentView.swift:1063-1215 (volumeChanged, refreshMemberVolumes, performMemberVolumeRefresh), SonosController.swift:1496-1598 (snapshotGroupVolume, setGroupVolume). [Added by claudeCode]
 
 - **Excessive debug logging from popover height work**: PR #41 added comprehensive 🔍 logging for debugging animation timing and layout measurement during expand/collapse. Clean up logs and wrap in `#if DEBUG`. Focus on: MenuBarContentView.swift:1347-1451 (animateInsertMemberCards, animateRemoveMemberCards, card height logging), calculateContentHeight, updatePopoverSize. [Added by claudeCode]

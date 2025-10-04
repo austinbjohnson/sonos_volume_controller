@@ -4,6 +4,21 @@ import Cocoa
 class AppSettings: @unchecked Sendable {
     private let defaults = UserDefaults.standard
 
+    // Thread-safe permission status (can be accessed from any actor)
+    private let permissionLock = NSLock()
+    private var _isAccessibilityPermissionGranted: Bool = false
+
+    var isAccessibilityPermissionGranted: Bool {
+        get {
+            permissionLock.lock()
+            defer { permissionLock.unlock() }
+            return _isAccessibilityPermissionGranted
+        }
+    }
+
+    private var permissionCheckTimer: Timer?
+    private var permissionObservers: [(Bool) -> Void] = []
+
     private enum Keys {
         static let enabled = "sonosControlEnabled"
         static let triggerDevice = "triggerDeviceName"
@@ -130,6 +145,9 @@ class AppSettings: @unchecked Sendable {
     }
 
     init() {
+        // Initialize permission status
+        self._isAccessibilityPermissionGranted = AXIsProcessTrusted()
+
         // Set default enabled state to true on first launch
         if defaults.object(forKey: Keys.enabled) == nil {
             defaults.set(true, forKey: Keys.enabled)
@@ -207,5 +225,72 @@ class AppSettings: @unchecked Sendable {
         parts.append(keyName(for: keyCode))
 
         return parts.joined()
+    }
+
+    // MARK: - Permission Monitoring
+
+    /// Add observer for permission status changes
+    func addPermissionObserver(_ observer: @escaping (Bool) -> Void) {
+        permissionLock.lock()
+        permissionObservers.append(observer)
+        permissionLock.unlock()
+
+        // Immediately call with current status
+        observer(isAccessibilityPermissionGranted)
+    }
+
+    /// Start monitoring accessibility permission status
+    /// Checks every 2 seconds for permission changes (e.g., user grants/revokes in System Settings)
+    func startPermissionMonitoring() {
+        // Initial check
+        updatePermissionStatus()
+
+        // Schedule periodic checks (2 seconds balances responsiveness with efficiency)
+        permissionCheckTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.updatePermissionStatus()
+        }
+
+        print("🔐 Started permission monitoring")
+    }
+
+    /// Stop monitoring accessibility permission status
+    func stopPermissionMonitoring() {
+        permissionCheckTimer?.invalidate()
+        permissionCheckTimer = nil
+        print("🔐 Stopped permission monitoring")
+    }
+
+    /// Check and update permission status
+    /// Returns true if status changed
+    @discardableResult
+    func updatePermissionStatus() -> Bool {
+        let newStatus = AXIsProcessTrusted()
+
+        permissionLock.lock()
+        let oldStatus = _isAccessibilityPermissionGranted
+        let changed = newStatus != oldStatus
+
+        if changed {
+            _isAccessibilityPermissionGranted = newStatus
+            let observers = permissionObservers
+            permissionLock.unlock()
+
+            print("📱 Accessibility permission changed: \(newStatus)")
+
+            // Notify observers on main thread
+            Task { @MainActor in
+                for observer in observers {
+                    observer(newStatus)
+                }
+            }
+
+            // Post notification for SwiftUI views
+            NotificationCenter.default.post(name: NSNotification.Name("PermissionStatusChanged"), object: newStatus)
+
+            return true
+        } else {
+            permissionLock.unlock()
+            return false
+        }
     }
 }

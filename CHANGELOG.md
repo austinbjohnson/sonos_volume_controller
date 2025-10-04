@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hierarchical group UI with expandable member controls - groups display as primary cards with drill-down capability to control individual speakers within groups (PR #27)
 - Real-time topology updates via UPnP event subscriptions - automatically detects and reflects speaker grouping changes made from Sonos app or other controllers without manual refresh (PR #36)
 - Audio trigger source dropdown in Preferences window for selecting which audio device activates Sonos control (PR #37)
+- Accessibility permission feedback system: Warning banner in menu bar popover when permission not granted, HUD notification when hotkeys pressed without permission (with "Open Settings" button), real-time permission status monitoring with automatic UI updates (PR #45)
 
 ### Changed
 - Simplified active speaker concept - replaced manual "default speaker" configuration with automatic "last active speaker" tracking, app now remembers what you were last controlling, replaced yellow star button with blue dot indicator, hover-only checkboxes for cleaner UI (PR #40)
@@ -38,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Complete SOAP migration - migrated all 6 remaining SOAP operations (group volume, grouping/ungrouping, playback control) to use SonosNetworkClient, eliminated 229 lines of boilerplate URLSession code, added type-safe AVTransport convenience methods, fixed pre-existing thread safety issues
 
 ### Fixed
+- Group volume slider flicker during adjustment - fixed visual glitching and instability when adjusting group volume by improving slider update synchronization and debouncing (PR #44)
 - Popover height calculation - fixed tiny scroll area on initial display by forcing Auto Layout before measurement, increased max scroll height to accommodate expanded groups with 6+ cards, smooth expand/collapse animations without flicker (PR #41)
 - Real-time group volume slider synchronization - member sliders within expanded groups now update immediately when adjusting group volume, with smooth animations and visual feedback via pulsing connection lines (PR #39)
 - Enhanced group volume controls with bidirectional synchronization - individual speaker sliders now correctly display and control their own volumes (not group volume), group slider updates when individual speakers change, smooth animations throughout (PR #38)
