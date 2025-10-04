@@ -11,8 +11,6 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
-- **Fix transport state updates for grouped speakers**: Investigate and fix P0 bug where Bathroom and Bedroom speakers don't receive real-time transport state updates. Using evidence-based approach: research UPnP/GENA best practices, add diagnostic logging, analyze root cause, then implement fix. (branch: fix/transport-state-uuid-mismatch, @austinbjohnson)
-
 ---
 
 ## App Store Readiness
