@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import AppKit
 
 actor SonosController {
     private let settings: AppSettings
@@ -12,6 +13,9 @@ actor SonosController {
     // Topology cache - persists during app session
     private var topologyCache: [String: String] = [:]  // UUID -> Coordinator UUID
     private var hasLoadedTopology = false
+
+    // Album art image cache (thread-safe NSCache)
+    private let albumArtCache = NSCache<NSString, NSImage>()
 
     // Topology snapshot for change detection
     private var lastTopologySnapshot: String?
@@ -1313,7 +1317,7 @@ actor SonosController {
             // Parse Now Playing metadata for streaming content
             var nowPlaying: NowPlayingInfo? = nil
             if sourceType == .streaming {
-                nowPlaying = parseNowPlayingInfo(from: positionStr)
+                nowPlaying = parseNowPlayingInfo(from: positionStr, device: device)
             }
 
             if let np = nowPlaying {
@@ -1357,7 +1361,7 @@ actor SonosController {
 
     /// Parse Now Playing metadata from GetPositionInfo response
     /// Extracts title, artist, album, and album art from DIDL-Lite XML
-    nonisolated func parseNowPlayingInfo(from positionResponse: String) -> NowPlayingInfo? {
+    func parseNowPlayingInfo(from positionResponse: String, device: SonosDevice) -> NowPlayingInfo? {
         // Extract TrackMetaData (contains DIDL-Lite XML)
         guard let trackMetaData = XMLParsingHelpers.extractValue(from: positionResponse, tag: "TrackMetaData") else {
             return nil
@@ -1375,13 +1379,14 @@ actor SonosController {
 
         // Extract album art URL from <upnp:albumArtURI>
         var albumArtURL: String? = nil
-        if let artURI = XMLParsingHelpers.extractValue(from: decodedMetadata, tag: "upnp:albumArtURI") {
+        if let artURI = XMLParsingHelpers.extractValue(from: decodedMetadata, tag: "upnp:albumArtURI"),
+           let decodedURI = artURI.decodeHTMLEntities() {
             // Album art URI is often relative - make it absolute if needed
-            if artURI.hasPrefix("http") {
-                albumArtURL = artURI
-            } else if artURI.hasPrefix("/") {
-                // Will need device IP to construct full URL - skip for now
-                albumArtURL = nil
+            if decodedURI.hasPrefix("http") {
+                albumArtURL = decodedURI
+            } else if decodedURI.hasPrefix("/") {
+                // Construct absolute URL using device IP
+                albumArtURL = "http://\(device.ipAddress):1400\(decodedURI)"
             }
         }
 
@@ -1426,6 +1431,31 @@ actor SonosController {
         }
 
         return nil
+    }
+
+    /// Fetch album art image asynchronously with caching
+    /// Returns cached image if available, otherwise downloads and caches
+    func fetchAlbumArt(url: String) async -> NSImage? {
+        let cacheKey = url as NSString
+
+        // Check cache first
+        if let cachedImage = albumArtCache.object(forKey: cacheKey) {
+            return cachedImage
+        }
+
+        // Download image
+        guard let imageURL = URL(string: url) else { return nil }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: imageURL)
+            guard let image = NSImage(data: data) else { return nil }
+
+            // Cache the image
+            albumArtCache.setObject(image, forKey: cacheKey)
+            return image
+        } catch {
+            return nil
+        }
     }
 
     // MARK: - Group Volume Control

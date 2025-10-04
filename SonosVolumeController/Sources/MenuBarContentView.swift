@@ -48,7 +48,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var isLoadingDevices: Bool = false
     private var welcomeBanner: NSView!
     private var permissionBanner: NSView!
-    private var expandedGroups: Set<String> = []  // Track which groups are expanded
     private var scrollViewHeightConstraint: NSLayoutConstraint!
     private var containerView: NSView!
     private var welcomeBannerHeightConstraint: NSLayoutConstraint!
@@ -420,8 +419,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         card.layer?.cornerRadius = 10
         card.translatesAutoresizingMaskIntoConstraints = false
 
-        let isExpanded = expandedGroups.contains(group.id)
-
         // Active indicator (blue dot) - non-interactive visual indicator
         let activeIndicator = NSView()
         if isActive {
@@ -431,18 +428,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             activeIndicator.toolTip = "Currently active"
         }
         activeIndicator.translatesAutoresizingMaskIntoConstraints = false
-
-        // Chevron for expansion - make it a button so it's separately clickable
-        let chevronButton = NSButton()
-        chevronButton.image = NSImage(systemSymbolName: isExpanded ? "chevron.down" : "chevron.right", accessibilityDescription: "Expand")
-        chevronButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-        chevronButton.contentTintColor = .secondaryLabelColor
-        chevronButton.isBordered = false
-        chevronButton.bezelStyle = .inline
-        chevronButton.target = self
-        chevronButton.action = #selector(toggleGroupExpansion(_:))
-        chevronButton.identifier = NSUserInterfaceItemIdentifier(group.id)
-        chevronButton.translatesAutoresizingMaskIntoConstraints = false
 
         // Group icon (multiple speakers)
         let icon = NSImageView()
@@ -489,7 +474,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         card.addGestureRecognizer(cardClick)
 
         card.addSubview(activeIndicator)
-        card.addSubview(chevronButton)
         card.addSubview(icon)
         card.addSubview(nameLabel)
         card.addSubview(checkbox)
@@ -501,14 +485,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             activeIndicator.widthAnchor.constraint(equalToConstant: 8),
             activeIndicator.heightAnchor.constraint(equalToConstant: 8),
 
-            // Chevron after active indicator
-            chevronButton.leadingAnchor.constraint(equalTo: activeIndicator.trailingAnchor, constant: 8),
-            chevronButton.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            chevronButton.widthAnchor.constraint(equalToConstant: 20),
-            chevronButton.heightAnchor.constraint(equalToConstant: 20),
-
-            // Position icon after chevron
-            icon.leadingAnchor.constraint(equalTo: chevronButton.trailingAnchor, constant: 6),
+            // Position icon after active indicator (no chevron)
+            icon.leadingAnchor.constraint(equalTo: activeIndicator.trailingAnchor, constant: 8),
             icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 20),
             icon.heightAnchor.constraint(equalToConstant: 20),
@@ -856,25 +834,23 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 groupCard.widthAnchor.constraint(equalTo: speakerCardsContainer.widthAnchor)
             ])
 
-            // If expanded, show member cards
-            if expandedGroups.contains(group.id) {
-                for member in group.members.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) {
-                    let memberCard = createMemberCard(device: member)
-                    // Add left padding for indentation
-                    let paddedContainer = NSView()
-                    paddedContainer.translatesAutoresizingMaskIntoConstraints = false
-                    paddedContainer.identifier = NSUserInterfaceItemIdentifier("\(group.id)_member_\(member.uuid)")
-                    paddedContainer.addSubview(memberCard)
+            // Always show member cards (groups always expanded)
+            for member in group.members.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) {
+                let memberCard = createMemberCard(device: member)
+                // Add left padding for indentation
+                let paddedContainer = NSView()
+                paddedContainer.translatesAutoresizingMaskIntoConstraints = false
+                paddedContainer.identifier = NSUserInterfaceItemIdentifier("\(group.id)_member_\(member.uuid)")
+                paddedContainer.addSubview(memberCard)
 
-                    NSLayoutConstraint.activate([
-                        memberCard.leadingAnchor.constraint(equalTo: paddedContainer.leadingAnchor, constant: 20),
-                        memberCard.trailingAnchor.constraint(equalTo: paddedContainer.trailingAnchor),
-                        memberCard.topAnchor.constraint(equalTo: paddedContainer.topAnchor),
-                        memberCard.bottomAnchor.constraint(equalTo: paddedContainer.bottomAnchor)
-                    ])
+                NSLayoutConstraint.activate([
+                    memberCard.leadingAnchor.constraint(equalTo: paddedContainer.leadingAnchor, constant: 20),
+                    memberCard.trailingAnchor.constraint(equalTo: paddedContainer.trailingAnchor),
+                    memberCard.topAnchor.constraint(equalTo: paddedContainer.topAnchor),
+                    memberCard.bottomAnchor.constraint(equalTo: paddedContainer.bottomAnchor)
+                ])
 
-                    speakerCardsContainer.addArrangedSubview(paddedContainer)
-                }
+                speakerCardsContainer.addArrangedSubview(paddedContainer)
             }
         }
 
@@ -929,6 +905,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         Task {
             // Fetch audio source info for all devices in parallel
+            var results: [(String, String?, SonosController.AudioSourceType?, SonosController.NowPlayingInfo?)] = []
+
             await withTaskGroup(of: (String, String?, SonosController.AudioSourceType?, SonosController.NowPlayingInfo?).self) { group in
                 for device in devices {
                     group.addTask {
@@ -939,29 +917,36 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     }
                 }
 
-                // Collect results and update UI
-                for await (uuid, state, sourceType, nowPlaying) in group {
-                    await MainActor.run {
-                        self.updateCardWithNowPlaying(uuid: uuid, state: state, sourceType: sourceType, nowPlaying: nowPlaying)
-                    }
+                // Collect all results first
+                for await result in group {
+                    results.append(result)
                 }
+            }
+
+            // Apply all updates at once on main actor
+            await MainActor.run {
+                for (uuid, state, sourceType, nowPlaying) in results {
+                    self.updateCardWithNowPlaying(uuid: uuid, state: state, sourceType: sourceType, nowPlaying: nowPlaying, skipResize: true)
+                }
+                // Resize popover once after all updates
+                self.updatePopoverSize(animated: true, duration: 0.15)
             }
         }
     }
 
     /// Update a specific card with Now Playing info
     @MainActor
-    private func updateCardWithNowPlaying(uuid: String, state: String?, sourceType: SonosController.AudioSourceType?, nowPlaying: SonosController.NowPlayingInfo?) {
+    private func updateCardWithNowPlaying(uuid: String, state: String?, sourceType: SonosController.AudioSourceType?, nowPlaying: SonosController.NowPlayingInfo?, skipResize: Bool = false) {
         // Find the card by UUID (stored in identifier)
         for subview in speakerCardsContainer.arrangedSubviews {
             if subview.identifier?.rawValue == uuid {
                 // Add Now Playing label if we have metadata
                 if let nowPlaying = nowPlaying, let sourceType = sourceType, sourceType == .streaming {
-                    addNowPlayingLabel(to: subview, text: nowPlaying.displayText)
+                    addNowPlayingLabel(to: subview, text: nowPlaying.displayText, albumArtURL: nowPlaying.albumArtURL, sourceType: sourceType, skipResize: skipResize)
                 } else if let sourceType = sourceType, sourceType == .lineIn {
-                    addNowPlayingLabel(to: subview, text: "Line-In Audio")
+                    addNowPlayingLabel(to: subview, text: "Line-In Audio", albumArtURL: nil, sourceType: sourceType, skipResize: skipResize)
                 } else if let sourceType = sourceType, sourceType == .tv {
-                    addNowPlayingLabel(to: subview, text: "TV Audio")
+                    addNowPlayingLabel(to: subview, text: "TV Audio", albumArtURL: nil, sourceType: sourceType, skipResize: skipResize)
                 }
 
                 // Add colored badge
@@ -975,7 +960,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     }
 
     /// Add Now Playing text label to card
-    private func addNowPlayingLabel(to card: NSView, text: String) {
+    private func addNowPlayingLabel(to card: NSView, text: String, albumArtURL: String? = nil, sourceType: SonosController.AudioSourceType = .streaming, skipResize: Bool = false) {
         let nowPlayingLabel = NSTextField(labelWithString: text)
         nowPlayingLabel.font = .systemFont(ofSize: 11, weight: .regular)
         nowPlayingLabel.textColor = .secondaryLabelColor
@@ -986,60 +971,165 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         card.addSubview(nowPlayingLabel)
 
-        // Find existing textStack to reposition it to top instead of center
-        if let textStack = card.subviews.first(where: { $0 is NSStackView }) as? NSStackView {
-            // Remove the centerY constraint on textStack
-            let constraintsToRemove = card.constraints.filter { constraint in
-                (constraint.firstItem as? NSStackView == textStack && constraint.firstAttribute == .centerY) ||
-                (constraint.secondItem as? NSStackView == textStack && constraint.secondAttribute == .centerY)
+        // Add album art image view
+        addAlbumArtImage(to: card, url: albumArtURL, sourceType: sourceType)
+
+        // Check if this is a group card or speaker card
+        // Group cards have an NSImageView with "hifispeaker.2.fill" icon
+        let hasGroupIcon = card.subviews.contains { view in
+            if let imageView = view as? NSImageView,
+               let imageName = imageView.image?.name(),
+               imageName.contains("hifispeaker.2") {
+                return true
             }
-            NSLayoutConstraint.deactivate(constraintsToRemove)
-
-            // Pin textStack to top instead
-            textStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 12).isActive = true
+            return false
         }
 
-        // Find icon and indicator to reposition to top
-        if let icon = card.subviews.first(where: { $0 is NSImageView }) as? NSImageView {
-            let constraintsToRemove = card.constraints.filter { constraint in
-                (constraint.firstItem as? NSImageView == icon && constraint.firstAttribute == .centerY) ||
-                (constraint.secondItem as? NSImageView == icon && constraint.secondAttribute == .centerY)
+        if hasGroupIcon {
+            // GROUP CARD: Find nameLabel and reposition after album art
+            if let nameLabel = card.subviews.first(where: { $0 is NSTextField && $0.identifier == nil }) as? NSTextField {
+                // Remove existing leading constraint
+                let constraintsToRemove = card.constraints.filter { constraint in
+                    (constraint.firstItem as? NSTextField == nameLabel && constraint.firstAttribute == .leading) ||
+                    (constraint.secondItem as? NSTextField == nameLabel && constraint.secondAttribute == .leading)
+                }
+                NSLayoutConstraint.deactivate(constraintsToRemove)
+
+                // Position after album art (46 + 40 + 8 = 94pt)
+                nameLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 94).isActive = true
             }
-            NSLayoutConstraint.deactivate(constraintsToRemove)
-            icon.topAnchor.constraint(equalTo: card.topAnchor, constant: 14).isActive = true
-        }
+        } else {
+            // SPEAKER CARD: Find textStack and reposition it
+            if let textStack = card.subviews.first(where: { $0 is NSStackView }) as? NSStackView {
+                // Remove the centerY and leading constraints on textStack
+                let constraintsToRemove = card.constraints.filter { constraint in
+                    (constraint.firstItem as? NSStackView == textStack && (constraint.firstAttribute == .centerY || constraint.firstAttribute == .leading)) ||
+                    (constraint.secondItem as? NSStackView == textStack && (constraint.secondAttribute == .centerY || constraint.secondAttribute == .leading))
+                }
+                NSLayoutConstraint.deactivate(constraintsToRemove)
 
-        // Find active indicator (blue dot) and reposition to top
-        let activeIndicator = card.subviews.first { view in
-            view.layer?.backgroundColor == NSColor.systemBlue.cgColor && view.layer?.cornerRadius == 4
-        }
-        if let indicator = activeIndicator {
-            let constraintsToRemove = card.constraints.filter { constraint in
-                (constraint.firstItem === indicator && constraint.firstAttribute == .centerY) ||
-                (constraint.secondItem === indicator && constraint.secondAttribute == .centerY)
+                // Pin textStack to top and move right to accommodate album art (12 + 40 + 8 = 60pt)
+                NSLayoutConstraint.activate([
+                    textStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 10),
+                    textStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 60)
+                ])
             }
-            NSLayoutConstraint.deactivate(constraintsToRemove)
-            indicator.topAnchor.constraint(equalTo: card.topAnchor, constant: 16).isActive = true
+
+            // Hide icon and indicator for speaker cards (replaced by album art)
+            if let icon = card.subviews.first(where: { $0 is NSImageView && $0.identifier?.rawValue != "albumArtImageView" }) as? NSImageView {
+                icon.isHidden = true
+            }
+
+            let activeIndicator = card.subviews.first { view in
+                view.layer?.backgroundColor == NSColor.systemBlue.cgColor && view.layer?.cornerRadius == 4
+            }
+            if let indicator = activeIndicator {
+                indicator.isHidden = true
+            }
         }
 
-        // Position now playing label below the speaker name
+        // Position now playing label below the speaker/group name, accounting for album art
+        let nowPlayingLeading: CGFloat = hasGroupIcon ? 94 : 60  // Group cards have album art further right
         NSLayoutConstraint.activate([
-            nowPlayingLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 40), // After icon
+            nowPlayingLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: nowPlayingLeading), // After album art
             nowPlayingLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -40), // Leave room for badge
-            nowPlayingLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 32) // Below name at top:12
+            nowPlayingLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 34) // Below name at top:10 with tighter spacing
         ])
 
-        // Replace greaterThanOrEqual constraint with fixed 68pt height
+        // Replace greaterThanOrEqual constraint with fixed 64pt height
         let heightConstraintsToRemove = card.constraints.filter { $0.firstAttribute == .height }
         NSLayoutConstraint.deactivate(heightConstraintsToRemove)
-        card.heightAnchor.constraint(equalToConstant: 68).isActive = true
+        card.heightAnchor.constraint(equalToConstant: 64).isActive = true
 
         // Force layout update
         card.needsLayout = true
         card.layoutSubtreeIfNeeded()
 
-        // Update popover size to accommodate expanded cards
-        updatePopoverSize(animated: true, duration: 0.15)
+        // Update popover size to accommodate expanded cards (unless batching)
+        if !skipResize {
+            updatePopoverSize(animated: true, duration: 0.15)
+        }
+    }
+
+    /// Add album art image to card with fallback SF Symbol
+    private func addAlbumArtImage(to card: NSView, url: String?, sourceType: SonosController.AudioSourceType) {
+        let imageView = NSImageView()
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.identifier = NSUserInterfaceItemIdentifier("albumArtImageView")
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.wantsLayer = true
+        imageView.layer?.cornerRadius = 4
+        imageView.layer?.masksToBounds = true
+        imageView.layer?.borderWidth = 0.5
+        imageView.layer?.borderColor = NSColor.separatorColor.cgColor
+
+        card.addSubview(imageView)
+
+        // Check if this is a group card or regular speaker card
+        // Group cards have an NSImageView with "hifispeaker.2.fill" icon
+        let hasGroupIcon = card.subviews.contains { view in
+            if let imageView = view as? NSImageView,
+               let imageName = imageView.image?.name(),
+               imageName.contains("hifispeaker.2") {
+                return true
+            }
+            return false
+        }
+
+        // Position: For group cards, place after group icon (~46pt = 8+8+20+10). For speaker cards, at leading +12pt
+        let leadingConstant: CGFloat = hasGroupIcon ? 46 : 12
+
+        NSLayoutConstraint.activate([
+            imageView.widthAnchor.constraint(equalToConstant: 40),
+            imageView.heightAnchor.constraint(equalToConstant: 40),
+            imageView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: leadingConstant),
+            imageView.centerYAnchor.constraint(equalTo: card.centerYAnchor)
+        ])
+
+        // Set fallback SF Symbol based on source type
+        let fallbackSymbol: String
+        switch sourceType {
+        case .streaming:
+            fallbackSymbol = "music.note"
+        case .lineIn:
+            fallbackSymbol = "waveform"
+        case .tv:
+            fallbackSymbol = "tv"
+        default:
+            fallbackSymbol = "music.note"
+        }
+
+        // Create SF Symbol image with gray background
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 20, weight: .regular)
+        if let symbolImage = NSImage(systemSymbolName: fallbackSymbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(symbolConfig) {
+            let fallbackImage = NSImage(size: NSSize(width: 40, height: 40))
+            fallbackImage.lockFocus()
+
+            // Gray background
+            NSColor.quaternaryLabelColor.setFill()
+            NSBezierPath(rect: NSRect(x: 0, y: 0, width: 40, height: 40)).fill()
+
+            // Center the symbol
+            let symbolSize = symbolImage.size
+            let x = (40 - symbolSize.width) / 2
+            let y = (40 - symbolSize.height) / 2
+            symbolImage.draw(at: NSPoint(x: x, y: y), from: .zero, operation: .sourceOver, fraction: 0.5)
+
+            fallbackImage.unlockFocus()
+            imageView.image = fallbackImage
+        }
+
+        // Async load album art if URL provided
+        if let urlString = url, let controller = appDelegate?.sonosController {
+            Task {
+                if let albumArt = await controller.fetchAlbumArt(url: urlString) {
+                    await MainActor.run {
+                        imageView.image = albumArt
+                    }
+                }
+            }
+        }
     }
 
     /// Add colored source badge to card
@@ -1606,157 +1696,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             "Ungroup \(selectedGroupIds.count) Groups" : "Ungroup Selected"
     }
 
-    @objc private func toggleGroupExpansion(_ sender: NSButton) {
-        guard let groupId = sender.identifier?.rawValue,
-              let controller = appDelegate?.sonosController,
-              let group = controller.cachedDiscoveredGroups.first(where: { $0.id == groupId }) else {
-            return
-        }
-
-        let isExpanding = !expandedGroups.contains(groupId)
-
-        // Update expanded state
-        if isExpanding {
-            expandedGroups.insert(groupId)
-        } else {
-            expandedGroups.remove(groupId)
-        }
-
-        // Animate chevron icon swap with smooth transition
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.2
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-
-            sender.image = NSImage(systemSymbolName: isExpanding ? "chevron.down" : "chevron.right", accessibilityDescription: "Expand")
-        })
-
-        if isExpanding {
-            // Expanding - insert member cards with animation
-            animateInsertMemberCards(for: group, afterGroupId: groupId)
-        } else {
-            // Collapsing - remove member cards with animation
-            animateRemoveMemberCards(for: group)
-        }
-    }
-
-    private func animateInsertMemberCards(for group: SonosController.SonosGroup, afterGroupId: String) {
-        // Find the index of the group card
-        guard let groupCardIndex = speakerCardsContainer.arrangedSubviews.firstIndex(where: {
-            $0.identifier?.rawValue == afterGroupId
-        }) else {
-            return
-        }
-
-        // Sort members alphabetically
-        let sortedMembers = group.members.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-
-        print("🔍 [EXPAND] Phase 1: Insert cards invisibly and resize popover")
-        print("🔍 [EXPAND] Card count BEFORE insert: \(speakerCardsContainer.arrangedSubviews.count)")
-
-        // PHASE 1: Insert cards invisibly and resize popover
-        var insertedContainers: [NSView] = []
-
-        for (index, member) in sortedMembers.enumerated() {
-            let memberCard = createMemberCard(device: member)
-
-            // Add left padding for indentation
-            let paddedContainer = NSView()
-            paddedContainer.translatesAutoresizingMaskIntoConstraints = false
-            paddedContainer.identifier = NSUserInterfaceItemIdentifier("\(afterGroupId)_member_\(member.uuid)")
-            paddedContainer.addSubview(memberCard)
-
-            NSLayoutConstraint.activate([
-                memberCard.leadingAnchor.constraint(equalTo: paddedContainer.leadingAnchor, constant: 20),
-                memberCard.trailingAnchor.constraint(equalTo: paddedContainer.trailingAnchor),
-                memberCard.topAnchor.constraint(equalTo: paddedContainer.topAnchor),
-                memberCard.bottomAnchor.constraint(equalTo: paddedContainer.bottomAnchor)
-            ])
-
-            // Insert invisibly (alpha = 0)
-            paddedContainer.alphaValue = 0
-
-            // Insert after the group card (or after previous member cards)
-            speakerCardsContainer.insertArrangedSubview(paddedContainer, at: groupCardIndex + 1 + index)
-            insertedContainers.append(paddedContainer)
-        }
-
-        print("🔍 [EXPAND] Card count AFTER insert: \(speakerCardsContainer.arrangedSubviews.count)")
-        print("🔍 [EXPAND] Forcing layout BEFORE measurement...")
-
-        // Force layout to calculate final heights with all cards present
-        speakerCardsContainer.layoutSubtreeIfNeeded()
-        containerView.layoutSubtreeIfNeeded()
-        view.layoutSubtreeIfNeeded()
-
-        print("🔍 [EXPAND] Layout forced, now checking card heights...")
-        for (i, cardView) in speakerCardsContainer.arrangedSubviews.enumerated() {
-            print("🔍 [EXPAND]   Card \(i): \(cardView.frame.height)pt (alpha: \(cardView.alphaValue))")
-        }
-
-        print("🔍 [EXPAND] Cards inserted, forcing layout and resizing popover")
-
-        // Resize popover to final size (quick animation, 0.2s)
-        updatePopoverSize(animated: true, duration: 0.2)
-
-        // PHASE 2: Fade in cards after a tiny delay (allows popover to start resizing)
-        print("🔍 [EXPAND] Phase 2: Fading in cards after 50ms delay")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.25
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                // Do NOT use allowsImplicitAnimation - only animate alpha
-
-                for container in insertedContainers {
-                    container.animator().alphaValue = 1
-                }
-            })
-
-            print("🔍 [EXPAND] Fade animation started")
-        }
-    }
-
-    private func animateRemoveMemberCards(for group: SonosController.SonosGroup) {
-        // Find all member cards for this group
-        let memberViews = speakerCardsContainer.arrangedSubviews.filter { view in
-            guard let identifier = view.identifier?.rawValue else { return false }
-            return identifier.starts(with: "\(group.id)_member_")
-        }
-
-        guard !memberViews.isEmpty else { return }
-
-        print("🔍 [COLLAPSE] Phase 1: Fade out \(memberViews.count) cards")
-
-        // PHASE 1: Fade out cards (keep in hierarchy)
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.25
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            // Do NOT use allowsImplicitAnimation - only animate alpha
-
-            for view in memberViews {
-                view.animator().alphaValue = 0
-            }
-        }, completionHandler: { [weak self] in
-            // PHASE 2: Remove and resize after fade completes
-            guard let self = self else { return }
-
-            print("🔍 [COLLAPSE] Phase 2: Cards faded out, removing and resizing")
-
-            // Remove from view hierarchy
-            for view in memberViews {
-                self.speakerCardsContainer.removeArrangedSubview(view)
-                view.removeFromSuperview()
-            }
-
-            print("🔍 [COLLAPSE] Cards removed, card count: \(self.speakerCardsContainer.arrangedSubviews.count)")
-
-            // Force layout to complete removal
-            self.speakerCardsContainer.layoutSubtreeIfNeeded()
-
-            // Resize popover quickly (0.15s) or instantly to avoid jarring motion
-            print("🔍 [COLLAPSE] Resizing popover with quick animation")
-            self.updatePopoverSize(animated: true, duration: 0.15)
-        })
-    }
 
     @objc private func selectGroup(_ sender: Any) {
         let groupId: String
@@ -2056,7 +1995,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     self.selectedSpeakerCards.removeAll()
 
                     // Clear expanded groups so new group appears collapsed
-                    self.expandedGroups.removeAll()
 
                     // Reset button
                     self.groupButton.title = "Group Selected"

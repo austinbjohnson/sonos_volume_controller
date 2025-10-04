@@ -11,6 +11,8 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
+- **Album art and UI refinement for now playing display (Phase 2)** (branch: feature/now-playing-album-art, @austinbjohnson)
+
 ---
 
 ## App Store Readiness
@@ -35,8 +37,6 @@ _Issues that break core functionality. Must fix immediately._
 _Major friction points impacting usability, significant missing features, or important architectural issues._
 
 ### Features
-- **Album art and UI refinement for now playing display (Phase 2)**: Enhance the now playing feature with album art thumbnails and refined layout. Add 40x40pt album art images positioned left-aligned between the source badge and speaker name. Include 4pt corner radius, 0.5pt border, async loading with NSCache, and fallback SF Symbols (music.note for no artwork, waveform for line-in, tv for TV sources). Reduce card height from 68pt to 64pt with tighter spacing. Reference UX consultation from feature/now-playing-ui for detailed specifications.
-
 - **Trigger device cache management**: Add ability to refresh trigger sources and cache them persistently. Users should be able to manually delete cached devices that are no longer relevant (similar to WiFi network history - devices remain in cache even when not currently available, but can be manually removed).
 
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.
@@ -96,6 +96,8 @@ _Nice-to-have improvements that enhance UX or reduce technical debt._
 - **Offline/unreachable speaker detection**: Offline speakers remain in list, controls fail silently. Detect timeouts, show "Offline" badge, auto-refresh topology every 60s. (SonosController.swift) [Added by claudeCode]
 
 ### Architecture
+- **Now playing metadata refresh on user interactions**: Currently UI refreshes album art and metadata on volume slider changes, causing visual glitches during interaction. Should subscribe to UPnP RenderingControl events for metadata updates instead of refreshing on user clicks/slider changes. This would eliminate glitches and reduce unnecessary network calls. (MenuBarContentView.swift - volumeChanged, fetchNowPlayingInfo) [Added by claudeCode - Phase 2 technical debt]
+
 - **Permission monitoring observer cleanup**: AppSettings tracks permission observers in array but never removes them, potential memory leak if components are deallocated. Add `removePermissionObserver()` method or use weak references. Also consider converting to Combine Publishers for better lifecycle management. (AppSettings.swift:233-240) [Added by claudeCode - Phase 1 technical debt]
 
 - **VolumeKeyMonitor needs pause/resume for testing**: Test Hotkeys feature (Phase 2) requires temporarily disabling main event tap to avoid conflicts. Add `pause()` and `resume()` methods to VolumeKeyMonitor that disable/enable the event tap without full teardown. Store tap state to handle re-entrancy. (VolumeKeyMonitor.swift) [Added by claudeCode - Phase 2 requirement]
