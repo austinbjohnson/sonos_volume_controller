@@ -929,6 +929,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.maximumNumberOfLines = 1
         nameLabel.toolTip = group.name  // Show full name on hover
+        nameLabel.identifier = NSUserInterfaceItemIdentifier("groupNameLabel")  // For repositioning when album art added
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
 
         // Selection checkbox for ungrouping
@@ -966,7 +967,40 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         card.addSubview(nameLabel)
         card.addSubview(checkbox)
 
-        // Check cache and add now-playing content immediately if available (use coordinator UUID)
+        // Check cache and determine if we'll have album art
+        let hasNowPlayingContent: Bool
+        if let cached = nowPlayingCache[group.coordinator.uuid],
+           let sourceType = cached.sourceType,
+           (sourceType == .streaming || sourceType == .lineIn || sourceType == .tv) {
+            hasNowPlayingContent = true
+        } else {
+            hasNowPlayingContent = false
+        }
+        
+        // Calculate name label leading position based on whether we have album art
+        let nameLabelLeading: CGFloat = hasNowPlayingContent ? 94 : 38  // 94 = icon(8) + iconWidth(20) + spacing(10) + albumArt(40) + spacing(16), 38 = icon(8) + iconWidth(20) + spacing(10)
+
+        // Set up constraints BEFORE adding now-playing content
+        NSLayoutConstraint.activate([
+            // Position icon at leading edge
+            icon.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
+            icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 20),
+            icon.heightAnchor.constraint(equalToConstant: 20),
+
+            // Position name after icon (or after album art if present)
+            nameLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: nameLabelLeading),
+            nameLabel.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            nameLabel.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -10),
+
+            // Checkbox stays on right (aligned with speaker checkboxes)
+            checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+
+            card.heightAnchor.constraint(equalToConstant: 42)
+        ])
+        
+        // Now add now-playing content if available (after constraints are set up)
         if let cached = nowPlayingCache[group.coordinator.uuid] {
             if let nowPlaying = cached.nowPlaying, let sourceType = cached.sourceType, sourceType == .streaming {
                 addNowPlayingLabel(to: card, text: nowPlaying.displayText, albumArtURL: nowPlaying.albumArtURL, sourceType: sourceType, skipResize: true)
@@ -980,25 +1014,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 addSourceBadge(to: card, sourceType: sourceType)
             }
         }
-
-        NSLayoutConstraint.activate([
-            // Position icon at leading edge
-            icon.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
-            icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 20),
-            icon.heightAnchor.constraint(equalToConstant: 20),
-
-            // Position name after icon
-            nameLabel.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
-            nameLabel.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            nameLabel.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -10),
-
-            // Checkbox stays on right (aligned with speaker checkboxes)
-            checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
-            checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-
-            card.heightAnchor.constraint(equalToConstant: 42)
-        ])
 
         return card
     }
@@ -1503,8 +1518,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
 
         if hasGroupIcon {
-            // GROUP CARD: Find nameLabel and reposition after album art
-            if let nameLabel = card.subviews.first(where: { $0 is NSTextField && $0.identifier == nil }) as? NSTextField {
+            // GROUP CARD: Find nameLabel by identifier and reposition after album art
+            if let nameLabel = card.subviews.first(where: { $0.identifier?.rawValue == "groupNameLabel" }) as? NSTextField {
                 // Remove existing leading constraint
                 let constraintsToRemove = card.constraints.filter { constraint in
                     (constraint.firstItem as? NSTextField == nameLabel && constraint.firstAttribute == .leading) ||
@@ -1512,7 +1527,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 }
                 NSLayoutConstraint.deactivate(constraintsToRemove)
 
-                // Position after album art (46 + 40 + 8 = 94pt)
+                // Position after album art (icon 8 + width 20 + spacing 10 + albumArt 40 + spacing 16 = 94pt)
                 nameLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 94).isActive = true
             }
         } else {
@@ -2330,6 +2345,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                         self.updatePlayPauseButton(isPlaying: sourceInfo.state == "PLAYING")
                         // Trigger update after we have source info
                         self.updatePlaybackControlsState()
+                        self.updateNowPlayingDisplay()
                     }
                 } else {
                     // Fallback: use cached transport state if available
@@ -2337,6 +2353,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                         self.currentTransportState = device.transportState
                         self.updatePlayPauseButton(isPlaying: device.transportState == "PLAYING")
                         self.updatePlaybackControlsState()
+                        self.updateNowPlayingDisplay()
                     }
                 }
             }
@@ -2411,6 +2428,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     self.currentTransportState = group.coordinator.transportState
                     self.updatePlayPauseButton(isPlaying: group.coordinator.transportState == "PLAYING")
                     self.updatePlaybackControlsState()
+                    self.updateNowPlayingDisplay()
                 }
             }
             // Track this group as last active
