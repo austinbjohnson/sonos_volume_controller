@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Real-time trigger device display updates - trigger device display in menu bar popover now updates immediately when changed in Preferences window, no longer requires closing and reopening popover (PR #TBD)
+- Visual indication for standby mode - menu bar icon dims to 50% opacity when app is disabled (standby mode), providing at-a-glance feedback on whether hotkeys are active (PR #TBD)
+- Loading states for async operations - grouping and ungrouping buttons now show inline progress spinners during 3-5 second operations, preventing confusion and accidental double-clicks (PR #TBD)
 - Custom Sonos speaker icon for menu bar (replaces "S" text)
 - Exit/quit icon updated to "person leaving" (SF Symbol: figure.walk.departure)
 - Settings dropdown now updates when refreshing Sonos devices (PR #13)

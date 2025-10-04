@@ -69,6 +69,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = iconImage
             button.target = self
             button.action = #selector(togglePopover)
+            button.alphaValue = settings.enabled ? 1.0 : 0.5  // Dim when disabled
             print("🔊 Menu bar icon: Custom Sonos speaker")
         }
         print("📍 Status bar item created")
@@ -87,6 +88,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Start permission monitoring for reactive UI updates
         settings.startPermissionMonitoring()
+
+        // Listen for enabled state changes to update menu bar icon
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(updateMenuBarIcon),
+            name: NSNotification.Name("SonosEnabledStateChanged"),
+            object: nil
+        )
 
         // Listen for device discovery completion
         NotificationCenter.default.addObserver(
@@ -167,6 +176,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("📱 Devices discovered, updating popover...")
         // Just refresh UI - device selection happens in completion handler
         menuBarPopover.refresh()
+    }
+
+    @objc func updateMenuBarIcon() {
+        guard let button = statusItem.button else { return }
+        // Dim icon when app is disabled (standby mode)
+        button.alphaValue = settings.enabled ? 1.0 : 0.5
     }
 
     @objc func handleNetworkError(_ notification: Notification) {
