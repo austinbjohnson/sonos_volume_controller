@@ -44,6 +44,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var selectedSpeakerCards: Set<String> = []
     private var groupButton: NSButton!
     private var ungroupButton: NSButton!
+    private var groupProgressIndicator: NSProgressIndicator!
+    private var ungroupProgressIndicator: NSProgressIndicator!
     private var powerButton: NSButton!
     private var isLoadingDevices: Bool = false
     private var welcomeBanner: NSView!
@@ -139,12 +141,27 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             name: NSNotification.Name("PermissionStatusChanged"),
             object: nil
         )
+
+        // Listen for trigger device changes to update display
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTriggerDeviceChanged(_:)),
+            name: NSNotification.Name("TriggerDeviceDidChange"),
+            object: nil
+        )
     }
 
     @objc private func handlePermissionStatusChanged(_ notification: Notification) {
         // Refresh to update permission banner visibility
         Task { @MainActor in
             self.populateSpeakers()
+        }
+    }
+
+    @objc private func handleTriggerDeviceChanged(_ notification: Notification) {
+        // Update trigger device label with new value
+        Task { @MainActor in
+            self.updateTriggerDeviceLabel()
         }
     }
 
@@ -361,6 +378,21 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         ungroupButton.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(ungroupButton)
 
+        // Progress indicators for buttons
+        groupProgressIndicator = NSProgressIndicator()
+        groupProgressIndicator.style = .spinning
+        groupProgressIndicator.controlSize = .small
+        groupProgressIndicator.isDisplayedWhenStopped = false
+        groupProgressIndicator.translatesAutoresizingMaskIntoConstraints = false
+        groupButton.addSubview(groupProgressIndicator)
+
+        ungroupProgressIndicator = NSProgressIndicator()
+        ungroupProgressIndicator.style = .spinning
+        ungroupProgressIndicator.controlSize = .small
+        ungroupProgressIndicator.isDisplayedWhenStopped = false
+        ungroupProgressIndicator.translatesAutoresizingMaskIntoConstraints = false
+        ungroupButton.addSubview(ungroupProgressIndicator)
+
         // Divider
         let divider3 = createDivider()
         container.addSubview(divider3)
@@ -401,6 +433,17 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
             ungroupButton.leadingAnchor.constraint(equalTo: container.centerXAnchor, constant: 6),
             ungroupButton.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 12),
+
+            // Progress indicator positions (leading edge of buttons)
+            groupProgressIndicator.leadingAnchor.constraint(equalTo: groupButton.leadingAnchor, constant: 12),
+            groupProgressIndicator.centerYAnchor.constraint(equalTo: groupButton.centerYAnchor),
+            groupProgressIndicator.widthAnchor.constraint(equalToConstant: 12),
+            groupProgressIndicator.heightAnchor.constraint(equalToConstant: 12),
+
+            ungroupProgressIndicator.leadingAnchor.constraint(equalTo: ungroupButton.leadingAnchor, constant: 12),
+            ungroupProgressIndicator.centerYAnchor.constraint(equalTo: ungroupButton.centerYAnchor),
+            ungroupProgressIndicator.widthAnchor.constraint(equalToConstant: 12),
+            ungroupProgressIndicator.heightAnchor.constraint(equalToConstant: 12),
 
             divider3.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             divider3.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
@@ -1807,9 +1850,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         print("🔓 Ungrouping \(selectedGroupIds.count) group(s) and \(groupedDevices.count) device(s)")
 
-        // Disable button during operation
+        // Disable button and show progress during operation
         ungroupButton.isEnabled = false
         ungroupButton.title = "Ungrouping..."
+        ungroupProgressIndicator.startAnimation(nil)
 
         // Use a class wrapper to track completion count across async callbacks
         class CompletionTracker: @unchecked Sendable {
@@ -1834,7 +1878,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     // Clear selections
                     self?.selectedSpeakerCards.removeAll()
 
-                    // Reset buttons
+                    // Reset buttons and hide progress
+                    self?.ungroupProgressIndicator.stopAnimation(nil)
                     self?.ungroupButton.title = "Ungroup Selected"
                     self?.ungroupButton.isEnabled = false
                     self?.groupButton.isEnabled = false
@@ -1894,9 +1939,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             print("  - \(device.name)")
         }
 
-        // Disable button during operation
+        // Disable button and show progress during operation
         groupButton.isEnabled = false
         groupButton.title = "Grouping..."
+        groupProgressIndicator.startAnimation(nil)
 
         // Proceed with smart coordinator selection (backend now handles audio source detection)
         performGrouping(devices: selectedDevices, coordinator: nil)
@@ -1943,6 +1989,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             performGrouping(devices: allDevices, coordinator: nil)
         } else {
             print("❌ User cancelled grouping")
+            groupProgressIndicator.stopAnimation(nil)
             groupButton.isEnabled = true
             groupButton.title = "Group \(selectedSpeakerCards.count) Speakers"
         }
@@ -1972,6 +2019,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         } else {
             // User cancelled
             print("❌ User cancelled grouping")
+            groupProgressIndicator.stopAnimation(nil)
             groupButton.isEnabled = true
             groupButton.title = "Group \(selectedSpeakerCards.count) Speakers"
         }
@@ -1996,7 +2044,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
                     // Clear expanded groups so new group appears collapsed
 
-                    // Reset button
+                    // Reset button and hide progress
+                    self.groupProgressIndicator.stopAnimation(nil)
                     self.groupButton.title = "Group Selected"
                     self.groupButton.isEnabled = false
 
@@ -2019,7 +2068,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                         )
                     }
 
-                    // Re-enable button
+                    // Re-enable button and hide progress
+                    self.groupProgressIndicator.stopAnimation(nil)
                     self.groupButton.isEnabled = true
                     self.groupButton.title = "Group \(self.selectedSpeakerCards.count) Speakers"
                 }

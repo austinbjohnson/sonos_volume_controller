@@ -11,8 +11,6 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
-- **Album art and UI refinement for now playing display (Phase 2)** (branch: feature/now-playing-album-art, @austinbjohnson)
-
 ---
 
 ## App Store Readiness
@@ -42,12 +40,6 @@ _Major friction points impacting usability, significant missing features, or imp
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.
 
 ### Enhancements
-- **Real-time trigger device display update**: Trigger device display in menu bar popover only updates when popover is reopened. Add real-time notification/observer pattern so display updates immediately when changed in Preferences without requiring popover close/reopen. (MenuBarContentView.swift:1667, MenuBarPopover.swift:59) [Added by claudeCode]
-
-- **No visual indication when app disabled**: Menu bar icon doesn't change when app is in "Standby" mode (settings.enabled = false). Can't tell at a glance if hotkeys will work. Consider dimming icon or adding slash overlay. (main.swift:32-67) [Added by claudeCode]
-
-- **Loading states during async operations**: No loading indicator when grouping/ungrouping takes 3-5 seconds. Add NSProgressIndicator next to button text and disable button during operation. (MenuBarContentView.swift:1347-1467) [Added by claudeCode]
-
 - **Network error handling improvements**: Network errors show one-time alert, but no way to retry discovery or diagnose issues after dismissal. Add "Refresh" button in Speakers section when no speakers found. (MenuBarContentView.swift:711-719) [Added by claudeCode]
 
 - **Topology cache invalidation**: Topology cache persists for entire app session. If speakers are regrouped via Sonos app or network changes, cache becomes stale. Add automatic invalidation trigger or manual refresh affordance. (SonosController.swift:11-13) [Added by claudeCode]

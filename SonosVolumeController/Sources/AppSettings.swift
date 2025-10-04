@@ -39,6 +39,12 @@ class AppSettings: @unchecked Sendable {
         set {
             defaults.set(newValue, forKey: Keys.enabled)
             print("Sonos control \(newValue ? "enabled" : "disabled")")
+
+            // Notify observers that enabled state changed
+            NotificationCenter.default.post(
+                name: NSNotification.Name("SonosEnabledStateChanged"),
+                object: newValue
+            )
         }
     }
 
@@ -49,6 +55,12 @@ class AppSettings: @unchecked Sendable {
         set {
             defaults.set(newValue, forKey: Keys.triggerDevice)
             print("Trigger device set to: \(newValue.isEmpty ? "Any Device" : newValue)")
+
+            // Notify observers that trigger device changed
+            NotificationCenter.default.post(
+                name: NSNotification.Name("TriggerDeviceDidChange"),
+                object: newValue
+            )
         }
     }
 
