@@ -11,6 +11,8 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
+- **Real-time playing state updates and remove audio source indicator**: Listen for UPnP AVTransport events to update content display in real-time even when paused, and remove the blue dot indicator showing audio source state for cleaner UI (branch: enhancement/realtime-state-updates-and-ui-polish, @austinbjohnson)
+
 ---
 
 ## App Store Readiness
@@ -25,6 +27,8 @@ _When starting work on a task, add it here with your branch name and username to
 _Issues that break core functionality. Must fix immediately._
 
 ### Bugs
+
+- **Transport state updates not working for certain speakers**: Bathroom and Bedroom don't receive real-time transport state updates when playback changes, but Kitchen Move works correctly. NOTE: Bedroom is a stereo pair but Bathroom is NOT, so this is not stereo-pair specific. All speakers subscribe successfully and receive initial events, but play/pause changes don't trigger UI updates for these two speakers. Attempted fix with satellite-to-visible UUID mapping didn't resolve. Need to investigate if there's a UUID mismatch between subscription, NOTIFY callback, and card identifier, or if these specific speakers send events differently. (SonosController.swift:363-397, 783-825, MenuBarContentView.swift:177-231) [Added 2025-10-04]
 
 ### UX Critical
 

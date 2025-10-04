@@ -2,6 +2,148 @@
 
 This document guides collaboration between Claude and the developer on the Sonos Volume Controller project.
 
+## 🚀 CRITICAL: Agent-First Development Strategy
+
+**ALWAYS USE AGENTS TO PRESERVE CONTEXT AND PARALLELIZE WORK**
+
+This project requires aggressive agent usage to:
+- **Preserve context window** - Agents have their own context, preventing main conversation bloat
+- **Parallelize work** - Run multiple agents simultaneously for maximum efficiency
+- **Deep dive without distraction** - Let agents handle detailed analysis while you orchestrate
+
+### When to Use Agents (Almost Always!)
+
+**Use agents by default for ANY task that involves:**
+- Reading multiple files (use `codebase-analyzer`, `codebase-locator`, or `codebase-pattern-finder`)
+- Searching for patterns or implementations (use `codebase-pattern-finder`)
+- Understanding architecture or dependencies (use `codebase-analyzer`)
+- Researching documentation (use `thoughts-locator` for docs/ or thoughts/)
+- Any task requiring more than 2-3 file reads
+
+### Agent Usage Patterns
+
+#### Pattern 1: Parallel Analysis (Most Common)
+When starting ANY new task, immediately launch agents in parallel:
+
+```
+Task: "Implement real-time transport state updates"
+
+CORRECT ✅:
+- Launch codebase-analyzer (find current metadata system) IN PARALLEL WITH
+- Launch codebase-pattern-finder (find UPnP patterns) IN PARALLEL WITH
+- Launch thoughts-locator (find relevant Sonos API docs)
+→ All 3 agents run simultaneously, results come back together
+
+WRONG ❌:
+- Read MenuBarContentView.swift
+- Read SonosController.swift
+- Read UPnPEventListener.swift
+- Read docs/sonos-api/upnp-local-api.md
+→ Uses 4x the context, takes 4x longer
+```
+
+#### Pattern 2: Deep Dive Without Context Burn
+When you need detailed understanding:
+
+```
+CORRECT ✅:
+"I need to understand how volume control works"
+→ Launch codebase-analyzer with specific prompt
+→ Agent reads all relevant files, returns summary
+→ You get the answer without burning 2000 tokens per file
+
+WRONG ❌:
+→ Read VolumeKeyMonitor.swift (800 lines)
+→ Read SonosController.swift (1400 lines)
+→ Read MenuBarContentView.swift (1600 lines)
+→ Context window now at 60%
+```
+
+#### Pattern 3: Search Before Read
+NEVER use Grep/Read for open-ended searches:
+
+```
+CORRECT ✅:
+"Find where speakers are selected"
+→ Launch codebase-locator agent
+→ Agent searches, finds exact locations, returns targeted results
+
+WRONG ❌:
+→ Grep for "selectSpeaker"
+→ Read MenuBarContentView.swift around that
+→ Grep for related patterns
+→ Read more files
+→ Repeat 5x
+```
+
+### Available Agents & When to Use Them
+
+#### Research & Analysis Agents
+| Agent | Use When | Example |
+|-------|----------|---------|
+| **codebase-locator** | Finding files/components by feature description | "Find where volume hotkeys are handled" |
+| **codebase-analyzer** | Understanding implementation details | "How does the SSDP discovery work?" |
+| **codebase-pattern-finder** | Finding similar code or usage examples | "Show me how other SOAP commands are structured" |
+| **thoughts-locator** | Finding documentation in docs/ or thoughts/ | "Find Sonos API documentation about events" |
+| **thoughts-analyzer** | Deep research into documentation | "Understand the full UPnP event subscription flow" |
+
+#### Operational Agents (CRITICAL - Use These Too!)
+| Agent | Use When | Example |
+|-------|----------|---------|
+| **git-workflow-manager** | ANY Git/GitHub operations | "Create branch, commit changes, create PR" |
+| **general-purpose** | Building, running, testing the app | "Build the app and check for errors, then run it and monitor logs for transport subscriptions" |
+
+**⚠️ IMPORTANT: Don't manually run/test - use general-purpose agent!**
+- Running `swift run` or `swift build` manually wastes context
+- Use general-purpose agent to run, monitor logs, and report back
+- Agent can filter logs, watch for specific patterns, and give you a summary
+
+### Parallel Agent Execution
+
+**ALWAYS run agents in parallel when tasks are independent:**
+
+```swift
+// Single message with multiple Task tool calls:
+Task(codebase-analyzer: "Analyze blue dot implementation")
+Task(codebase-locator: "Find now-playing metadata code")
+Task(thoughts-locator: "Find Sonos transport state docs")
+// All execute simultaneously!
+```
+
+### Default Agent Strategy
+
+**For every new task:**
+1. Immediately identify what you need to know
+2. Launch 2-3 agents in parallel to gather information
+3. Wait for results, then plan implementation
+4. Only read specific files when you need to edit them
+5. **After coding: Use general-purpose agent to test/run**
+
+### Testing & Running Workflow
+
+**WRONG ❌:**
+```
+You: "Let me build and test..."
+→ Bash: swift build
+→ Bash: swift run &
+→ Wait/check logs manually
+→ Context window filling up with build output
+```
+
+**CORRECT ✅:**
+```
+You: "Let me test this with an agent"
+→ Task(general-purpose): "Build the app with swift build, check for errors.
+   Then run it with swift run, monitor logs for 10 seconds, and look for:
+   - Transport subscription messages (🎵)
+   - Any errors or warnings
+   Report back what you find."
+→ Agent handles everything, returns concise summary
+→ Zero context burn
+```
+
+**Remember:** Using agents is faster, cleaner, and preserves context for ALL work - research AND operations!
+
 ## Workflow
 
 ### 1. Picking Next Task
@@ -18,7 +160,13 @@ Discuss with the user which task to tackle next.
 
 ### 2. Starting Work
 
-**Use agents you have access to to ruthlessly parallelize and manage the context window**
+**⚡ STEP 0: Launch Agents First!**
+
+Before doing ANYTHING else, launch agents to gather context:
+- Use `codebase-locator` to find relevant files
+- Use `codebase-analyzer` to understand existing implementation
+- Use `thoughts-locator` if Sonos API docs might be relevant
+- **Run them in parallel** (single message with multiple Task calls)
 
 1. **Create branch from main**: Use descriptive naming
    - Features: `feature/descriptive-name`
@@ -37,7 +185,9 @@ Discuss with the user which task to tackle next.
 
 ### 3. Completing Work
 
-1. **Test**: Build with `swift build -c release` or `swift run`
+1. **Test**: Use general-purpose agent to build and test
+   - **Don't manually run swift build/swift run** - use agent to preserve context
+   - Agent can build, run, monitor logs, and report issues
 
 2. **Update documentation** (first time - without PR number):
    - Add to `CHANGELOG.md` under appropriate section (Added/Changed/Fixed)
@@ -71,7 +221,7 @@ Discuss with the user which task to tackle next.
 
 This ensures the PR number is accurate in the branch before merging.
 
-### 4. After Merge
+### 4. After Merge (use git)
 
 User merges PR on GitHub, then locally:
 ```bash
@@ -158,10 +308,26 @@ Key documentation files:
 
 ## Tips for Development
 
+- **🚀 USE AGENTS FIRST** - Before reading any files, launch agents in parallel to gather context
 - Always check `ROADMAP.md` at start of session
 - Check "In Progress" section before starting work to avoid conflicts
-- **Consult `docs/sonos-api/` before implementing Sonos features**
+- **Consult `docs/sonos-api/` before implementing Sonos features** (use `thoughts-locator` agent!)
 - Use `swift run` for quick iteration during development
 - Only use `./build-app.sh --install` when ready to test installed behavior
 - Keep PRs focused on single feature/enhancement/bug
 - See `CONTRIBUTING.md` for detailed collaboration guidelines
+
+### Agent Usage Checklist
+
+**Before starting ANY task:**
+- [ ] Can I use `codebase-locator` to find relevant files? (YES = use it)
+- [ ] Do I need to understand existing code? (YES = use `codebase-analyzer`)
+- [ ] Are there similar patterns I can follow? (YES = use `codebase-pattern-finder`)
+- [ ] Is there API documentation I should read? (YES = use `thoughts-locator`)
+- [ ] Can I run multiple agents in parallel? (Almost always YES)
+
+**After making changes:**
+- [ ] Do I need to test/build/run? (YES = use `general-purpose` agent)
+- [ ] Do I need Git operations? (YES = use `git-workflow-manager` agent)
+
+**Default answer:** Use agents for EVERYTHING - research, testing, and Git operations!

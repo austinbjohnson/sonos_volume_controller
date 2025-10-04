@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Album art thumbnails in now playing display - 40x40pt album artwork with 4pt corner radius and subtle border, async loading with NSCache for performance, fallback SF Symbols for sources without artwork (music.note for streaming, waveform for line-in, tv for TV), refined 64pt card layout with tighter spacing (PR #49)
 
 ### Changed
+- Eliminated now-playing content flicker when clicking speaker cards by implementing cache-based rendering. Cards now display cached now-playing data immediately during rebuilds, preventing the UI twitch. (PR #52)
 - Simplified active speaker concept - replaced manual "default speaker" configuration with automatic "last active speaker" tracking, app now remembers what you were last controlling, replaced yellow star button with blue dot indicator, hover-only checkboxes for cleaner UI (PR #40)
 - Fixed checkbox vs. card click confusion by adding explicit star buttons to set default speaker/group - eliminates accidental clicks between selecting for grouping vs setting as default (PR #34)
 - Simplified UI by streamlining trigger display and preferences window - replaced radio button list with read-only display, removed redundant Audio Devices and Sonos tabs from preferences (PR #32)

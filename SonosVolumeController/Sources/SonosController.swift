@@ -68,7 +68,10 @@ actor SonosController {
 
     private var eventListener: UPnPEventListener?
     private var eventProcessingTask: Task<Void, Never>?
+    private var transportEventProcessingTask: Task<Void, Never>?
     private var coordinatorSubscriptions: [String: String] = [:]  // UUID -> SID
+    private var transportSubscriptions: [String: String] = [:]    // UUID -> SID (for active speaker)
+    private var satelliteToVisibleMap: [String: String] = [:]     // Satellite UUID -> Visible Speaker UUID
 
     struct SonosDevice {
         let name: String
@@ -357,6 +360,18 @@ actor SonosController {
         print("Cached topology for \(groupInfo.count) devices")
         print("Found \(invisibleUUIDs.count) invisible/satellite speakers to filter out")
 
+        // Build satellite-to-visible mapping for transport event routing
+        satelliteToVisibleMap.removeAll()
+        for device in self.devices {
+            if let pairPartnerUUID = pairPartners[device.uuid] {
+                // If this device has a pair partner that's invisible, map satellite -> visible
+                if invisibleUUIDs.contains(pairPartnerUUID) {
+                    satelliteToVisibleMap[pairPartnerUUID] = device.uuid
+                    print("Mapped satellite \(pairPartnerUUID) -> visible \(device.uuid) (\(device.name))")
+                }
+            }
+        }
+
         // Update devices with PAIR and GROUP information, filter out invisible speakers
         self.devices = self.devices.compactMap { device in
                 // Filter out invisible/satellite speakers from device list
@@ -533,16 +548,26 @@ actor SonosController {
             let listener = try await UPnPEventListener()
             eventListener = listener
 
-            // Start processing events - capture listener to avoid actor isolation issues
+            // Start processing topology events - capture listener to avoid actor isolation issues
             eventProcessingTask = Task { [weak self] in
                 for await event in listener.events {
                     await self?.handleTopologyEvent(event)
+                }
+            }
+
+            // Start processing transport events
+            transportEventProcessingTask = Task { [weak self] in
+                for await event in listener.transportEvents {
+                    await self?.handleTransportEvent(event)
                 }
             }
         }
 
         // Subscribe to coordinator devices
         await subscribeToCoordinators()
+
+        // Subscribe to transport events for all discovered devices
+        await subscribeToAllDevicesForTransport()
 
         print("✅ Topology monitoring started")
     }
@@ -554,6 +579,8 @@ actor SonosController {
         // Cancel event processing
         eventProcessingTask?.cancel()
         eventProcessingTask = nil
+        transportEventProcessingTask?.cancel()
+        transportEventProcessingTask = nil
 
         // Shutdown event listener
         if let listener = eventListener {
@@ -562,6 +589,7 @@ actor SonosController {
 
         eventListener = nil
         coordinatorSubscriptions.removeAll()
+        transportSubscriptions.removeAll()
 
         print("✅ Topology monitoring stopped")
     }
@@ -603,6 +631,37 @@ actor SonosController {
         }
     }
 
+    /// Subscribe to AVTransport events for all discovered devices
+    private func subscribeToAllDevicesForTransport() async {
+        print("🎵 Subscribing to transport events for all devices...")
+
+        guard let listener = eventListener else { return }
+
+        for device in devices {
+            // Skip if already subscribed
+            if transportSubscriptions[device.uuid] != nil {
+                print("   Already subscribed to \(device.name)")
+                continue
+            }
+
+            do {
+                let sid = try await listener.subscribe(
+                    deviceUUID: device.uuid,
+                    deviceIP: device.ipAddress,
+                    service: .avTransport
+                )
+
+                transportSubscriptions[device.uuid] = sid
+                print("   🎵 ✅ Subscribed to \(device.name) (SID: \(sid))")
+
+            } catch {
+                print("   ⚠️ Failed to subscribe to \(device.name): \(error)")
+            }
+        }
+
+        print("🎵 Transport monitoring started for \(transportSubscriptions.count) devices")
+    }
+
     /// Handle incoming topology events
     private func handleTopologyEvent(_ event: UPnPEventListener.TopologyEvent) async {
         switch event {
@@ -614,6 +673,9 @@ actor SonosController {
 
             // Resubscribe to any new coordinators
             await subscribeToCoordinators()
+
+            // Subscribe to transport events for any new devices
+            await subscribeToAllDevicesForTransport()
 
             print("✅ Topology updated from event")
 
@@ -674,6 +736,137 @@ actor SonosController {
                 }
             }
         }
+    }
+
+    /// Subscribe to AVTransport events for a specific device
+    func subscribeToTransportUpdates(for deviceUUID: String) async {
+        guard let device = devices.first(where: { $0.uuid == deviceUUID }),
+              let listener = eventListener else {
+            print("⚠️ Cannot subscribe to transport updates: device or listener not found")
+            return
+        }
+
+        // Skip if already subscribed
+        if transportSubscriptions[deviceUUID] != nil {
+            print("   Already subscribed to transport updates for \(device.name)")
+            return
+        }
+
+        do {
+            let sid = try await listener.subscribe(
+                deviceUUID: device.uuid,
+                deviceIP: device.ipAddress,
+                service: .avTransport
+            )
+
+            transportSubscriptions[device.uuid] = sid
+            print("🎵 ✅ Subscribed to transport updates for \(device.name) (SID: \(sid))")
+
+        } catch {
+            print("⚠️ Failed to subscribe to transport updates for \(device.name): \(error)")
+        }
+    }
+
+    /// Unsubscribe from AVTransport events for a specific device
+    func unsubscribeFromTransportUpdates(for deviceUUID: String) async {
+        guard let sid = transportSubscriptions[deviceUUID] else { return }
+
+        do {
+            try await eventListener?.unsubscribe(sid: sid)
+            transportSubscriptions.removeValue(forKey: deviceUUID)
+            print("🎵 Unsubscribed from transport updates for device \(deviceUUID)")
+        } catch {
+            print("⚠️ Failed to unsubscribe from transport updates: \(error)")
+        }
+    }
+
+    /// Handle incoming transport events
+    private func handleTransportEvent(_ event: UPnPEventListener.TransportEvent) async {
+        switch event {
+        case .transportStateChanged(var deviceUUID, let state, let trackURI, let metadata):
+            // Translate satellite speaker UUID to visible speaker UUID if needed
+            if let visibleUUID = satelliteToVisibleMap[deviceUUID] {
+                print("🎵 Transport event for satellite \(deviceUUID), translating to visible speaker \(visibleUUID)")
+                deviceUUID = visibleUUID
+            }
+
+            print("🎵 Transport state changed for \(deviceUUID): \(state)")
+
+            // Update the device's transport state in our cache
+            if let index = devices.firstIndex(where: { $0.uuid == deviceUUID }) {
+                devices[index].transportState = state
+
+                // If metadata is present, parse and update now playing info
+                if let metadata = metadata, !metadata.isEmpty {
+                    let nowPlaying = parseNowPlayingFromMetadata(metadata)
+                    devices[index].nowPlaying = nowPlaying
+                }
+
+                // Notify UI of the change
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("SonosTransportStateDidChange"),
+                    object: nil,
+                    userInfo: [
+                        "deviceUUID": deviceUUID,
+                        "state": state,
+                        "trackURI": trackURI as Any,
+                        "metadata": metadata as Any
+                    ]
+                )
+            }
+
+        case .subscriptionExpired(let sid):
+            print("⚠️ Transport subscription expired: \(sid)")
+
+            // Find and resubscribe
+            for (uuid, subscriptionSID) in transportSubscriptions {
+                if subscriptionSID == sid {
+                    transportSubscriptions.removeValue(forKey: uuid)
+
+                    // Try to resubscribe
+                    await subscribeToTransportUpdates(for: uuid)
+                    break
+                }
+            }
+        }
+    }
+
+    /// Parse now playing info from DIDL-Lite metadata XML
+    private func parseNowPlayingFromMetadata(_ metadata: String) -> NowPlayingInfo? {
+        // This is a simplified version - reuse existing parseNowPlayingInfo logic
+        let title = extractXMLValue(from: metadata, tag: "dc:title")
+        let artist = extractXMLValue(from: metadata, tag: "dc:creator")
+        let album = extractXMLValue(from: metadata, tag: "upnp:album")
+
+        // Extract album art URL
+        var albumArtURL: String?
+        if let artTag = extractXMLValue(from: metadata, tag: "upnp:albumArtURI") {
+            albumArtURL = artTag.hasPrefix("http") ? artTag : nil
+        }
+
+        return NowPlayingInfo(
+            title: title,
+            artist: artist,
+            album: album,
+            albumArtURL: albumArtURL,
+            duration: nil,
+            position: nil
+        )
+    }
+
+    /// Extract a simple XML tag value
+    private func extractXMLValue(from xml: String, tag: String) -> String? {
+        let pattern = "<\(tag)>([^<]+)</\(tag)>"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+
+        let range = NSRange(xml.startIndex..., in: xml)
+        guard let match = regex.firstMatch(in: xml, range: range),
+              match.numberOfRanges > 1,
+              let valueRange = Range(match.range(at: 1), in: xml) else {
+            return nil
+        }
+
+        return String(xml[valueRange])
     }
 
     // MARK: - Helper Methods
