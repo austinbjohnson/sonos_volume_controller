@@ -11,6 +11,8 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
+- **Audio source visibility in UI (Phase 2 of line-in fix)**: Add visual indicators showing what each speaker is playing. Display badges on speaker cards (orange=line-in, purple=TV, green=streaming, gray=idle). Show helper text during grouping to preview which audio will be preserved. Add proactive warnings when selecting incompatible sources. (branch: feature/now-playing-ui, @austinbjohnson)
+
 ---
 
 ## App Store Readiness
