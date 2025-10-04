@@ -150,11 +150,11 @@ _(Moved to P0/P1 sections)_
 
 ## Recently Resolved
 
-- **Now Playing display section** ✅ ADDED (2025-10-04): Added dedicated now-playing display between playback controls and volume slider showing current track information with album art. Display adapts to audio source type (streaming, radio, line-in, TV) and updates in real-time via UPnP transport events. Section automatically hides when device is idle. (PR #XX)
+- **Now Playing display section** ✅ ADDED (2025-10-04): Added dedicated now-playing display between playback controls and volume slider showing current track information with album art. Display adapts to audio source type (streaming, radio, line-in, TV) and updates in real-time via UPnP transport events. Section automatically hides when device is idle. (PR #55)
 
-- **Speaker and group name text truncation** ✅ FIXED (2025-10-04): Fixed issue where long group names were being cut off in the middle. Applied explicit trailing constraints, changed truncation from middle to tail (ellipsis at end), added tooltips showing full names on hover. Applies to all cards: group cards, speaker cards, member cards, and now-playing labels. (PR #XX)
+- **Speaker and group name text truncation** ✅ FIXED (2025-10-04): Fixed issue where long group names were being cut off in the middle. Applied explicit trailing constraints, changed truncation from middle to tail (ellipsis at end), added tooltips showing full names on hover. Applies to all cards: group cards, speaker cards, member cards, and now-playing labels. (PR #55)
 
-- **Dynamic popover height expansion** ✅ IMPROVED (2025-10-04): Popover now expands vertically to show all speakers without internal scrolling (up to screen limit). Calculates maximum height based on available screen space. Better experience for users with 2-10 speakers while gracefully handling larger installations with scrolling only when needed. (PR #XX)
+- **Dynamic popover height expansion** ✅ IMPROVED (2025-10-04): Popover now expands vertically to show all speakers without internal scrolling (up to screen limit). Calculates maximum height based on available screen space. Better experience for users with 2-10 speakers while gracefully handling larger installations with scrolling only when needed. (PR #55)
 
 - **Basic playback controls** ✅ ADDED (2025-10-04): Implemented play/pause, previous, and next transport controls in menu bar UI. Controls intelligently adapt to audio source type: streaming content supports all controls, radio/line-in support play/pause only. Added radio detection as separate AudioSourceType to distinguish from skippable streaming content. Controls route to group coordinator when speaker is in a multi-speaker group. (PR #54)
 
