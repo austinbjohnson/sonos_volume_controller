@@ -11,8 +11,6 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
-- **Accessibility permission diagnostics (Phase 2)** (branch: feature/hotkey-diagnostics-phase2, @austinbjohnson)
-
 ---
 
 ## App Store Readiness
@@ -39,7 +37,6 @@ _Issues that break core functionality. Must fix immediately._
 _Major friction points impacting usability, significant missing features, or important architectural issues._
 
 ### Features
-- **Accessibility permission diagnostics (Phase 2)**: Add Preferences window "Hotkeys" section with permission status indicator, "Test Hotkeys" button to verify event tap functionality, and success/failure feedback overlays. Completes the permission feedback system started in Phase 1 by adding proactive verification tools for power users. Implementation: (1) Add new PreferencesWindow section with permission status display (green checkmark if granted, orange warning if denied), (2) Implement "Test Hotkeys" button that creates temporary event tap for 2 seconds to verify F11/F12 detection, (3) Show modal overlay with success ("✅ Hotkeys Working!") or failure ("❌ Hotkeys Not Working") result, (4) Add VolumeKeyMonitor pause/resume methods to prevent conflicts during test, (5) Handle edge cases (permission granted but event tap fails, test timeout, conflicts with other apps). (PreferencesWindow.swift, VolumeKeyMonitor.swift, from UX spec section 3)
 - **Trigger device cache management**: Add ability to refresh trigger sources and cache them persistently. Users should be able to manually delete cached devices that are no longer relevant (similar to WiFi network history - devices remain in cache even when not currently available, but can be manually removed).
 
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.
