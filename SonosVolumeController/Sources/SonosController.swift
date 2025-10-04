@@ -479,9 +479,9 @@ actor SonosController {
     }
 
 
-    func selectDevice(name: String) {
+    func selectDevice(name: String) async {
         _selectedDevice = devices.first { $0.name == name }
-        updateCachedValues() // Update thread-safe copies
+        
         if let device = _selectedDevice {
             // Track this device as last active
             settings.trackSpeakerActivity(device.name)
@@ -490,7 +490,7 @@ actor SonosController {
             if device.channelMapSet != nil {
                 info += " [STEREO PAIR]"
             }
-            if let groupCoord = device.groupCoordinatorUUID {
+            if device.groupCoordinatorUUID != nil {
                 if device.isGroupCoordinator {
                     info += " (Group Leader)"
                 } else {
@@ -498,7 +498,24 @@ actor SonosController {
                 }
             }
             print(info)
+            
+            // Fetch and update audio source info for the selected device
+            if let sourceInfo = await getAudioSourceInfo(for: device) {
+                // Update the device in our devices array with the audio source
+                if let index = devices.firstIndex(where: { $0.uuid == device.uuid }) {
+                    devices[index].audioSource = sourceInfo.sourceType
+                    devices[index].transportState = sourceInfo.state
+                    devices[index].nowPlaying = sourceInfo.nowPlaying
+                    
+                    // Update the selected device reference
+                    _selectedDevice = devices[index]
+                    
+                    print("📊 Device source: \(sourceInfo.sourceType.description), state: \(sourceInfo.state)")
+                }
+            }
         }
+        
+        updateCachedValues() // Update thread-safe copies
     }
 
     // Refresh _selectedDevice reference to pick up updated topology info
