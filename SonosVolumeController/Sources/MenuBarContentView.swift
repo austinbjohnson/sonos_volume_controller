@@ -967,20 +967,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         card.addSubview(nameLabel)
         card.addSubview(checkbox)
 
-        // Check cache and determine if we'll have album art
-        let hasNowPlayingContent: Bool
-        if let cached = nowPlayingCache[group.coordinator.uuid],
-           let sourceType = cached.sourceType,
-           (sourceType == .streaming || sourceType == .lineIn || sourceType == .tv) {
-            hasNowPlayingContent = true
-        } else {
-            hasNowPlayingContent = false
-        }
-        
-        // Calculate name label leading position based on whether we have album art
-        let nameLabelLeading: CGFloat = hasNowPlayingContent ? 94 : 38  // 94 = icon(8) + iconWidth(20) + spacing(10) + albumArt(40) + spacing(16), 38 = icon(8) + iconWidth(20) + spacing(10)
-
-        // Set up constraints BEFORE adding now-playing content
+        // Set up constraints - nameLabel positioned directly after icon (no album art)
         NSLayoutConstraint.activate([
             // Position icon at leading edge
             icon.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
@@ -988,8 +975,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             icon.widthAnchor.constraint(equalToConstant: 20),
             icon.heightAnchor.constraint(equalToConstant: 20),
 
-            // Position name after icon (or after album art if present)
-            nameLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: nameLabelLeading),
+            // Position name after icon: 8 (leading) + 20 (icon width) + 10 (spacing) = 38pt
+            nameLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 38),
             nameLabel.centerYAnchor.constraint(equalTo: card.centerYAnchor),
             nameLabel.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -10),
 
@@ -1000,19 +987,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             card.heightAnchor.constraint(equalToConstant: 42)
         ])
         
-        // Now add now-playing content if available (after constraints are set up)
-        if let cached = nowPlayingCache[group.coordinator.uuid] {
-            if let nowPlaying = cached.nowPlaying, let sourceType = cached.sourceType, sourceType == .streaming {
-                addNowPlayingLabel(to: card, text: nowPlaying.displayText, albumArtURL: nowPlaying.albumArtURL, sourceType: sourceType, skipResize: true)
-            } else if let sourceType = cached.sourceType, sourceType == .lineIn {
-                addNowPlayingLabel(to: card, text: "Line-In Audio", albumArtURL: nil, sourceType: sourceType, skipResize: true)
-            } else if let sourceType = cached.sourceType, sourceType == .tv {
-                addNowPlayingLabel(to: card, text: "TV Audio", albumArtURL: nil, sourceType: sourceType, skipResize: true)
-            }
-
-            if let sourceType = cached.sourceType {
-                addSourceBadge(to: card, sourceType: sourceType)
-            }
+        // Add source badge if available (no album art in cards)
+        if let cached = nowPlayingCache[group.coordinator.uuid],
+           let sourceType = cached.sourceType {
+            addSourceBadge(to: card, sourceType: sourceType)
         }
 
         return card
@@ -1223,19 +1201,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         card.addSubview(textStack)
         card.addSubview(checkbox)
 
-        // Check cache and add now-playing content immediately if available
-        if let cached = nowPlayingCache[device.uuid] {
-            if let nowPlaying = cached.nowPlaying, let sourceType = cached.sourceType, sourceType == .streaming {
-                addNowPlayingLabel(to: card, text: nowPlaying.displayText, albumArtURL: nowPlaying.albumArtURL, sourceType: sourceType, skipResize: true)
-            } else if let sourceType = cached.sourceType, sourceType == .lineIn {
-                addNowPlayingLabel(to: card, text: "Line-In Audio", albumArtURL: nil, sourceType: sourceType, skipResize: true)
-            } else if let sourceType = cached.sourceType, sourceType == .tv {
-                addNowPlayingLabel(to: card, text: "TV Audio", albumArtURL: nil, sourceType: sourceType, skipResize: true)
-            }
-
-            if let sourceType = cached.sourceType {
-                addSourceBadge(to: card, sourceType: sourceType)
-            }
+        // Add source badge if available (no album art in cards)
+        if let cached = nowPlayingCache[device.uuid],
+           let sourceType = cached.sourceType {
+            addSourceBadge(to: card, sourceType: sourceType)
         }
 
         NSLayoutConstraint.activate([
@@ -1462,240 +1431,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Find the card by UUID (stored in identifier)
         for subview in speakerCardsContainer.arrangedSubviews {
             if subview.identifier?.rawValue == uuid {
-                // Add Now Playing label if we have metadata
-                if let nowPlaying = nowPlaying, let sourceType = sourceType, sourceType == .streaming {
-                    addNowPlayingLabel(to: subview, text: nowPlaying.displayText, albumArtURL: nowPlaying.albumArtURL, sourceType: sourceType, skipResize: skipResize)
-                } else if let sourceType = sourceType, sourceType == .lineIn {
-                    addNowPlayingLabel(to: subview, text: "Line-In Audio", albumArtURL: nil, sourceType: sourceType, skipResize: skipResize)
-                } else if let sourceType = sourceType, sourceType == .tv {
-                    addNowPlayingLabel(to: subview, text: "TV Audio", albumArtURL: nil, sourceType: sourceType, skipResize: skipResize)
-                }
-
-                // Add colored badge
+                // Add colored badge only (no album art in cards)
                 if let sourceType = sourceType {
                     addSourceBadge(to: subview, sourceType: sourceType)
                 }
-
                 break
-            }
-        }
-    }
-
-    /// Add Now Playing text label to card
-    private func addNowPlayingLabel(to card: NSView, text: String, albumArtURL: String? = nil, sourceType: SonosController.AudioSourceType = .streaming, skipResize: Bool = false) {
-        // Check if label already exists - if so, just update the text
-        if let existingLabel = card.subviews.first(where: { $0.identifier?.rawValue == "nowPlayingLabel" }) as? NSTextField {
-            existingLabel.stringValue = text
-            // Still update album art in case it changed
-            addAlbumArtImage(to: card, url: albumArtURL, sourceType: sourceType)
-            addSourceBadge(to: card, sourceType: sourceType)
-            return
-        }
-        
-        let nowPlayingLabel = NSTextField(labelWithString: text)
-        nowPlayingLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        nowPlayingLabel.textColor = .secondaryLabelColor
-        nowPlayingLabel.lineBreakMode = .byTruncatingTail
-        nowPlayingLabel.maximumNumberOfLines = 1
-        nowPlayingLabel.toolTip = text  // Show full text on hover
-        nowPlayingLabel.translatesAutoresizingMaskIntoConstraints = false
-        nowPlayingLabel.identifier = NSUserInterfaceItemIdentifier("nowPlayingLabel")
-
-        card.addSubview(nowPlayingLabel)
-
-        // Add album art image view
-        addAlbumArtImage(to: card, url: albumArtURL, sourceType: sourceType)
-
-        // Check if this is a group card or speaker card
-        // Group cards have an NSImageView with "hifispeaker.2.fill" icon
-        let hasGroupIcon = card.subviews.contains { view in
-            if let imageView = view as? NSImageView,
-               let imageName = imageView.image?.name(),
-               imageName.contains("hifispeaker.2") {
-                return true
-            }
-            return false
-        }
-
-        if hasGroupIcon {
-            // GROUP CARD: Find nameLabel by identifier and reposition after album art
-            if let nameLabel = card.subviews.first(where: { $0.identifier?.rawValue == "groupNameLabel" }) as? NSTextField {
-                // Remove existing leading constraint
-                let constraintsToRemove = card.constraints.filter { constraint in
-                    (constraint.firstItem as? NSTextField == nameLabel && constraint.firstAttribute == .leading) ||
-                    (constraint.secondItem as? NSTextField == nameLabel && constraint.secondAttribute == .leading)
-                }
-                NSLayoutConstraint.deactivate(constraintsToRemove)
-
-                // Position after album art (icon 8 + width 20 + spacing 10 + albumArt 40 + spacing 16 = 94pt)
-                nameLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 94).isActive = true
-            }
-        } else {
-            // SPEAKER CARD: Find textStack and reposition it
-            if let textStack = card.subviews.first(where: { $0 is NSStackView }) as? NSStackView {
-                // Remove the centerY and leading constraints on textStack
-                let constraintsToRemove = card.constraints.filter { constraint in
-                    (constraint.firstItem as? NSStackView == textStack && (constraint.firstAttribute == .centerY || constraint.firstAttribute == .leading)) ||
-                    (constraint.secondItem as? NSStackView == textStack && (constraint.secondAttribute == .centerY || constraint.secondAttribute == .leading))
-                }
-                NSLayoutConstraint.deactivate(constraintsToRemove)
-
-                // Pin textStack to top and move right to accommodate album art (12 + 40 + 8 = 60pt)
-                NSLayoutConstraint.activate([
-                    textStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 10),
-                    textStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 60)
-                ])
-            }
-
-            // Hide icon for speaker cards (replaced by album art)
-            if let icon = card.subviews.first(where: { $0 is NSImageView && $0.identifier?.rawValue != "albumArtImageView" }) as? NSImageView {
-                icon.isHidden = true
-            }
-        }
-
-        // Position now playing label below the speaker/group name, accounting for album art
-        let nowPlayingLeading: CGFloat = hasGroupIcon ? 94 : 60  // Group cards have album art further right
-        NSLayoutConstraint.activate([
-            nowPlayingLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: nowPlayingLeading), // After album art
-            nowPlayingLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -40), // Leave room for badge
-            nowPlayingLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 34) // Below name at top:10 with tighter spacing
-        ])
-
-        // Replace greaterThanOrEqual constraint with fixed 64pt height
-        let heightConstraintsToRemove = card.constraints.filter { $0.firstAttribute == .height }
-        NSLayoutConstraint.deactivate(heightConstraintsToRemove)
-        card.heightAnchor.constraint(equalToConstant: 64).isActive = true
-
-        // Force layout update
-        card.needsLayout = true
-        card.layoutSubtreeIfNeeded()
-
-        // Update popover size to accommodate expanded cards (unless batching)
-        if !skipResize {
-            updatePopoverSize(animated: true, duration: 0.15)
-        }
-    }
-
-    /// Add album art image to card with fallback SF Symbol
-    private func addAlbumArtImage(to card: NSView, url: String?, sourceType: SonosController.AudioSourceType) {
-        // Check if imageView already exists - if so, just update the image
-        if let existingImageView = card.subviews.first(where: { $0.identifier?.rawValue == "albumArtImageView" }) as? NSImageView {
-            // Update the fallback symbol
-            let fallbackSymbol: String
-            switch sourceType {
-            case .streaming:
-                fallbackSymbol = "music.note"
-            case .lineIn:
-                fallbackSymbol = "waveform"
-            case .tv:
-                fallbackSymbol = "tv"
-            default:
-                fallbackSymbol = "music.note"
-            }
-            
-            let symbolConfig = NSImage.SymbolConfiguration(pointSize: 20, weight: .regular)
-            if let symbolImage = NSImage(systemSymbolName: fallbackSymbol, accessibilityDescription: nil)?
-                .withSymbolConfiguration(symbolConfig) {
-                let fallbackImage = NSImage(size: NSSize(width: 40, height: 40))
-                fallbackImage.lockFocus()
-                NSColor.quaternaryLabelColor.setFill()
-                NSBezierPath(rect: NSRect(x: 0, y: 0, width: 40, height: 40)).fill()
-                let symbolSize = symbolImage.size
-                let x = (40 - symbolSize.width) / 2
-                let y = (40 - symbolSize.height) / 2
-                symbolImage.draw(at: NSPoint(x: x, y: y), from: .zero, operation: .sourceOver, fraction: 0.5)
-                fallbackImage.unlockFocus()
-                existingImageView.image = fallbackImage
-            }
-            
-            // Async load album art if URL provided
-            if let urlString = url, let controller = appDelegate?.sonosController {
-                Task {
-                    if let albumArt = await controller.fetchAlbumArt(url: urlString) {
-                        await MainActor.run {
-                            existingImageView.image = albumArt
-                        }
-                    }
-                }
-            }
-            return
-        }
-        
-        let imageView = NSImageView()
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.identifier = NSUserInterfaceItemIdentifier("albumArtImageView")
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-        imageView.wantsLayer = true
-        imageView.layer?.cornerRadius = 4
-        imageView.layer?.masksToBounds = true
-        imageView.layer?.borderWidth = 0.5
-        imageView.layer?.borderColor = NSColor.separatorColor.cgColor
-
-        card.addSubview(imageView)
-
-        // Check if this is a group card or regular speaker card
-        // Group cards have an NSImageView with "hifispeaker.2.fill" icon
-        let hasGroupIcon = card.subviews.contains { view in
-            if let imageView = view as? NSImageView,
-               let imageName = imageView.image?.name(),
-               imageName.contains("hifispeaker.2") {
-                return true
-            }
-            return false
-        }
-
-        // Position: For group cards, place after group icon (~46pt = 8+8+20+10). For speaker cards, at leading +12pt
-        let leadingConstant: CGFloat = hasGroupIcon ? 46 : 12
-
-        NSLayoutConstraint.activate([
-            imageView.widthAnchor.constraint(equalToConstant: 40),
-            imageView.heightAnchor.constraint(equalToConstant: 40),
-            imageView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: leadingConstant),
-            imageView.centerYAnchor.constraint(equalTo: card.centerYAnchor)
-        ])
-
-        // Set fallback SF Symbol based on source type
-        let fallbackSymbol: String
-        switch sourceType {
-        case .streaming:
-            fallbackSymbol = "music.note"
-        case .lineIn:
-            fallbackSymbol = "waveform"
-        case .tv:
-            fallbackSymbol = "tv"
-        default:
-            fallbackSymbol = "music.note"
-        }
-
-        // Create SF Symbol image with gray background
-        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 20, weight: .regular)
-        if let symbolImage = NSImage(systemSymbolName: fallbackSymbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(symbolConfig) {
-            let fallbackImage = NSImage(size: NSSize(width: 40, height: 40))
-            fallbackImage.lockFocus()
-
-            // Gray background
-            NSColor.quaternaryLabelColor.setFill()
-            NSBezierPath(rect: NSRect(x: 0, y: 0, width: 40, height: 40)).fill()
-
-            // Center the symbol
-            let symbolSize = symbolImage.size
-            let x = (40 - symbolSize.width) / 2
-            let y = (40 - symbolSize.height) / 2
-            symbolImage.draw(at: NSPoint(x: x, y: y), from: .zero, operation: .sourceOver, fraction: 0.5)
-
-            fallbackImage.unlockFocus()
-            imageView.image = fallbackImage
-        }
-
-        // Async load album art if URL provided
-        if let urlString = url, let controller = appDelegate?.sonosController {
-            Task {
-                if let albumArt = await controller.fetchAlbumArt(url: urlString) {
-                    await MainActor.run {
-                        imageView.image = albumArt
-                    }
-                }
             }
         }
     }
