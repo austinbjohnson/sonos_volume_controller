@@ -11,6 +11,8 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
+- **Accessibility permission diagnostics (Phase 2)** (branch: feature/hotkey-diagnostics-phase2, @austinbjohnson)
+
 ---
 
 ## App Store Readiness
