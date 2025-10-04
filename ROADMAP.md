@@ -8,6 +8,8 @@ For completed work with dates and versions, see [CHANGELOG.md](CHANGELOG.md).
 
 _When starting work on a task, add it here with your branch name and username to help coordinate with other developers._
 
+- **Topology cache invalidation + Debug logging cleanup** (branch: enhancement/topology-cache-and-logging-cleanup, @austinbjohnson)
+
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
@@ -40,11 +42,7 @@ _Major friction points impacting usability, significant missing features, or imp
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.
 
 ### Enhancements
-- **Network error handling improvements**: Network errors show one-time alert, but no way to retry discovery or diagnose issues after dismissal. Add "Refresh" button in Speakers section when no speakers found. (MenuBarContentView.swift:711-719) [Added by claudeCode]
-
 - **Topology cache invalidation**: Topology cache persists for entire app session. If speakers are regrouped via Sonos app or network changes, cache becomes stale. Add automatic invalidation trigger or manual refresh affordance. (SonosController.swift:11-13) [Added by claudeCode]
-
-- **Group expansion click target too small**: Chevron button is only 20x20pt. Make left third of card expandable or increase chevron hit target to 44x44pt. (MenuBarContentView.swift:1102-1133) [Added by claudeCode]
 
 - **No confirmation for destructive actions**: "Ungroup Selected" immediately dissolves groups without confirmation. Add dialog: "Ungroup X speakers? This cannot be undone." or add undo capability. (MenuBarContentView.swift:1262-1345) [Added by claudeCode]
 
@@ -67,6 +65,8 @@ _Nice-to-have improvements that enhance UX or reduce technical debt._
 - **Basic playback controls**: Add play/pause, next/previous buttons since topology is already loaded. Users wouldn't need to switch to Sonos app for basic transport. [Added by claudeCode]
 
 ### Enhancements
+- **Network error handling improvements**: Network errors show one-time alert, but no way to retry discovery or diagnose issues after dismissal. Add "Refresh" button in Speakers section when no speakers found. (MenuBarContentView.swift:711-719) [Added by claudeCode]
+
 - **Volume normalization when grouping**: Individual speaker volumes preserved when creating groups, which can result in unbalanced audio. Consider normalizing to average or coordinator volume. (SonosController.swift:937-998) [Added by claudeCode]
 
 - **Group expand/collapse state persistence**: Expanded groups reset to collapsed when reopening popover. Persist `expandedGroups` Set to UserDefaults. (MenuBarContentView.swift:50) [Added by claudeCode]
