@@ -48,6 +48,12 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var ungroupProgressIndicator: NSProgressIndicator!
     private var powerButton: NSButton!
     private var refreshButton: NSButton!
+    
+    // Playback Controls
+    private var playPauseButton: NSButton!
+    private var previousButton: NSButton!
+    private var nextButton: NSButton!
+    private var currentTransportState: String?  // Track current playback state
     private var isLoadingDevices: Bool = false
     private var welcomeBanner: NSView!
     private var permissionBanner: NSView!
@@ -100,6 +106,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Build all sections inside the single glass view
         setupHeaderSection(in: contentView)
+        setupPlaybackControlsSection(in: contentView)
         setupVolumeSection(in: contentView)
         setupSpeakersSection(in: contentView)
         setupTriggerDeviceSection(in: contentView)
@@ -188,6 +195,19 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         print("🎵 UI received transport state change: \(state) for device \(deviceUUID)")
 
         Task { @MainActor in
+            // Check if this is the selected device
+            let selectedUUID = appDelegate?.sonosController.cachedSelectedDevice?.uuid
+            if deviceUUID == selectedUUID {
+                // Update current transport state
+                currentTransportState = state
+                
+                // Update play/pause button
+                updatePlayPauseButton(isPlaying: state == "PLAYING")
+                
+                // Update control availability (in case source type changed)
+                updatePlaybackControlsState()
+            }
+
             // Find the card for this device
             guard let cardIndex = speakerCardsContainer.arrangedSubviews.firstIndex(where: { view in
                 view.identifier?.rawValue == deviceUUID
@@ -198,8 +218,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
             let card = speakerCardsContainer.arrangedSubviews[cardIndex]
 
-            // For now, just refresh the now playing info for this card
-            // Future: Add visual indicator for play/pause state
+            // Refresh the now playing info for this card
             Task {
                 await self.refreshNowPlayingForCard(card)
             }
@@ -326,6 +345,105 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         ])
     }
 
+    // MARK: - Playback Controls Section
+
+    private func setupPlaybackControlsSection(in container: NSView) {
+        // Container for playback controls (horizontally centered)
+        let controlsContainer = NSView()
+        controlsContainer.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(controlsContainer)
+
+        // Previous button
+        previousButton = createTransportButton(
+            symbolName: "backward.fill",
+            size: 28,
+            action: #selector(previousTapped)
+        )
+        previousButton.toolTip = "Previous Track"
+        controlsContainer.addSubview(previousButton)
+
+        // Play/Pause button (larger, more prominent)
+        playPauseButton = createTransportButton(
+            symbolName: "play.fill",
+            size: 32,
+            action: #selector(playPauseTapped)
+        )
+        playPauseButton.toolTip = "Play"
+        controlsContainer.addSubview(playPauseButton)
+
+        // Next button
+        nextButton = createTransportButton(
+            symbolName: "forward.fill",
+            size: 28,
+            action: #selector(nextTapped)
+        )
+        nextButton.toolTip = "Next Track"
+        controlsContainer.addSubview(nextButton)
+
+        // Initially disable all controls until a device is selected
+        previousButton.isEnabled = false
+        playPauseButton.isEnabled = false
+        nextButton.isEnabled = false
+
+        // Divider after controls
+        let divider = createDivider()
+        container.addSubview(divider)
+
+        // Find the previous divider to anchor to
+        let previousDivider = container.subviews.compactMap { $0 as? NSBox }.first
+
+        NSLayoutConstraint.activate([
+            // Controls container - centered horizontally below header with more breathing room
+            controlsContainer.topAnchor.constraint(equalTo: previousDivider!.bottomAnchor, constant: 20),
+            controlsContainer.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            controlsContainer.heightAnchor.constraint(equalToConstant: 48),
+
+            // Previous button
+            previousButton.leadingAnchor.constraint(equalTo: controlsContainer.leadingAnchor),
+            previousButton.centerYAnchor.constraint(equalTo: controlsContainer.centerYAnchor),
+            previousButton.widthAnchor.constraint(equalToConstant: 48),
+            previousButton.heightAnchor.constraint(equalToConstant: 48),
+
+            // Play/Pause button (centered with spacing)
+            playPauseButton.leadingAnchor.constraint(equalTo: previousButton.trailingAnchor, constant: 16),
+            playPauseButton.centerYAnchor.constraint(equalTo: controlsContainer.centerYAnchor),
+            playPauseButton.widthAnchor.constraint(equalToConstant: 48),
+            playPauseButton.heightAnchor.constraint(equalToConstant: 48),
+
+            // Next button
+            nextButton.leadingAnchor.constraint(equalTo: playPauseButton.trailingAnchor, constant: 16),
+            nextButton.centerYAnchor.constraint(equalTo: controlsContainer.centerYAnchor),
+            nextButton.widthAnchor.constraint(equalToConstant: 48),
+            nextButton.heightAnchor.constraint(equalToConstant: 48),
+            nextButton.trailingAnchor.constraint(equalTo: controlsContainer.trailingAnchor),
+
+            // Divider below controls with more space
+            divider.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            divider.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+            divider.topAnchor.constraint(equalTo: controlsContainer.bottomAnchor, constant: 20),
+            divider.heightAnchor.constraint(equalToConstant: 1)
+        ])
+    }
+
+    /// Create a styled transport control button
+    private func createTransportButton(symbolName: String, size: CGFloat, action: Selector) -> NSButton {
+        let button = NSButton()
+        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: size, weight: .medium)
+        button.bezelStyle = .circular
+        button.isBordered = true
+        button.contentTintColor = .labelColor
+        button.target = self
+        button.action = action
+        button.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Style the button to look like macOS media controls
+        button.wantsLayer = true
+        button.layer?.cornerRadius = 24  // Match the new 48pt size
+        
+        return button
+    }
+
     // MARK: - Volume Section
 
     private func setupVolumeSection(in container: NSView) {
@@ -370,8 +488,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let divider2 = createDivider()
         container.addSubview(divider2)
 
-        // Find the previous divider to anchor to
-        let previousDivider = container.subviews.compactMap { $0 as? NSBox }.first
+        // Find the divider from the playback controls section (the second one)
+        // We need to anchor to the divider that comes AFTER the playback controls, not the first one
+        let allDividers = container.subviews.compactMap { $0 as? NSBox }
+        let previousDivider = allDividers.count >= 2 ? allDividers[1] : allDividers.first
 
         NSLayoutConstraint.activate([
             volumeTypeLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
@@ -1313,6 +1433,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         switch sourceType {
         case .streaming:
             badgeColor = .systemGreen
+        case .radio:
+            badgeColor = .systemTeal
         case .lineIn, .tv:
             badgeColor = .systemBlue
         case .grouped:
@@ -1722,6 +1844,94 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
     }
 
+    // MARK: - Playback Control Actions
+
+    @objc private func playPauseTapped() {
+        guard let controller = appDelegate?.sonosController else {
+            print("⚠️ Play/Pause tapped but no controller available")
+            return
+        }
+
+        print("🎵 Play/Pause button tapped - current state: \(currentTransportState ?? "nil")")
+        
+        // Toggle between play and pause based on current state
+        if currentTransportState == "PLAYING" {
+            print("▶️ Sending pause command")
+            Task {
+                await controller.pauseSelected()
+            }
+            // Optimistically update UI
+            updatePlayPauseButton(isPlaying: false)
+        } else {
+            print("⏸️ Sending play command")
+            Task {
+                await controller.playSelected()
+            }
+            // Optimistically update UI
+            updatePlayPauseButton(isPlaying: true)
+        }
+    }
+
+    @objc private func nextTapped() {
+        guard let controller = appDelegate?.sonosController else { return }
+        Task {
+            await controller.nextTrack()
+        }
+    }
+
+    @objc private func previousTapped() {
+        guard let controller = appDelegate?.sonosController else { return }
+        Task {
+            await controller.previousTrack()
+        }
+    }
+
+    /// Update play/pause button icon based on playback state
+    private func updatePlayPauseButton(isPlaying: Bool) {
+        let symbolName = isPlaying ? "pause.fill" : "play.fill"
+        let tooltip = isPlaying ? "Pause" : "Play"
+        
+        playPauseButton.image = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: nil
+        )
+        playPauseButton.symbolConfiguration = NSImage.SymbolConfiguration(
+            pointSize: 32,
+            weight: .medium
+        )
+        playPauseButton.toolTip = tooltip
+    }
+
+    /// Update the state of all playback controls based on current device and transport state
+    private func updatePlaybackControlsState() {
+        guard let controller = appDelegate?.sonosController else {
+            // No controller - disable everything
+            print("🎵 Disabling playback controls - no controller")
+            playPauseButton.isEnabled = false
+            previousButton.isEnabled = false
+            nextButton.isEnabled = false
+            return
+        }
+
+        let (canControl, supportsSkipping) = controller.getTransportCapabilities()
+        
+        print("🎵 Updating playback controls: canControl=\(canControl), supportsSkipping=\(supportsSkipping)")
+
+        // Update button enabled states
+        playPauseButton.isEnabled = canControl
+        previousButton.isEnabled = canControl && supportsSkipping
+        nextButton.isEnabled = canControl && supportsSkipping
+
+        // Update tooltips for disabled skip buttons
+        if !supportsSkipping && canControl {
+            previousButton.toolTip = "Not available for this source"
+            nextButton.toolTip = "Not available for this source"
+        } else {
+            previousButton.toolTip = "Previous Track"
+            nextButton.toolTip = "Next Track"
+        }
+    }
+
     private func performMemberVolumeRefresh() {
         // Find all member card containers (paddedContainer wrapping the actual member card)
         let memberContainers = speakerCardsContainer.arrangedSubviews.filter { view in
@@ -1853,6 +2063,23 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             if let controller = appDelegate?.sonosController,
                let device = controller.cachedDiscoveredDevices.first(where: { $0.name == deviceName }) {
                 await controller.subscribeToTransportUpdates(for: device.uuid)
+                
+                // Fetch audio source info to populate the device's audioSource field
+                if let sourceInfo = await controller.getAudioSourceInfo(for: device) {
+                    await MainActor.run {
+                        self.currentTransportState = sourceInfo.state
+                        self.updatePlayPauseButton(isPlaying: sourceInfo.state == "PLAYING")
+                        // Trigger update after we have source info
+                        self.updatePlaybackControlsState()
+                    }
+                } else {
+                    // Fallback: use cached transport state if available
+                    await MainActor.run {
+                        self.currentTransportState = device.transportState
+                        self.updatePlayPauseButton(isPlaying: device.transportState == "PLAYING")
+                        self.updatePlaybackControlsState()
+                    }
+                }
             }
         }
         // Track this speaker as last active
@@ -1864,6 +2091,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Update volume slider for the newly selected speaker
         updateVolumeFromSonos()
+        
+        // Update playback controls state
+        updatePlaybackControlsState()
     }
 
     @objc private func speakerSelectionChanged(_ sender: NSButton) {
@@ -1916,6 +2146,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         if let group = controller.cachedDiscoveredGroups.first(where: { $0.id == groupId }) {
             Task {
                 await appDelegate?.sonosController.selectDevice(name: group.coordinator.name)
+                
+                // Get initial transport state for this group coordinator
+                await MainActor.run {
+                    self.currentTransportState = group.coordinator.transportState
+                    self.updatePlayPauseButton(isPlaying: group.coordinator.transportState == "PLAYING")
+                    self.updatePlaybackControlsState()
+                }
             }
             // Track this group as last active
             appDelegate?.settings.trackSpeakerActivity(group.coordinator.name)
@@ -2364,6 +2601,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         updateTriggerDeviceLabel()
         populateSpeakers()
         // Don't fetch volume here - it will be updated via notification after device selection
+        
+        // Update playback controls state when refreshing
+        updatePlaybackControlsState()
     }
 
     func updateTriggerDeviceLabel() {
