@@ -79,7 +79,6 @@ _Nice-to-have improvements that enhance UX or reduce technical debt._
 
 - **Wrong device HUD clarity**: "Wrong audio device" message doesn't guide users to fix it. Change to "Switch to [Trigger Device] to use hotkeys" with current device shown. (VolumeKeyMonitor.swift) [Added by claudeCode]
 
-- **Long speaker name truncation**: Names truncated with ellipsis in cards. Add tooltip showing full name on hover or use 2-line wrapping. (MenuBarContentView.swift:548-671) [Added by claudeCode]
 
 - **Offline/unreachable speaker detection**: Offline speakers remain in list, controls fail silently. Detect timeouts, show "Offline" badge, auto-refresh topology every 60s. (SonosController.swift) [Added by claudeCode]
 
@@ -148,6 +147,12 @@ _(Moved to P0/P1 sections)_
 - **Line-in audio lost when grouping with stereo pairs**: When a stereo pair is playing line-in audio and grouped with another speaker, the line-in audio stops because the non-stereo-pair becomes coordinator and line-in sources are device-specific (cannot be shared). Workaround: Manually set the stereo pair with line-in as the coordinator in the Sonos app, or use streaming sources instead of line-in when grouping.
 
 ## Recently Resolved
+
+- **Now Playing display section** ✅ ADDED (2025-10-04): Added dedicated now-playing display between playback controls and volume slider showing current track information with album art. Display adapts to audio source type (streaming, radio, line-in, TV) and updates in real-time via UPnP transport events. Section automatically hides when device is idle. (PR #XX)
+
+- **Speaker and group name text truncation** ✅ FIXED (2025-10-04): Fixed issue where long group names were being cut off in the middle. Applied explicit trailing constraints, changed truncation from middle to tail (ellipsis at end), added tooltips showing full names on hover. Applies to all cards: group cards, speaker cards, member cards, and now-playing labels. (PR #XX)
+
+- **Dynamic popover height expansion** ✅ IMPROVED (2025-10-04): Popover now expands vertically to show all speakers without internal scrolling (up to screen limit). Calculates maximum height based on available screen space. Better experience for users with 2-10 speakers while gracefully handling larger installations with scrolling only when needed. (PR #XX)
 
 - **Basic playback controls** ✅ ADDED (2025-10-04): Implemented play/pause, previous, and next transport controls in menu bar UI. Controls intelligently adapt to audio source type: streaming content supports all controls, radio/line-in support play/pause only. Added radio detection as separate AudioSourceType to distinguish from skippable streaming content. Controls route to group coordinator when speaker is in a multi-speaker group. (PR #54)
 
