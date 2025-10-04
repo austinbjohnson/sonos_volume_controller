@@ -149,6 +149,6 @@ _(Moved to P0/P1 sections)_
 
 ## Recently Resolved
 
-- **Basic playback controls** ✅ ADDED (2025-10-04): Implemented play/pause, previous, and next transport controls in menu bar UI. Controls intelligently adapt to audio source type: streaming content supports all controls, radio/line-in support play/pause only. Added radio detection as separate AudioSourceType to distinguish from skippable streaming content. Controls route to group coordinator when speaker is in a multi-speaker group. (PR #XX)
+- **Basic playback controls** ✅ ADDED (2025-10-04): Implemented play/pause, previous, and next transport controls in menu bar UI. Controls intelligently adapt to audio source type: streaming content supports all controls, radio/line-in support play/pause only. Added radio detection as separate AudioSourceType to distinguish from skippable streaming content. Controls route to group coordinator when speaker is in a multi-speaker group. (PR #54)
 
 - **Transport state updates not working for certain speakers** ✅ FIXED (2025-10-04): Root cause was HTML-encoded XML in AVTransport LastChange events. Sonos sends transport state wrapped in `&lt;TransportState&gt;` entities rather than raw XML tags. Added HTML entity decoding (`&quot;`, `&lt;`, `&gt;`, `&amp;`) before XML parsing. Also fixed concurrency crash by wrapping NotificationCenter.post in MainActor.run. All speakers now receive real-time play/pause UI updates. (PR #53)
