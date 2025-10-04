@@ -11,6 +11,8 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
+- **Line-in audio source stops when grouping** (branch: bug/line-in-grouping-fix, @austinbjohnson)
+
 ---
 
 ## App Store Readiness
