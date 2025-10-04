@@ -40,12 +40,6 @@ _Major friction points impacting usability, significant missing features, or imp
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.
 
 ### Enhancements
-- **Network error handling improvements**: Network errors show one-time alert, but no way to retry discovery or diagnose issues after dismissal. Add "Refresh" button in Speakers section when no speakers found. (MenuBarContentView.swift:711-719) [Added by claudeCode]
-
-- **Topology cache invalidation**: Topology cache persists for entire app session. If speakers are regrouped via Sonos app or network changes, cache becomes stale. Add automatic invalidation trigger or manual refresh affordance. (SonosController.swift:11-13) [Added by claudeCode]
-
-- **Group expansion click target too small**: Chevron button is only 20x20pt. Make left third of card expandable or increase chevron hit target to 44x44pt. (MenuBarContentView.swift:1102-1133) [Added by claudeCode]
-
 - **No confirmation for destructive actions**: "Ungroup Selected" immediately dissolves groups without confirmation. Add dialog: "Ungroup X speakers? This cannot be undone." or add undo capability. (MenuBarContentView.swift:1262-1345) [Added by claudeCode]
 
 ### Architecture
@@ -67,6 +61,8 @@ _Nice-to-have improvements that enhance UX or reduce technical debt._
 - **Basic playback controls**: Add play/pause, next/previous buttons since topology is already loaded. Users wouldn't need to switch to Sonos app for basic transport. [Added by claudeCode]
 
 ### Enhancements
+- **Network error handling improvements**: Network errors show one-time alert, but no way to retry discovery or diagnose issues after dismissal. Add "Refresh" button in Speakers section when no speakers found. (MenuBarContentView.swift:711-719) [Added by claudeCode]
+
 - **Volume normalization when grouping**: Individual speaker volumes preserved when creating groups, which can result in unbalanced audio. Consider normalizing to average or coordinator volume. (SonosController.swift:937-998) [Added by claudeCode]
 
 - **Group expand/collapse state persistence**: Expanded groups reset to collapsed when reopening popover. Persist `expandedGroups` Set to UserDefaults. (MenuBarContentView.swift:50) [Added by claudeCode]
@@ -93,10 +89,6 @@ _Nice-to-have improvements that enhance UX or reduce technical debt._
 - **Permission monitoring observer cleanup**: AppSettings tracks permission observers in array but never removes them, potential memory leak if components are deallocated. Add `removePermissionObserver()` method or use weak references. Also consider converting to Combine Publishers for better lifecycle management. (AppSettings.swift:233-240) [Added by claudeCode - Phase 1 technical debt]
 
 - **VolumeKeyMonitor needs pause/resume for testing**: Test Hotkeys feature (Phase 2) requires temporarily disabling main event tap to avoid conflicts. Add `pause()` and `resume()` methods to VolumeKeyMonitor that disable/enable the event tap without full teardown. Store tap state to handle re-entrancy. (VolumeKeyMonitor.swift) [Added by claudeCode - Phase 2 requirement]
-
-- **Excessive debug logging from group volume work**: PR #39 added comprehensive 📊/🎚️ logging for debugging group volume synchronization. Now that it's working, clean up duplicate/verbose logs and wrap remaining debug statements in `#if DEBUG`. Focus on: MenuBarContentView.swift:1063-1215 (volumeChanged, refreshMemberVolumes, performMemberVolumeRefresh), SonosController.swift:1496-1598 (snapshotGroupVolume, setGroupVolume). [Added by claudeCode]
-
-- **Excessive debug logging from popover height work**: PR #41 added comprehensive 🔍 logging for debugging animation timing and layout measurement during expand/collapse. Clean up logs and wrap in `#if DEBUG`. Focus on: MenuBarContentView.swift:1347-1451 (animateInsertMemberCards, animateRemoveMemberCards, card height logging), calculateContentHeight, updatePopoverSize. [Added by claudeCode]
 
 - **Remaining Sendable warnings in SonosController**: Multiple warnings for mutation of captured vars and non-Sendable completion handlers. Convert remaining completion handler callbacks to use `@Sendable` closures or pure async/await patterns. (SonosController.swift:461, 465, 476, 790, 926, 1075, 1213, 1266) [Added by claudeCode]
 

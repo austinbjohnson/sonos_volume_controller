@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Manual topology refresh button - arrow.clockwise button in menu bar header to force refresh of speaker topology, solves stale cache when speakers regrouped externally via Sonos app or network changes (PR #51)
 - Real-time trigger device display updates - trigger device display in menu bar popover now updates immediately when changed in Preferences window, no longer requires closing and reopening popover (PR #50)
 - Visual indication for standby mode - menu bar icon dims to 50% opacity when app is disabled (standby mode), providing at-a-glance feedback on whether hotkeys are active (PR #50)
 - Loading states for async operations - grouping and ungrouping buttons now show inline progress spinners during 3-5 second operations, preventing confusion and accidental double-clicks (PR #50)
@@ -44,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Line-in audio preservation during grouping - detects line-in sources (turntables, aux inputs) and automatically makes the line-in speaker the group coordinator to prevent audio interruption, includes smart priority system (Line-In > TV > Streaming > Idle) and TOCTOU race condition protection (PR #47)
 
 ### Technical
+- Debug logging cleanup - removed verbose PR #39 (group volume) and PR #41 (popover height) debug logs, wrapped remaining diagnostic logs in #if DEBUG for cleaner release builds, kept important state change notifications (PR #51)
 - Infrastructure layer extraction - refactored SonosController god object by extracting infrastructure components (SSDPSocket, SSDPDiscoveryService, SonosNetworkClient, XMLParsingHelpers) into separate, focused modules with clean interfaces and improved testability, reduced SonosController from 1,732 to 1,471 lines (-15%)
 - Complete SOAP migration - migrated all 6 remaining SOAP operations (group volume, grouping/ungrouping, playback control) to use SonosNetworkClient, eliminated 229 lines of boilerplate URLSession code, added type-safe AVTransport convenience methods, fixed pre-existing thread safety issues
 
