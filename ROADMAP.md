@@ -37,6 +37,8 @@ _Issues that break core functionality. Must fix immediately._
 _Major friction points impacting usability, significant missing features, or important architectural issues._
 
 ### Features
+- **Intelligent audio source selection when grouping**: When grouping speakers, automatically select the most appropriate audio source rather than arbitrary coordinator selection. Inspired by Sonos physical button UX: actively playing audio should take precedence over paused/idle speakers. For example, when grouping two stereo pairs where one is playing and one is paused, the playing audio should automatically become the group's source. Enhance grouping flow to detect what's currently playing across selected speakers and intelligently choose coordinator to preserve active playback. Consider showing user a preview/confirmation when multiple speakers are playing different content ("Join [Speaker A] playing [Song]?" vs "Make [Speaker B] the leader?"). This would capture the essence of Sonos's beloved physical interaction model in the digital UI. [Added 2025-10-04]
+
 - **Trigger device cache management**: Add ability to refresh trigger sources and cache them persistently. Users should be able to manually delete cached devices that are no longer relevant (similar to WiFi network history - devices remain in cache even when not currently available, but can be manually removed).
 
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.
