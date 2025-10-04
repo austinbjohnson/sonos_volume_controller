@@ -35,6 +35,8 @@ _Issues that break core functionality. Must fix immediately._
 _Major friction points impacting usability, significant missing features, or important architectural issues._
 
 ### Features
+- **Audio source visibility in UI (Phase 2 of line-in fix)**: Add visual indicators showing what each speaker is playing. Display badges on speaker cards (orange=line-in, purple=TV, green=streaming, gray=idle). Show helper text during grouping to preview which audio will be preserved. Add proactive warnings when selecting incompatible sources. This completes the UX portion of PR #47's backend work. (LINEIN-5, LINEIN-6 from ticket breakdown)
+
 - **Trigger device cache management**: Add ability to refresh trigger sources and cache them persistently. Users should be able to manually delete cached devices that are no longer relevant (similar to WiFi network history - devices remain in cache even when not currently available, but can be manually removed).
 
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.

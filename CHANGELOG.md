@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed hotkeys not working in installed app - reverted to F11/F12 defaults, fixed CGEventFlags conversion, added network entitlements, improved permission flow with auto-restart (PR #22)
 
 ### Fixed
-- Line-in audio preservation during grouping - detects line-in sources (turntables, aux inputs) and automatically makes the line-in speaker the group coordinator to prevent audio interruption, includes smart priority system (Line-In > TV > Streaming > Idle) and TOCTOU race condition protection (PR #)
+- Line-in audio preservation during grouping - detects line-in sources (turntables, aux inputs) and automatically makes the line-in speaker the group coordinator to prevent audio interruption, includes smart priority system (Line-In > TV > Streaming > Idle) and TOCTOU race condition protection (PR #47)
 
 ### Technical
 - Infrastructure layer extraction - refactored SonosController god object by extracting infrastructure components (SSDPSocket, SSDPDiscoveryService, SonosNetworkClient, XMLParsingHelpers) into separate, focused modules with clean interfaces and improved testability, reduced SonosController from 1,732 to 1,471 lines (-15%)
