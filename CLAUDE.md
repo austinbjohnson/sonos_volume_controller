@@ -18,6 +18,8 @@ Discuss with the user which task to tackle next.
 
 ### 2. Starting Work
 
+**Use agents you have access to to ruthlessly parallelize and manage the context window**
+
 1. **Create branch from main**: Use descriptive naming
    - Features: `feature/descriptive-name`
    - Enhancements: `enhancement/descriptive-name`
