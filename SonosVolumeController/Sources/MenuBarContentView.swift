@@ -54,6 +54,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var previousButton: NSButton!
     private var nextButton: NSButton!
     private var currentTransportState: String?  // Track current playback state
+    
+    // Now Playing Display
+    private var nowPlayingContainer: NSView!
+    private var nowPlayingAlbumArt: NSImageView!
+    private var nowPlayingTitle: NSTextField!
+    private var nowPlayingArtist: NSTextField!
+    private var nowPlayingHeightConstraint: NSLayoutConstraint!
+    
     private var isLoadingDevices: Bool = false
     private var welcomeBanner: NSView!
     private var permissionBanner: NSView!
@@ -107,6 +115,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Build all sections inside the single glass view
         setupHeaderSection(in: contentView)
         setupPlaybackControlsSection(in: contentView)
+        setupNowPlayingSection(in: contentView)
         setupVolumeSection(in: contentView)
         setupSpeakersSection(in: contentView)
         setupTriggerDeviceSection(in: contentView)
@@ -206,6 +215,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 
                 // Update control availability (in case source type changed)
                 updatePlaybackControlsState()
+                
+                // Update now-playing display
+                updateNowPlayingDisplay()
             }
 
             // Find the card for this device
@@ -444,6 +456,243 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         return button
     }
 
+    // MARK: - Now Playing Section
+
+    private func setupNowPlayingSection(in container: NSView) {
+        // Container for now playing info
+        nowPlayingContainer = NSView()
+        nowPlayingContainer.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(nowPlayingContainer)
+        
+        // Album art thumbnail (44x44pt with corner radius)
+        nowPlayingAlbumArt = NSImageView()
+        nowPlayingAlbumArt.wantsLayer = true
+        nowPlayingAlbumArt.layer?.cornerRadius = 6
+        nowPlayingAlbumArt.layer?.masksToBounds = true
+        nowPlayingAlbumArt.layer?.borderWidth = 0.5
+        nowPlayingAlbumArt.layer?.borderColor = NSColor.separatorColor.cgColor
+        nowPlayingAlbumArt.imageScaling = .scaleProportionallyUpOrDown
+        nowPlayingAlbumArt.translatesAutoresizingMaskIntoConstraints = false
+        nowPlayingContainer.addSubview(nowPlayingAlbumArt)
+        
+        // Text stack container
+        let textStack = NSStackView()
+        textStack.orientation = .vertical
+        textStack.spacing = 2
+        textStack.alignment = .leading
+        textStack.distribution = .fill
+        textStack.translatesAutoresizingMaskIntoConstraints = false
+        nowPlayingContainer.addSubview(textStack)
+        
+        // Track title label
+        nowPlayingTitle = NSTextField(labelWithString: "")
+        nowPlayingTitle.font = .systemFont(ofSize: 13, weight: .semibold)
+        nowPlayingTitle.textColor = .labelColor
+        nowPlayingTitle.lineBreakMode = .byTruncatingTail
+        nowPlayingTitle.maximumNumberOfLines = 1
+        nowPlayingTitle.translatesAutoresizingMaskIntoConstraints = false
+        textStack.addArrangedSubview(nowPlayingTitle)
+        
+        // Artist/metadata label
+        nowPlayingArtist = NSTextField(labelWithString: "")
+        nowPlayingArtist.font = .systemFont(ofSize: 11, weight: .regular)
+        nowPlayingArtist.textColor = .secondaryLabelColor
+        nowPlayingArtist.lineBreakMode = .byTruncatingTail
+        nowPlayingArtist.maximumNumberOfLines = 1
+        nowPlayingArtist.translatesAutoresizingMaskIntoConstraints = false
+        textStack.addArrangedSubview(nowPlayingArtist)
+        
+        // Find the previous divider to anchor to (after playback controls)
+        let allDividers = container.subviews.compactMap { $0 as? NSBox }
+        let previousDivider = allDividers.count >= 2 ? allDividers[1] : allDividers.first
+        
+        // Create height constraint for show/hide functionality
+        nowPlayingHeightConstraint = nowPlayingContainer.heightAnchor.constraint(equalToConstant: 0)
+        nowPlayingHeightConstraint.priority = .required
+        
+        NSLayoutConstraint.activate([
+            // Container positioning (between playback controls and volume)
+            nowPlayingContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            nowPlayingContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+            nowPlayingContainer.topAnchor.constraint(equalTo: previousDivider!.bottomAnchor, constant: 16),
+            nowPlayingHeightConstraint,
+            
+            // Album art positioning and size
+            nowPlayingAlbumArt.leadingAnchor.constraint(equalTo: nowPlayingContainer.leadingAnchor),
+            nowPlayingAlbumArt.centerYAnchor.constraint(equalTo: nowPlayingContainer.centerYAnchor),
+            nowPlayingAlbumArt.widthAnchor.constraint(equalToConstant: 44),
+            nowPlayingAlbumArt.heightAnchor.constraint(equalToConstant: 44),
+            
+            // Text stack positioning
+            textStack.leadingAnchor.constraint(equalTo: nowPlayingAlbumArt.trailingAnchor, constant: 12),
+            textStack.trailingAnchor.constraint(equalTo: nowPlayingContainer.trailingAnchor),
+            textStack.centerYAnchor.constraint(equalTo: nowPlayingContainer.centerYAnchor),
+        ])
+        
+        // Start hidden (will be shown when device is selected and playing)
+        nowPlayingContainer.isHidden = true
+    }
+    
+    /// Update the now-playing display with current track info
+    @MainActor
+    private func updateNowPlayingDisplay() {
+        guard let controller = appDelegate?.sonosController,
+              let selectedDevice = controller.cachedSelectedDevice else {
+            // No device selected - hide now-playing
+            hideNowPlayingSection()
+            return
+        }
+        
+        // Check cache first for this device's now-playing info
+        let cache = nowPlayingCache[selectedDevice.uuid]
+        let sourceType = cache?.sourceType ?? selectedDevice.audioSource
+        let nowPlaying = cache?.nowPlaying ?? selectedDevice.nowPlaying
+        let transportState = cache?.state ?? selectedDevice.transportState
+        
+        // Hide if idle or no source type
+        guard let source = sourceType, source != .idle else {
+            hideNowPlayingSection()
+            return
+        }
+        
+        // Update based on source type
+        switch source {
+        case .streaming:
+            if let np = nowPlaying {
+                showNowPlayingSection()
+                nowPlayingTitle.stringValue = np.title ?? "Unknown Track"
+                nowPlayingArtist.stringValue = np.artist ?? ""
+                
+                // Load album art
+                if let artURL = np.albumArtURL {
+                    loadAlbumArt(url: artURL, sourceType: source)
+                } else {
+                    setFallbackAlbumArt(sourceType: source)
+                }
+            } else {
+                // Streaming but no metadata yet
+                showNowPlayingSection()
+                nowPlayingTitle.stringValue = transportState == "PLAYING" ? "Playing..." : "Ready"
+                nowPlayingArtist.stringValue = ""
+                setFallbackAlbumArt(sourceType: source)
+            }
+            
+        case .radio:
+            showNowPlayingSection()
+            nowPlayingTitle.stringValue = nowPlaying?.title ?? "Radio"
+            nowPlayingArtist.stringValue = nowPlaying?.artist ?? "Streaming"
+            setFallbackAlbumArt(sourceType: source)
+            
+        case .lineIn:
+            showNowPlayingSection()
+            nowPlayingTitle.stringValue = "Line-In Audio"
+            nowPlayingArtist.stringValue = selectedDevice.name
+            setFallbackAlbumArt(sourceType: source)
+            
+        case .tv:
+            showNowPlayingSection()
+            nowPlayingTitle.stringValue = "TV Audio"
+            nowPlayingArtist.stringValue = selectedDevice.name
+            setFallbackAlbumArt(sourceType: source)
+            
+        case .grouped:
+            // If grouped, show coordinator's now-playing info
+            if let group = controller.cachedDiscoveredGroups.first(where: { $0.isMember(selectedDevice) }) {
+                let coordinatorCache = nowPlayingCache[group.coordinator.uuid]
+                if let coordSource = coordinatorCache?.sourceType, coordSource != SonosController.AudioSourceType.idle {
+                    // Recursively update using coordinator's info (will handle source type appropriately)
+                    // For now, just show grouped status
+                    showNowPlayingSection()
+                    nowPlayingTitle.stringValue = "Grouped Playback"
+                    nowPlayingArtist.stringValue = "Following \(group.coordinator.name)"
+                    setFallbackAlbumArt(sourceType: .grouped)
+                } else {
+                    hideNowPlayingSection()
+                }
+            } else {
+                hideNowPlayingSection()
+            }
+            
+        case .idle:
+            hideNowPlayingSection()
+        }
+    }
+    
+    private func showNowPlayingSection() {
+        nowPlayingContainer.isHidden = false
+        nowPlayingHeightConstraint.constant = 60  // Album art (44pt) + padding
+        updatePopoverSize(animated: true, duration: 0.2)
+    }
+    
+    private func hideNowPlayingSection() {
+        nowPlayingContainer.isHidden = true
+        nowPlayingHeightConstraint.constant = 0
+        updatePopoverSize(animated: true, duration: 0.2)
+    }
+    
+    private func loadAlbumArt(url: String, sourceType: SonosController.AudioSourceType) {
+        guard let controller = appDelegate?.sonosController else { return }
+        
+        // Set fallback first
+        setFallbackAlbumArt(sourceType: sourceType)
+        
+        // Then load actual art async
+        Task {
+            if let albumArt = await controller.fetchAlbumArt(url: url) {
+                await MainActor.run {
+                    nowPlayingAlbumArt.image = albumArt
+                }
+            }
+        }
+    }
+    
+    private func setFallbackAlbumArt(sourceType: SonosController.AudioSourceType) {
+        let symbolName: String
+        let backgroundColor: NSColor
+        
+        switch sourceType {
+        case .streaming:
+            symbolName = "music.note"
+            backgroundColor = .systemGreen.withAlphaComponent(0.2)
+        case .radio:
+            symbolName = "antenna.radiowaves.left.and.right"
+            backgroundColor = .systemTeal.withAlphaComponent(0.2)
+        case .lineIn:
+            symbolName = "waveform"
+            backgroundColor = .systemBlue.withAlphaComponent(0.2)
+        case .tv:
+            symbolName = "tv"
+            backgroundColor = .systemPurple.withAlphaComponent(0.2)
+        case .grouped:
+            symbolName = "hifispeaker.2"
+            backgroundColor = .systemGray.withAlphaComponent(0.2)
+        case .idle:
+            symbolName = "music.note"
+            backgroundColor = .systemGray.withAlphaComponent(0.2)
+        }
+        
+        // Create image with symbol and background
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 22, weight: .regular)
+        guard let symbolImage = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(symbolConfig) else { return }
+        
+        let fallbackImage = NSImage(size: NSSize(width: 44, height: 44))
+        fallbackImage.lockFocus()
+        
+        // Background
+        backgroundColor.setFill()
+        NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: 44, height: 44), xRadius: 6, yRadius: 6).fill()
+        
+        // Center the symbol
+        let symbolSize = symbolImage.size
+        let x = (44 - symbolSize.width) / 2
+        let y = (44 - symbolSize.height) / 2
+        symbolImage.draw(at: NSPoint(x: x, y: y), from: .zero, operation: .sourceOver, fraction: 1.0)
+        
+        fallbackImage.unlockFocus()
+        nowPlayingAlbumArt.image = fallbackImage
+    }
+
     // MARK: - Volume Section
 
     private func setupVolumeSection(in container: NSView) {
@@ -488,14 +737,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let divider2 = createDivider()
         container.addSubview(divider2)
 
-        // Find the divider from the playback controls section (the second one)
-        // We need to anchor to the divider that comes AFTER the playback controls, not the first one
-        let allDividers = container.subviews.compactMap { $0 as? NSBox }
-        let previousDivider = allDividers.count >= 2 ? allDividers[1] : allDividers.first
-
         NSLayoutConstraint.activate([
             volumeTypeLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
-            volumeTypeLabel.topAnchor.constraint(equalTo: previousDivider!.bottomAnchor, constant: 16),
+            volumeTypeLabel.topAnchor.constraint(equalTo: nowPlayingContainer.bottomAnchor, constant: 16),
 
             volumeIcon.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             volumeIcon.topAnchor.constraint(equalTo: volumeTypeLabel.bottomAnchor, constant: 8),
@@ -609,7 +853,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let previousDivider = previousDividers[previousDividers.count - 2]
 
         // Create height constraints for dynamic sizing
+        // Start with a reasonable default, will be updated dynamically based on content and screen size
         scrollViewHeightConstraint = scrollView.heightAnchor.constraint(equalToConstant: 200)
+        scrollViewHeightConstraint.priority = .defaultHigh  // Allow it to be overridden
         permissionBannerHeightConstraint = permissionBanner.heightAnchor.constraint(equalToConstant: 0) // Start hidden
         welcomeBannerHeightConstraint = welcomeBanner.heightAnchor.constraint(equalToConstant: 0) // Start hidden
 
@@ -680,6 +926,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let nameLabel = NSTextField(labelWithString: group.name)
         nameLabel.font = .systemFont(ofSize: 13, weight: isActive ? .semibold : .medium)
         nameLabel.textColor = isActive ? .labelColor : .labelColor
+        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.maximumNumberOfLines = 1
+        nameLabel.toolTip = group.name  // Show full name on hover
+        nameLabel.identifier = NSUserInterfaceItemIdentifier("groupNameLabel")  // For repositioning when album art added
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
 
         // Selection checkbox for ungrouping
@@ -717,7 +967,40 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         card.addSubview(nameLabel)
         card.addSubview(checkbox)
 
-        // Check cache and add now-playing content immediately if available (use coordinator UUID)
+        // Check cache and determine if we'll have album art
+        let hasNowPlayingContent: Bool
+        if let cached = nowPlayingCache[group.coordinator.uuid],
+           let sourceType = cached.sourceType,
+           (sourceType == .streaming || sourceType == .lineIn || sourceType == .tv) {
+            hasNowPlayingContent = true
+        } else {
+            hasNowPlayingContent = false
+        }
+        
+        // Calculate name label leading position based on whether we have album art
+        let nameLabelLeading: CGFloat = hasNowPlayingContent ? 94 : 38  // 94 = icon(8) + iconWidth(20) + spacing(10) + albumArt(40) + spacing(16), 38 = icon(8) + iconWidth(20) + spacing(10)
+
+        // Set up constraints BEFORE adding now-playing content
+        NSLayoutConstraint.activate([
+            // Position icon at leading edge
+            icon.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
+            icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 20),
+            icon.heightAnchor.constraint(equalToConstant: 20),
+
+            // Position name after icon (or after album art if present)
+            nameLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: nameLabelLeading),
+            nameLabel.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            nameLabel.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -10),
+
+            // Checkbox stays on right (aligned with speaker checkboxes)
+            checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+
+            card.heightAnchor.constraint(equalToConstant: 42)
+        ])
+        
+        // Now add now-playing content if available (after constraints are set up)
         if let cached = nowPlayingCache[group.coordinator.uuid] {
             if let nowPlaying = cached.nowPlaying, let sourceType = cached.sourceType, sourceType == .streaming {
                 addNowPlayingLabel(to: card, text: nowPlaying.displayText, albumArtURL: nowPlaying.albumArtURL, sourceType: sourceType, skipResize: true)
@@ -731,25 +1014,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 addSourceBadge(to: card, sourceType: sourceType)
             }
         }
-
-        NSLayoutConstraint.activate([
-            // Position icon at leading edge
-            icon.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
-            icon.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 20),
-            icon.heightAnchor.constraint(equalToConstant: 20),
-
-            // Position name after icon
-            nameLabel.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
-            nameLabel.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            nameLabel.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -10),
-
-            // Checkbox stays on right (aligned with speaker checkboxes)
-            checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
-            checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-
-            card.heightAnchor.constraint(equalToConstant: 42)
-        ])
 
         return card
     }
@@ -779,6 +1043,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let nameLabel = NSTextField(labelWithString: device.name)
         nameLabel.font = .systemFont(ofSize: 12, weight: .regular)
         nameLabel.textColor = .secondaryLabelColor
+        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.maximumNumberOfLines = 1
+        nameLabel.toolTip = device.name  // Show full name on hover
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
 
         // Volume slider for this individual speaker
@@ -891,6 +1158,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let nameLabel = NSTextField(labelWithString: displayName)
         nameLabel.font = .systemFont(ofSize: 13, weight: isActive ? .semibold : .regular)
         nameLabel.textColor = isActive ? .labelColor : .secondaryLabelColor
+        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.maximumNumberOfLines = 1
+        nameLabel.toolTip = device.name  // Show full name on hover
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         textStack.addArrangedSubview(nameLabel)
 
@@ -1142,6 +1412,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             }
 
             self.updatePopoverSize(animated: false)
+            
+            // Update now-playing display for selected device
+            self.updateNowPlayingDisplay()
         }
     }
 
@@ -1222,8 +1495,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let nowPlayingLabel = NSTextField(labelWithString: text)
         nowPlayingLabel.font = .systemFont(ofSize: 11, weight: .regular)
         nowPlayingLabel.textColor = .secondaryLabelColor
-        nowPlayingLabel.lineBreakMode = .byTruncatingMiddle
+        nowPlayingLabel.lineBreakMode = .byTruncatingTail
         nowPlayingLabel.maximumNumberOfLines = 1
+        nowPlayingLabel.toolTip = text  // Show full text on hover
         nowPlayingLabel.translatesAutoresizingMaskIntoConstraints = false
         nowPlayingLabel.identifier = NSUserInterfaceItemIdentifier("nowPlayingLabel")
 
@@ -1244,8 +1518,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
 
         if hasGroupIcon {
-            // GROUP CARD: Find nameLabel and reposition after album art
-            if let nameLabel = card.subviews.first(where: { $0 is NSTextField && $0.identifier == nil }) as? NSTextField {
+            // GROUP CARD: Find nameLabel by identifier and reposition after album art
+            if let nameLabel = card.subviews.first(where: { $0.identifier?.rawValue == "groupNameLabel" }) as? NSTextField {
                 // Remove existing leading constraint
                 let constraintsToRemove = card.constraints.filter { constraint in
                     (constraint.firstItem as? NSTextField == nameLabel && constraint.firstAttribute == .leading) ||
@@ -1253,7 +1527,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 }
                 NSLayoutConstraint.deactivate(constraintsToRemove)
 
-                // Position after album art (46 + 40 + 8 = 94pt)
+                // Position after album art (icon 8 + width 20 + spacing 10 + albumArt 40 + spacing 16 = 94pt)
                 nameLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 94).isActive = true
             }
         } else {
@@ -2071,6 +2345,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                         self.updatePlayPauseButton(isPlaying: sourceInfo.state == "PLAYING")
                         // Trigger update after we have source info
                         self.updatePlaybackControlsState()
+                        self.updateNowPlayingDisplay()
                     }
                 } else {
                     // Fallback: use cached transport state if available
@@ -2078,6 +2353,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                         self.currentTransportState = device.transportState
                         self.updatePlayPauseButton(isPlaying: device.transportState == "PLAYING")
                         self.updatePlaybackControlsState()
+                        self.updateNowPlayingDisplay()
                     }
                 }
             }
@@ -2152,6 +2428,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     self.currentTransportState = group.coordinator.transportState
                     self.updatePlayPauseButton(isPlaying: group.coordinator.transportState == "PLAYING")
                     self.updatePlaybackControlsState()
+                    self.updateNowPlayingDisplay()
                 }
             }
             // Track this group as last active
@@ -2516,7 +2793,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
 
         let contentHeight = calculateContentHeight()
-        let maxScrollHeight: CGFloat = 400 // Max height before scroll appears (increased to accommodate expanded groups)
+        
+        // Calculate max scroll height based on screen size
+        // Reserve space for menu bar, popover margins, and other sections
+        let screenHeight = NSScreen.main?.visibleFrame.height ?? 900
+        let otherSectionsHeight: CGFloat = 450  // Approximate height of non-scrollable sections
+        let maxScrollHeight = max(200, screenHeight - otherSectionsHeight)  // At least 200pt, typically 450-700pt
+        
         let newScrollHeight = min(contentHeight, maxScrollHeight)
 
         #if DEBUG
@@ -2547,17 +2830,21 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
             // Get the actual banner height (0 or 50 depending on visibility)
             let bannerHeight = welcomeBannerHeightConstraint?.constant ?? 0
+            let nowPlayingHeight = nowPlayingHeightConstraint?.constant ?? 0
 
-            // Calculate new height based on all content sections with dynamic banner height
+            // Calculate new height based on all content sections with dynamic heights
             let newHeight: CGFloat =
                 24 + // Top padding
                 10 + 8 + 22 + 20 + // Status dot + spacing + speaker name + spacing
-                1 + 16 + // Divider + spacing
+                1 + 20 + // Divider + spacing (after header)
+                48 + 20 + // Playback controls + spacing
+                1 + 16 + // Divider + spacing (after playback controls)
+                nowPlayingHeight + (nowPlayingHeight > 0 ? 16 : 0) + // Now playing section + spacing (when visible)
                 13 + 8 + 22 + 16 + // Volume label + spacing + slider + spacing
-                1 + 12 + // Divider + spacing
+                1 + 12 + // Divider + spacing (after volume)
                 13 + 12 + bannerHeight + 8 + // Speakers title + spacing + banner (dynamic) + spacing
                 newScrollHeight + 12 + 30 + 16 + // Scroll view + spacing + buttons + spacing
-                1 + 12 + // Divider + spacing
+                1 + 12 + // Divider + spacing (after speakers)
                 13 + 4 + 12 + 12 + // Trigger title + spacing + value label + spacing
                 1 + 16 + 44 + 16 + // Divider + spacing + actions + padding
                 8 // Bottom padding

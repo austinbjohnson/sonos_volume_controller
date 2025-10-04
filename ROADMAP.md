@@ -37,6 +37,8 @@ _Issues that break core functionality. Must fix immediately._
 _Major friction points impacting usability, significant missing features, or important architectural issues._
 
 ### Features
+- **Intelligent audio source selection when grouping**: When grouping speakers, automatically select the most appropriate audio source rather than arbitrary coordinator selection. Inspired by Sonos physical button UX: actively playing audio should take precedence over paused/idle speakers. For example, when grouping two stereo pairs where one is playing and one is paused, the playing audio should automatically become the group's source. Enhance grouping flow to detect what's currently playing across selected speakers and intelligently choose coordinator to preserve active playback. Consider showing user a preview/confirmation when multiple speakers are playing different content ("Join [Speaker A] playing [Song]?" vs "Make [Speaker B] the leader?"). This would capture the essence of Sonos's beloved physical interaction model in the digital UI. [Added 2025-10-04]
+
 - **Trigger device cache management**: Add ability to refresh trigger sources and cache them persistently. Users should be able to manually delete cached devices that are no longer relevant (similar to WiFi network history - devices remain in cache even when not currently available, but can be manually removed).
 
 - **Merge multiple groups**: Allow merging two or more existing groups into a single larger group. Currently can only create new groups from ungrouped speakers.
@@ -79,7 +81,6 @@ _Nice-to-have improvements that enhance UX or reduce technical debt._
 
 - **Wrong device HUD clarity**: "Wrong audio device" message doesn't guide users to fix it. Change to "Switch to [Trigger Device] to use hotkeys" with current device shown. (VolumeKeyMonitor.swift) [Added by claudeCode]
 
-- **Long speaker name truncation**: Names truncated with ellipsis in cards. Add tooltip showing full name on hover or use 2-line wrapping. (MenuBarContentView.swift:548-671) [Added by claudeCode]
 
 - **Offline/unreachable speaker detection**: Offline speakers remain in list, controls fail silently. Detect timeouts, show "Offline" badge, auto-refresh topology every 60s. (SonosController.swift) [Added by claudeCode]
 
@@ -148,6 +149,12 @@ _(Moved to P0/P1 sections)_
 - **Line-in audio lost when grouping with stereo pairs**: When a stereo pair is playing line-in audio and grouped with another speaker, the line-in audio stops because the non-stereo-pair becomes coordinator and line-in sources are device-specific (cannot be shared). Workaround: Manually set the stereo pair with line-in as the coordinator in the Sonos app, or use streaming sources instead of line-in when grouping.
 
 ## Recently Resolved
+
+- **Now Playing display section** ✅ ADDED (2025-10-04): Added dedicated now-playing display between playback controls and volume slider showing current track information with album art. Display adapts to audio source type (streaming, radio, line-in, TV) and updates in real-time via UPnP transport events. Section automatically hides when device is idle. (PR #55)
+
+- **Speaker and group name text truncation** ✅ FIXED (2025-10-04): Fixed issue where long group names were being cut off in the middle. Applied explicit trailing constraints, changed truncation from middle to tail (ellipsis at end), added tooltips showing full names on hover. Applies to all cards: group cards, speaker cards, member cards, and now-playing labels. (PR #55)
+
+- **Dynamic popover height expansion** ✅ IMPROVED (2025-10-04): Popover now expands vertically to show all speakers without internal scrolling (up to screen limit). Calculates maximum height based on available screen space. Better experience for users with 2-10 speakers while gracefully handling larger installations with scrolling only when needed. (PR #55)
 
 - **Basic playback controls** ✅ ADDED (2025-10-04): Implemented play/pause, previous, and next transport controls in menu bar UI. Controls intelligently adapt to audio source type: streaming content supports all controls, radio/line-in support play/pause only. Added radio detection as separate AudioSourceType to distinguish from skippable streaming content. Controls route to group coordinator when speaker is in a multi-speaker group. (PR #54)
 
