@@ -11,8 +11,6 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
-- **Line-in audio source stops when grouping** (branch: bug/line-in-grouping-fix, @austinbjohnson)
-
 ---
 
 ## App Store Readiness
@@ -27,8 +25,6 @@ _When starting work on a task, add it here with your branch name and username to
 _Issues that break core functionality. Must fix immediately._
 
 ### Bugs
-
-- **Line-in audio source stops when grouping**: When grouping a speaker playing line-in audio with another speaker, the audio pauses briefly, plays for one second after grouping completes, then cuts out entirely. The Sonos app shows the line-in source is no longer active for the group. This is likely because the non-line-in speaker becomes the group coordinator and line-in sources cannot be shared across groups (device-specific limitation). Need to detect line-in sources and either: (1) make the line-in speaker the coordinator, or (2) warn user before grouping. (SonosController.swift:937-998)
 
 ### UX Critical
 
