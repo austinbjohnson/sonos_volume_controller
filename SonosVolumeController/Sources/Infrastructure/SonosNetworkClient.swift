@@ -58,7 +58,7 @@ actor SonosNetworkClient {
     private enum Constants {
         static let sonosPort = 1400
         static let contentType = "text/xml; charset=\"utf-8\""
-        static let requestTimeout: TimeInterval = 5.0
+        static let requestTimeout: TimeInterval = 10.0  // Increased for stereo pair operations
     }
 
     // MARK: - Public Methods
