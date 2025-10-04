@@ -471,8 +471,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Hidden by default, shown on hover (unless already checked)
         checkbox.isHidden = (checkbox.state != .on)
 
-        // Card identifier for tracking
-        card.identifier = NSUserInterfaceItemIdentifier(group.id)
+        // Card identifier for tracking (use coordinator UUID for Now Playing lookup)
+        card.identifier = NSUserInterfaceItemIdentifier(group.coordinator.uuid)
 
         // Add tracking area for hover detection
         let trackingArea = NSTrackingArea(
@@ -714,8 +714,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Hidden by default, shown on hover (unless already checked)
         checkbox.isHidden = (checkbox.state != .on)
 
-        // Card identifier for tracking
-        card.identifier = NSUserInterfaceItemIdentifier(device.name)
+        // Card identifier for tracking (use UUID for Now Playing lookup)
+        card.identifier = NSUserInterfaceItemIdentifier(device.uuid)
 
         let leadingOffset: CGFloat = (isInGroup && !isGroupCoordinator) ? 20 : 8
 
@@ -893,6 +893,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Update volume type label
         updateVolumeTypeLabel()
 
+        // Fetch Now Playing info for all devices (async)
+        fetchNowPlayingInfo(for: devices)
+
         // Force scroll to top to ensure header is visible
         if let scrollView = speakerCardsContainer.enclosingScrollView {
             scrollView.documentView?.scroll(NSPoint.zero)
@@ -918,6 +921,175 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
             self.updatePopoverSize(animated: false)
         }
+    }
+
+    /// Fetch Now Playing info for all devices in parallel
+    private func fetchNowPlayingInfo(for devices: [SonosController.SonosDevice]) {
+        guard let controller = appDelegate?.sonosController else { return }
+
+        Task {
+            // Fetch audio source info for all devices in parallel
+            await withTaskGroup(of: (String, String?, SonosController.AudioSourceType?, SonosController.NowPlayingInfo?).self) { group in
+                for device in devices {
+                    group.addTask {
+                        if let info = await controller.getAudioSourceInfo(for: device) {
+                            return (device.uuid, info.state, info.sourceType, info.nowPlaying)
+                        }
+                        return (device.uuid, nil, nil, nil)
+                    }
+                }
+
+                // Collect results and update UI
+                for await (uuid, state, sourceType, nowPlaying) in group {
+                    await MainActor.run {
+                        self.updateCardWithNowPlaying(uuid: uuid, state: state, sourceType: sourceType, nowPlaying: nowPlaying)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Update a specific card with Now Playing info
+    @MainActor
+    private func updateCardWithNowPlaying(uuid: String, state: String?, sourceType: SonosController.AudioSourceType?, nowPlaying: SonosController.NowPlayingInfo?) {
+        // Find the card by UUID (stored in identifier)
+        for subview in speakerCardsContainer.arrangedSubviews {
+            if subview.identifier?.rawValue == uuid {
+                // Add Now Playing label if we have metadata
+                if let nowPlaying = nowPlaying, let sourceType = sourceType, sourceType == .streaming {
+                    addNowPlayingLabel(to: subview, text: nowPlaying.displayText)
+                } else if let sourceType = sourceType, sourceType == .lineIn {
+                    addNowPlayingLabel(to: subview, text: "Line-In Audio")
+                } else if let sourceType = sourceType, sourceType == .tv {
+                    addNowPlayingLabel(to: subview, text: "TV Audio")
+                }
+
+                // Add colored badge
+                if let sourceType = sourceType {
+                    addSourceBadge(to: subview, sourceType: sourceType)
+                }
+
+                break
+            }
+        }
+    }
+
+    /// Add Now Playing text label to card
+    private func addNowPlayingLabel(to card: NSView, text: String) {
+        let nowPlayingLabel = NSTextField(labelWithString: text)
+        nowPlayingLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        nowPlayingLabel.textColor = .secondaryLabelColor
+        nowPlayingLabel.lineBreakMode = .byTruncatingMiddle
+        nowPlayingLabel.maximumNumberOfLines = 1
+        nowPlayingLabel.translatesAutoresizingMaskIntoConstraints = false
+        nowPlayingLabel.identifier = NSUserInterfaceItemIdentifier("nowPlayingLabel")
+
+        card.addSubview(nowPlayingLabel)
+
+        // Find existing textStack to reposition it to top instead of center
+        if let textStack = card.subviews.first(where: { $0 is NSStackView }) as? NSStackView {
+            // Remove the centerY constraint on textStack
+            let constraintsToRemove = card.constraints.filter { constraint in
+                (constraint.firstItem as? NSStackView == textStack && constraint.firstAttribute == .centerY) ||
+                (constraint.secondItem as? NSStackView == textStack && constraint.secondAttribute == .centerY)
+            }
+            NSLayoutConstraint.deactivate(constraintsToRemove)
+
+            // Pin textStack to top instead
+            textStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 12).isActive = true
+        }
+
+        // Find icon and indicator to reposition to top
+        if let icon = card.subviews.first(where: { $0 is NSImageView }) as? NSImageView {
+            let constraintsToRemove = card.constraints.filter { constraint in
+                (constraint.firstItem as? NSImageView == icon && constraint.firstAttribute == .centerY) ||
+                (constraint.secondItem as? NSImageView == icon && constraint.secondAttribute == .centerY)
+            }
+            NSLayoutConstraint.deactivate(constraintsToRemove)
+            icon.topAnchor.constraint(equalTo: card.topAnchor, constant: 14).isActive = true
+        }
+
+        // Find active indicator (blue dot) and reposition to top
+        let activeIndicator = card.subviews.first { view in
+            view.layer?.backgroundColor == NSColor.systemBlue.cgColor && view.layer?.cornerRadius == 4
+        }
+        if let indicator = activeIndicator {
+            let constraintsToRemove = card.constraints.filter { constraint in
+                (constraint.firstItem === indicator && constraint.firstAttribute == .centerY) ||
+                (constraint.secondItem === indicator && constraint.secondAttribute == .centerY)
+            }
+            NSLayoutConstraint.deactivate(constraintsToRemove)
+            indicator.topAnchor.constraint(equalTo: card.topAnchor, constant: 16).isActive = true
+        }
+
+        // Position now playing label below the speaker name
+        NSLayoutConstraint.activate([
+            nowPlayingLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 40), // After icon
+            nowPlayingLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -40), // Leave room for badge
+            nowPlayingLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 32) // Below name at top:12
+        ])
+
+        // Replace greaterThanOrEqual constraint with fixed 68pt height
+        let heightConstraintsToRemove = card.constraints.filter { $0.firstAttribute == .height }
+        NSLayoutConstraint.deactivate(heightConstraintsToRemove)
+        card.heightAnchor.constraint(equalToConstant: 68).isActive = true
+
+        // Force layout update
+        card.needsLayout = true
+        card.layoutSubtreeIfNeeded()
+
+        // Update popover size to accommodate expanded cards
+        updatePopoverSize(animated: true, duration: 0.15)
+    }
+
+    /// Add colored source badge to card
+    private func addSourceBadge(to card: NSView, sourceType: SonosController.AudioSourceType) {
+        let badge = NSView()
+        badge.wantsLayer = true
+        badge.layer?.cornerRadius = 5
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        badge.identifier = NSUserInterfaceItemIdentifier("sourceBadge")
+
+        // Set badge color based on source type
+        let badgeColor: NSColor
+        switch sourceType {
+        case .streaming:
+            badgeColor = .systemGreen
+        case .lineIn, .tv:
+            badgeColor = .systemBlue
+        case .grouped:
+            badgeColor = NSColor.systemYellow.withAlphaComponent(0.8)
+        case .idle:
+            badgeColor = .tertiaryLabelColor
+        }
+
+        badge.layer?.backgroundColor = badgeColor.cgColor
+        card.addSubview(badge)
+
+        // Position in top-right corner
+        NSLayoutConstraint.activate([
+            badge.widthAnchor.constraint(equalToConstant: 10),
+            badge.heightAnchor.constraint(equalToConstant: 10),
+            badge.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            badge.topAnchor.constraint(equalTo: card.topAnchor, constant: 6)
+        ])
+
+        // Add pulse animation for active playback
+        if sourceType == .streaming || sourceType == .lineIn || sourceType == .tv {
+            addPulseAnimation(to: badge.layer!)
+        }
+    }
+
+    /// Add pulse animation to layer
+    private func addPulseAnimation(to layer: CALayer) {
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = 0.7
+        animation.toValue = 1.0
+        animation.duration = 2.0
+        animation.autoreverses = true
+        animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(animation, forKey: "pulse")
     }
 
     private func updateVolumeTypeLabel() {
@@ -1386,8 +1558,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         } else if let gesture = sender as? NSClickGestureRecognizer {
             // Legacy: called from card click (no longer used but kept for compatibility)
             guard let card = gesture.view,
-                  let name = card.identifier?.rawValue else { return }
-            deviceName = name
+                  let uuid = card.identifier?.rawValue,
+                  let controller = appDelegate?.sonosController,
+                  let device = controller.cachedDiscoveredDevices.first(where: { $0.uuid == uuid }) else { return }
+            deviceName = device.name
         } else {
             return
         }

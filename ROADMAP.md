@@ -35,7 +35,7 @@ _Issues that break core functionality. Must fix immediately._
 _Major friction points impacting usability, significant missing features, or important architectural issues._
 
 ### Features
-- **Audio source visibility in UI (Phase 2 of line-in fix)**: Add visual indicators showing what each speaker is playing. Display badges on speaker cards (orange=line-in, purple=TV, green=streaming, gray=idle). Show helper text during grouping to preview which audio will be preserved. Add proactive warnings when selecting incompatible sources. This completes the UX portion of PR #47's backend work. (LINEIN-5, LINEIN-6 from ticket breakdown)
+- **Album art and UI refinement for now playing display (Phase 2)**: Enhance the now playing feature with album art thumbnails and refined layout. Add 40x40pt album art images positioned left-aligned between the source badge and speaker name. Include 4pt corner radius, 0.5pt border, async loading with NSCache, and fallback SF Symbols (music.note for no artwork, waveform for line-in, tv for TV sources). Reduce card height from 68pt to 64pt with tighter spacing. Reference UX consultation from feature/now-playing-ui for detailed specifications.
 
 - **Trigger device cache management**: Add ability to refresh trigger sources and cache them persistently. Users should be able to manually delete cached devices that are no longer relevant (similar to WiFi network history - devices remain in cache even when not currently available, but can be manually removed).
 

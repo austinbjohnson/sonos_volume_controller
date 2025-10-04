@@ -76,6 +76,27 @@ actor SonosController {
         let pairPartnerUUID: String?      // UUID of the other speaker in the stereo pair
         var audioSource: AudioSourceType? // Current audio source type
         var transportState: String?       // Current transport state (PLAYING, PAUSED, STOPPED)
+        var nowPlaying: NowPlayingInfo?   // Current track metadata (streaming only)
+    }
+
+    /// Now Playing metadata from DIDL-Lite
+    struct NowPlayingInfo {
+        let title: String?
+        let artist: String?
+        let album: String?
+        let albumArtURL: String?
+        let duration: TimeInterval?
+        let position: TimeInterval?
+
+        /// Display text for UI (e.g., "Song Title • Artist")
+        var displayText: String {
+            switch (title, artist) {
+            case let (t?, a?): return "\(t) • \(a)"
+            case let (t?, nil): return t
+            case let (nil, a?): return a
+            case (nil, nil): return "Unknown Track"
+            }
+        }
     }
 
     /// Audio source type detected from track URI
@@ -1058,8 +1079,10 @@ actor SonosController {
         let sourceInfos = await withTaskGroup(of: (String, (state: String, sourceType: AudioSourceType)?).self) { group in
             for device in devices {
                 group.addTask {
-                    let info = await self.getAudioSourceInfo(for: device)
-                    return (device.uuid, info)
+                    if let info = await self.getAudioSourceInfo(for: device) {
+                        return (device.uuid, (state: info.state, sourceType: info.sourceType))
+                    }
+                    return (device.uuid, nil)
                 }
             }
 
@@ -1268,8 +1291,8 @@ actor SonosController {
     // MARK: - Audio Source Detection
 
     /// Get audio source information for a device (async/await)
-    /// Returns tuple of (transportState, audioSource) or nil if unable to determine
-    func getAudioSourceInfo(for device: SonosDevice) async -> (state: String, sourceType: AudioSourceType)? {
+    /// Returns tuple of (transportState, audioSource, nowPlaying) or nil if unable to determine
+    func getAudioSourceInfo(for device: SonosDevice) async -> (state: String, sourceType: AudioSourceType, nowPlaying: NowPlayingInfo?)? {
         do {
             // Get transport state and position info in parallel
             async let transportResponse = networkClient.getTransportInfo(for: device.ipAddress)
@@ -1287,8 +1310,19 @@ actor SonosController {
             let uri = XMLParsingHelpers.extractValue(from: positionStr, tag: "TrackURI")
             let sourceType = detectAudioSourceType(from: uri, state: state)
 
-            print("🎵 \(device.name): \(state) - \(sourceType.description)")
-            return (state: state, sourceType: sourceType)
+            // Parse Now Playing metadata for streaming content
+            var nowPlaying: NowPlayingInfo? = nil
+            if sourceType == .streaming {
+                nowPlaying = parseNowPlayingInfo(from: positionStr)
+            }
+
+            if let np = nowPlaying {
+                print("🎵 \(device.name): \(state) - \(sourceType.description) - \(np.displayText)")
+            } else {
+                print("🎵 \(device.name): \(state) - \(sourceType.description)")
+            }
+
+            return (state: state, sourceType: sourceType, nowPlaying: nowPlaying)
 
         } catch {
             print("❌ Failed to get audio source info for \(device.name): \(error)")
@@ -1298,22 +1332,100 @@ actor SonosController {
 
     /// Detect audio source type from track URI and transport state
     nonisolated func detectAudioSourceType(from uri: String?, state: String) -> AudioSourceType {
-        // If not playing, it's idle
-        guard state == "PLAYING", let uri = uri else {
+        // Check URI first - line-in and TV sources should be detected even when paused
+        if let uri = uri {
+            if uri.hasPrefix("x-rincon-stream:") {
+                return .lineIn
+            } else if uri.hasPrefix("x-sonos-htastream:") {
+                return .tv
+            } else if uri.hasPrefix("x-rincon:") {
+                return .grouped
+            }
+        }
+
+        // If not playing/paused, and not line-in/TV/grouped, it's idle
+        guard state == "PLAYING" || state == "PAUSED_PLAYBACK", let uri = uri else {
             return .idle
         }
 
-        if uri.hasPrefix("x-rincon-stream:") {
-            return .lineIn
-        } else if uri.hasPrefix("x-sonos-htastream:") {
-            return .tv
-        } else if uri.hasPrefix("x-rincon:") {
-            return .grouped
-        } else if uri.hasPrefix("x-rincon-queue:") || uri.hasPrefix("x-rincon-mp3radio:") || uri.hasPrefix("x-sonos-spotify:") {
+        if uri.hasPrefix("x-rincon-queue:") || uri.hasPrefix("x-rincon-mp3radio:") || uri.hasPrefix("x-sonos-spotify:") || uri.hasPrefix("x-sonos-http:") {
             return .streaming
         }
 
         return .streaming // Default to streaming for unknown URIs when playing
+    }
+
+    /// Parse Now Playing metadata from GetPositionInfo response
+    /// Extracts title, artist, album, and album art from DIDL-Lite XML
+    nonisolated func parseNowPlayingInfo(from positionResponse: String) -> NowPlayingInfo? {
+        // Extract TrackMetaData (contains DIDL-Lite XML)
+        guard let trackMetaData = XMLParsingHelpers.extractValue(from: positionResponse, tag: "TrackMetaData") else {
+            return nil
+        }
+
+        // Decode HTML entities (TrackMetaData is HTML-encoded in the SOAP response)
+        guard let decodedMetadata = trackMetaData.decodeHTMLEntities() else {
+            return nil
+        }
+
+        // Parse DIDL-Lite fields and decode any remaining HTML entities
+        let title = XMLParsingHelpers.extractValue(from: decodedMetadata, tag: "dc:title")?.decodeHTMLEntities()
+        let artist = XMLParsingHelpers.extractValue(from: decodedMetadata, tag: "dc:creator")?.decodeHTMLEntities()
+        let album = XMLParsingHelpers.extractValue(from: decodedMetadata, tag: "upnp:album")?.decodeHTMLEntities()
+
+        // Extract album art URL from <upnp:albumArtURI>
+        var albumArtURL: String? = nil
+        if let artURI = XMLParsingHelpers.extractValue(from: decodedMetadata, tag: "upnp:albumArtURI") {
+            // Album art URI is often relative - make it absolute if needed
+            if artURI.hasPrefix("http") {
+                albumArtURL = artURI
+            } else if artURI.hasPrefix("/") {
+                // Will need device IP to construct full URL - skip for now
+                albumArtURL = nil
+            }
+        }
+
+        // Extract duration and position (in format "H:MM:SS" or "M:SS")
+        let durationStr = XMLParsingHelpers.extractValue(from: positionResponse, tag: "TrackDuration")
+        let positionStr = XMLParsingHelpers.extractValue(from: positionResponse, tag: "RelTime")
+
+        let duration = parseTimeInterval(from: durationStr)
+        let position = parseTimeInterval(from: positionStr)
+
+        // Return nil if we don't have at least a title
+        guard title != nil || artist != nil else {
+            return nil
+        }
+
+        return NowPlayingInfo(
+            title: title,
+            artist: artist,
+            album: album,
+            albumArtURL: albumArtURL,
+            duration: duration,
+            position: position
+        )
+    }
+
+    /// Parse time string "H:MM:SS" or "M:SS" to TimeInterval
+    nonisolated private func parseTimeInterval(from timeString: String?) -> TimeInterval? {
+        guard let timeString = timeString else { return nil }
+
+        let components = timeString.split(separator: ":").compactMap { Int($0) }
+        guard !components.isEmpty else { return nil }
+
+        if components.count == 3 {
+            // H:MM:SS
+            return TimeInterval(components[0] * 3600 + components[1] * 60 + components[2])
+        } else if components.count == 2 {
+            // M:SS
+            return TimeInterval(components[0] * 60 + components[1])
+        } else if components.count == 1 {
+            // Just seconds
+            return TimeInterval(components[0])
+        }
+
+        return nil
     }
 
     // MARK: - Group Volume Control
@@ -1453,6 +1565,26 @@ actor SonosController {
                 print("❌ Failed to change group volume: \(error)")
             }
         }
+    }
+}
+
+// MARK: - String Extensions for HTML Entity Decoding
+
+extension String {
+    /// Decodes HTML entities like &lt; &gt; &quot; &amp; etc
+    func decodeHTMLEntities() -> String? {
+        guard let data = self.data(using: .utf8) else { return nil }
+
+        let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [
+            .documentType: NSAttributedString.DocumentType.html,
+            .characterEncoding: String.Encoding.utf8.rawValue
+        ]
+
+        guard let attributedString = try? NSAttributedString(data: data, options: options, documentAttributes: nil) else {
+            return nil
+        }
+
+        return attributedString.string
     }
 }
 
