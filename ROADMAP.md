@@ -60,8 +60,6 @@ _Nice-to-have improvements that enhance UX or reduce technical debt._
 
 - **Volume presets**: Add quick volume buttons (25%, 50%, 75%) near slider for instant adjustment. Common pattern in TV remotes and audio apps. [Added by claudeCode]
 
-- **Basic playback controls**: Add play/pause, next/previous buttons since topology is already loaded. Users wouldn't need to switch to Sonos app for basic transport. [Added by claudeCode]
-
 ### Enhancements
 - **Network error handling improvements**: Network errors show one-time alert, but no way to retry discovery or diagnose issues after dismissal. Add "Refresh" button in Speakers section when no speakers found. (MenuBarContentView.swift:711-719) [Added by claudeCode]
 
@@ -150,5 +148,7 @@ _(Moved to P0/P1 sections)_
 - **Line-in audio lost when grouping with stereo pairs**: When a stereo pair is playing line-in audio and grouped with another speaker, the line-in audio stops because the non-stereo-pair becomes coordinator and line-in sources are device-specific (cannot be shared). Workaround: Manually set the stereo pair with line-in as the coordinator in the Sonos app, or use streaming sources instead of line-in when grouping.
 
 ## Recently Resolved
+
+- **Basic playback controls** ✅ ADDED (2025-10-04): Implemented play/pause, previous, and next transport controls in menu bar UI. Controls intelligently adapt to audio source type: streaming content supports all controls, radio/line-in support play/pause only. Added radio detection as separate AudioSourceType to distinguish from skippable streaming content. Controls route to group coordinator when speaker is in a multi-speaker group. (PR #XX)
 
 - **Transport state updates not working for certain speakers** ✅ FIXED (2025-10-04): Root cause was HTML-encoded XML in AVTransport LastChange events. Sonos sends transport state wrapped in `&lt;TransportState&gt;` entities rather than raw XML tags. Added HTML entity decoding (`&quot;`, `&lt;`, `&gt;`, `&amp;`) before XML parsing. Also fixed concurrency crash by wrapping NotificationCenter.post in MainActor.run. All speakers now receive real-time play/pause UI updates. (PR #53)

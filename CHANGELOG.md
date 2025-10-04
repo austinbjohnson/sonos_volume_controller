@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Basic audio playback controls in menu bar - added play/pause, previous, and next buttons between header and volume sections for convenient transport control without switching apps. Controls operate on selected speaker/group and intelligently adapt to audio source: streaming content (Spotify, queue) supports all controls, radio streams and line-in sources show play/pause only (no skip support), and buttons are disabled when no device is selected or device is idle (PR #XX)
 - Manual topology refresh button - arrow.clockwise button in menu bar header to force refresh of speaker topology, solves stale cache when speakers regrouped externally via Sonos app or network changes (PR #51)
 - Real-time trigger device display updates - trigger device display in menu bar popover now updates immediately when changed in Preferences window, no longer requires closing and reopening popover (PR #50)
 - Visual indication for standby mode - menu bar icon dims to 50% opacity when app is disabled (standby mode), providing at-a-glance feedback on whether hotkeys are active (PR #50)

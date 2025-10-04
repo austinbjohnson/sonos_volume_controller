@@ -110,7 +110,8 @@ actor SonosController {
     enum AudioSourceType {
         case lineIn         // x-rincon-stream: (physical line-in input)
         case tv             // x-sonos-htastream: (TV/home theater)
-        case streaming      // Spotify, radio, queue, etc.
+        case streaming      // Spotify, queue, etc. (supports skipping)
+        case radio          // x-rincon-mp3radio: (radio streams - no skipping)
         case grouped        // x-rincon: (device is a group member)
         case idle           // Not playing anything
 
@@ -119,6 +120,7 @@ actor SonosController {
             case .lineIn: return 3      // Highest priority - must be preserved
             case .tv: return 2          // High priority - should be preserved
             case .streaming: return 1   // Medium priority - can be interrupted
+            case .radio: return 1       // Medium priority - can be interrupted
             case .grouped: return 0     // Already grouped
             case .idle: return 0        // No special handling
             }
@@ -129,6 +131,7 @@ actor SonosController {
             case .lineIn: return "Line-In"
             case .tv: return "TV"
             case .streaming: return "Streaming"
+            case .radio: return "Radio"
             case .grouped: return "Grouped"
             case .idle: return "Idle"
             }
@@ -139,7 +142,16 @@ actor SonosController {
             case .lineIn: return "orange"
             case .tv: return "purple"
             case .streaming: return "green"
+            case .radio: return "blue"
             case .grouped, .idle: return "gray"
+            }
+        }
+
+        /// Whether this source type supports skip next/previous commands
+        var supportsSkipping: Bool {
+            switch self {
+            case .streaming: return true    // Queue, Spotify, etc.
+            case .lineIn, .tv, .radio, .grouped, .idle: return false
             }
         }
     }
@@ -1298,7 +1310,9 @@ actor SonosController {
         let lineInDevices = devices.filter { sourceInfos[$0.uuid]?.sourceType == .lineIn }
         let tvDevices = devices.filter { sourceInfos[$0.uuid]?.sourceType == .tv }
         let streamingDevices = devices.filter {
-            sourceInfos[$0.uuid]?.sourceType == .streaming && sourceInfos[$0.uuid]?.state == "PLAYING"
+            let type = sourceInfos[$0.uuid]?.sourceType
+            let state = sourceInfos[$0.uuid]?.state
+            return (type == .streaming || type == .radio) && state == "PLAYING"
         }
 
         // Priority 1: Line-in sources (highest priority - must be preserved)
@@ -1463,6 +1477,155 @@ actor SonosController {
         }
     }
 
+    // MARK: - Transport Controls (Public API)
+
+    /// Play/resume the selected speaker or group
+    func playSelected() {
+        guard let device = _selectedDevice else {
+            print("⚠️ No device selected for play")
+            showNoSpeakerSelectedNotification()
+            return
+        }
+
+        // If in a group, send command to coordinator
+        let targetDevice: SonosDevice
+        if let group = getGroupForDevice(device), group.members.count > 1 {
+            targetDevice = group.coordinator
+            print("▶️ Playing group: \(group.displayName)")
+        } else {
+            targetDevice = device
+            print("▶️ Playing: \(device.name)")
+        }
+
+        Task { [weak self] in
+            guard let self = self else { return }
+            do {
+                try await self.networkClient.play(for: targetDevice.ipAddress)
+                print("✅ Play command successful")
+            } catch {
+                print("❌ Failed to play: \(error)")
+                await MainActor.run {
+                    VolumeHUD.shared.showError(title: "Playback Error", message: "Failed to play")
+                }
+            }
+        }
+    }
+
+    /// Pause the selected speaker or group
+    func pauseSelected() {
+        guard let device = _selectedDevice else {
+            print("⚠️ No device selected for pause")
+            showNoSpeakerSelectedNotification()
+            return
+        }
+
+        // If in a group, send command to coordinator
+        let targetDevice: SonosDevice
+        if let group = getGroupForDevice(device), group.members.count > 1 {
+            targetDevice = group.coordinator
+            print("⏸️ Pausing group: \(group.displayName)")
+        } else {
+            targetDevice = device
+            print("⏸️ Pausing: \(device.name)")
+        }
+
+        Task { [weak self] in
+            guard let self = self else { return }
+            do {
+                try await self.networkClient.pause(for: targetDevice.ipAddress)
+                print("✅ Pause command successful")
+            } catch {
+                print("❌ Failed to pause: \(error)")
+                await MainActor.run {
+                    VolumeHUD.shared.showError(title: "Playback Error", message: "Failed to pause")
+                }
+            }
+        }
+    }
+
+    /// Skip to next track (if supported by current audio source)
+    func nextTrack() {
+        guard let device = _selectedDevice else {
+            print("⚠️ No device selected for next")
+            showNoSpeakerSelectedNotification()
+            return
+        }
+
+        // If in a group, send command to coordinator
+        let targetDevice: SonosDevice
+        if let group = getGroupForDevice(device), group.members.count > 1 {
+            targetDevice = group.coordinator
+            print("⏭️ Next track for group: \(group.displayName)")
+        } else {
+            targetDevice = device
+            print("⏭️ Next track for: \(device.name)")
+        }
+
+        Task { [weak self] in
+            guard let self = self else { return }
+            do {
+                try await self.networkClient.next(for: targetDevice.ipAddress)
+                print("✅ Next command successful")
+            } catch {
+                print("❌ Failed to skip next: \(error)")
+                await MainActor.run {
+                    VolumeHUD.shared.showError(title: "Skip Error", message: "Failed to skip track")
+                }
+            }
+        }
+    }
+
+    /// Skip to previous track (if supported by current audio source)
+    func previousTrack() {
+        guard let device = _selectedDevice else {
+            print("⚠️ No device selected for previous")
+            showNoSpeakerSelectedNotification()
+            return
+        }
+
+        // If in a group, send command to coordinator
+        let targetDevice: SonosDevice
+        if let group = getGroupForDevice(device), group.members.count > 1 {
+            targetDevice = group.coordinator
+            print("⏮️ Previous track for group: \(group.displayName)")
+        } else {
+            targetDevice = device
+            print("⏮️ Previous track for: \(device.name)")
+        }
+
+        Task { [weak self] in
+            guard let self = self else { return }
+            do {
+                try await self.networkClient.previous(for: targetDevice.ipAddress)
+                print("✅ Previous command successful")
+            } catch {
+                print("❌ Failed to skip previous: \(error)")
+                await MainActor.run {
+                    VolumeHUD.shared.showError(title: "Skip Error", message: "Failed to skip track")
+                }
+            }
+        }
+    }
+
+    /// Get transport capabilities for the selected device
+    /// Returns (canControl: Bool, supportsSkipping: Bool)
+    nonisolated func getTransportCapabilities() -> (canControl: Bool, supportsSkipping: Bool) {
+        guard let device = _cachedSelectedDevice else {
+            return (false, false)
+        }
+
+        // Check if we have audio source info
+        let sourceType = device.audioSource ?? .idle
+        
+        // Can control if not idle
+        let canControl = sourceType != .idle
+        
+        // Can skip if streaming content
+        let supportsSkipping = sourceType.supportsSkipping
+
+        return (canControl, supportsSkipping)
+    }
+
     /// Get the transport state of a device (PLAYING, PAUSED_PLAYBACK, STOPPED, etc.)
     /// Uses AVTransport GetTransportInfo
     func getTransportState(device: SonosDevice, completion: @escaping @Sendable (String?) -> Void) {
@@ -1539,15 +1702,19 @@ actor SonosController {
                 return .tv
             } else if uri.hasPrefix("x-rincon:") {
                 return .grouped
+            } else if uri.hasPrefix("x-rincon-mp3radio:") {
+                // Radio streams - detected even when paused
+                return .radio
             }
         }
 
-        // If not playing/paused, and not line-in/TV/grouped, it's idle
+        // If not playing/paused, and not line-in/TV/grouped/radio, it's idle
         guard state == "PLAYING" || state == "PAUSED_PLAYBACK", let uri = uri else {
             return .idle
         }
 
-        if uri.hasPrefix("x-rincon-queue:") || uri.hasPrefix("x-rincon-mp3radio:") || uri.hasPrefix("x-sonos-spotify:") || uri.hasPrefix("x-sonos-http:") {
+        // Streaming sources (queue, Spotify, etc.)
+        if uri.hasPrefix("x-rincon-queue:") || uri.hasPrefix("x-sonos-spotify:") || uri.hasPrefix("x-sonos-http:") {
             return .streaming
         }
 

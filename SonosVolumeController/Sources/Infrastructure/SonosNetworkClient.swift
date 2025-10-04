@@ -237,6 +237,46 @@ extension SonosNetworkClient {
         _ = try await sendSOAPRequest(request, to: deviceIP)
     }
 
+    /// Sends a Pause command to pause playback
+    func pause(for deviceIP: String) async throws {
+        let request = SOAPRequest(
+            service: .avTransport,
+            action: "Pause",
+            arguments: ["InstanceID": "0"]
+        )
+        _ = try await sendSOAPRequest(request, to: deviceIP)
+    }
+
+    /// Sends a Stop command to stop playback
+    func stop(for deviceIP: String) async throws {
+        let request = SOAPRequest(
+            service: .avTransport,
+            action: "Stop",
+            arguments: ["InstanceID": "0"]
+        )
+        _ = try await sendSOAPRequest(request, to: deviceIP)
+    }
+
+    /// Sends a Next command to skip to next track
+    func next(for deviceIP: String) async throws {
+        let request = SOAPRequest(
+            service: .avTransport,
+            action: "Next",
+            arguments: ["InstanceID": "0"]
+        )
+        _ = try await sendSOAPRequest(request, to: deviceIP)
+    }
+
+    /// Sends a Previous command to go to previous track
+    func previous(for deviceIP: String) async throws {
+        let request = SOAPRequest(
+            service: .avTransport,
+            action: "Previous",
+            arguments: ["InstanceID": "0"]
+        )
+        _ = try await sendSOAPRequest(request, to: deviceIP)
+    }
+
     /// Gets the current transport state (PLAYING, PAUSED, STOPPED)
     func getTransportInfo(for deviceIP: String) async throws -> String {
         let request = SOAPRequest(
