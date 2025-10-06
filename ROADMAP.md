@@ -11,6 +11,8 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
+- **Intelligent audio source selection when grouping** (branch: feature/intelligent-coordinator-selection, @austinbjohnson)
+
 ---
 
 ## App Store Readiness
