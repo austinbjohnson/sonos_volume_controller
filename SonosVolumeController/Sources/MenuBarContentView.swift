@@ -2349,60 +2349,32 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Disable button and show progress during operation
         groupButton.isEnabled = false
-        groupButton.title = "Grouping..."
+        groupButton.title = "Analyzing..."
         groupProgressIndicator.startAnimation(nil)
 
-        // Proceed with smart coordinator selection (backend now handles audio source detection)
-        performGrouping(devices: selectedDevices, coordinator: nil)
-    }
-
-    private func showSourcePreservationDialog(
-        lineInDevices: [SonosController.SonosDevice],
-        tvDevices: [SonosController.SonosDevice],
-        streamingDevices: [SonosController.SonosDevice],
-        allDevices: [SonosController.SonosDevice]
-    ) {
-        let alert = NSAlert()
-
-        if !lineInDevices.isEmpty {
-            let lineInNames = lineInDevices.map { $0.name }.joined(separator: ", ")
-            alert.messageText = "Line-In Audio Detected"
-            alert.informativeText = """
-            \(lineInNames) \(lineInDevices.count == 1 ? "is" : "are") playing from a physical audio input (line-in).
-
-            When grouped, all speakers will play from the line-in source. Any streaming audio will stop.
-
-            The line-in speaker will be used as the group coordinator to preserve the audio.
-            """
-        } else if !tvDevices.isEmpty {
-            let tvNames = tvDevices.map { $0.name }.joined(separator: ", ")
-            alert.messageText = "TV Audio Detected"
-            alert.informativeText = """
-            \(tvNames) \(tvDevices.count == 1 ? "is" : "are") playing TV/home theater audio.
-
-            When grouped, all speakers will play the TV audio. Any streaming audio will stop.
-
-            The TV speaker will be used as the group coordinator to preserve the audio.
-            """
-        }
-
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Continue")
-        alert.addButton(withTitle: "Cancel")
-
-        let response = alert.runModal()
-
-        if response == .alertFirstButtonReturn {
-            print("✅ User confirmed grouping with line-in/TV audio preservation")
-            performGrouping(devices: allDevices, coordinator: nil)
-        } else {
-            print("❌ User cancelled grouping")
-            groupProgressIndicator.stopAnimation(nil)
-            groupButton.isEnabled = true
-            groupButton.title = "Group \(selectedSpeakerCards.count) Speakers"
+        // Analyze devices to determine coordinator selection
+        Task {
+            let selection = await controller.analyzeCoordinatorSelection(from: selectedDevices)
+            
+            await MainActor.run {
+                if selection.requiresUserChoice {
+                    // Multiple devices playing - show dialog with now-playing info
+                    print("🤔 Multiple devices playing - asking user to choose")
+                    self.showEnhancedCoordinatorSelectionDialog(
+                        playingDevices: selection.playingDevices,
+                        allDevices: selectedDevices
+                    )
+                } else {
+                    // Automatic selection (0-1 devices playing)
+                    print("✅ Automatic coordinator selection: \(selection.suggestedCoordinator.name)")
+                    self.groupButton.title = "Grouping..."
+                    self.performGrouping(devices: selectedDevices, coordinator: selection.suggestedCoordinator)
+                }
+            }
         }
     }
 
+    // Legacy dialog kept for reference - replaced by showEnhancedCoordinatorSelectionDialog
     private func showCoordinatorSelectionDialog(playingDevices: [SonosController.SonosDevice], allDevices: [SonosController.SonosDevice]) {
         let alert = NSAlert()
         alert.messageText = "Multiple Speakers Playing"
@@ -2430,6 +2402,100 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             groupProgressIndicator.stopAnimation(nil)
             groupButton.isEnabled = true
             groupButton.title = "Group \(selectedSpeakerCards.count) Speakers"
+        }
+    }
+    
+    /// Enhanced coordinator selection dialog with now-playing information
+    private func showEnhancedCoordinatorSelectionDialog(playingDevices: [SonosController.SonosDevice], allDevices: [SonosController.SonosDevice]) {
+        guard let controller = appDelegate?.sonosController else { return }
+        
+        // Fetch now-playing info for each device
+        Task {
+            let deviceInfos = await withTaskGroup(of: (String, SonosController.NowPlayingInfo?, SonosController.AudioSourceType).self) { group in
+                for device in playingDevices {
+                    group.addTask {
+                        if let info = await controller.getAudioSourceInfo(for: device) {
+                            return (device.uuid, info.nowPlaying, info.sourceType)
+                        }
+                        return (device.uuid, nil, .idle)
+                    }
+                }
+                
+                var results: [String: (nowPlaying: SonosController.NowPlayingInfo?, sourceType: SonosController.AudioSourceType)] = [:]
+                for await (uuid, nowPlaying, sourceType) in group {
+                    results[uuid] = (nowPlaying: nowPlaying, sourceType: sourceType)
+                }
+                return results
+            }
+            
+            // Build the dialog on the main thread
+            await MainActor.run {
+                let alert = NSAlert()
+                alert.messageText = "Which Audio Should the Group Play?"
+                
+                // Build informative text with device details
+                var infoLines: [String] = ["Multiple speakers are playing audio:\n"]
+                
+                for device in playingDevices {
+                    let info = deviceInfos[device.uuid]
+                    let sourceType = info?.sourceType ?? .idle
+                    
+                    // Device name with emoji
+                    infoLines.append("🔊 \(device.name)")
+                    
+                    // Now-playing details based on source type
+                    if let nowPlaying = info?.nowPlaying {
+                        // Streaming or radio with track info
+                        infoLines.append("   Playing: \(nowPlaying.displayText)")
+                        if let album = nowPlaying.album, !album.isEmpty {
+                            infoLines.append("   Album: \(album)")
+                        }
+                    } else {
+                        // Non-streaming source (line-in, TV, etc.)
+                        switch sourceType {
+                        case .lineIn:
+                            infoLines.append("   Source: Line-In Audio")
+                        case .tv:
+                            infoLines.append("   Source: TV/Home Theater")
+                        case .radio:
+                            infoLines.append("   Source: Radio Station")
+                        case .streaming:
+                            infoLines.append("   Source: Streaming Audio")
+                        default:
+                            infoLines.append("   Source: \(sourceType.description)")
+                        }
+                    }
+                    infoLines.append("") // Blank line between devices
+                }
+                
+                infoLines.append("Other speakers will sync to the selected audio source.")
+                alert.informativeText = infoLines.joined(separator: "\n")
+                alert.alertStyle = .informational
+                
+                // Add buttons with clear action text
+                for device in playingDevices {
+                    alert.addButton(withTitle: "Continue with \(device.name)")
+                }
+                alert.addButton(withTitle: "Cancel")
+                
+                let response = alert.runModal()
+                
+                // Map response to device selection
+                if response.rawValue >= NSApplication.ModalResponse.alertFirstButtonReturn.rawValue,
+                   response.rawValue < NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + playingDevices.count {
+                    let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+                    let chosenCoordinator = playingDevices[index]
+                    print("✅ User chose coordinator: \(chosenCoordinator.name)")
+                    self.groupButton.title = "Grouping..."
+                    self.performGrouping(devices: allDevices, coordinator: chosenCoordinator)
+                } else {
+                    // User cancelled
+                    print("❌ User cancelled grouping")
+                    self.groupProgressIndicator.stopAnimation(nil)
+                    self.groupButton.isEnabled = true
+                    self.groupButton.title = "Group \(self.selectedSpeakerCards.count) Speakers"
+                }
+            }
         }
     }
 
