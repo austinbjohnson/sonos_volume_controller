@@ -11,6 +11,13 @@ _When starting work on a task, add it here with your branch name and username to
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
 
+**Current:**
+- **Apple Watch App** (branch: claude/apple-watch-concept-011CULgWur6ZDZ9P3JrjSFxa, @claude)
+  - Complete watchOS companion app for speaker control
+  - iOS companion app for network relay via WatchConnectivity
+  - SonosSDK shared library refactoring
+  - Ready for testing and PR review
+
 ---
 
 ## App Store Readiness
