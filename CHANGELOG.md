@@ -49,7 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed hotkeys not working in installed app - reverted to F11/F12 defaults, fixed CGEventFlags conversion, added network entitlements, improved permission flow with auto-restart (PR #22)
 
 ### Fixed
-- Coordinator audio source cache refresh when selecting group members so playback controls don't disable incorrectly.
+- Coordinator audio source cache refresh when selecting group members so playback controls don't disable incorrectly. (PR #114)
 - Transport controls now target the group coordinator even when a member is selected, keeping play/pause/skip state accurate.
 - Speaker and group name text truncation - fixed issue where long group names like "Bathroom + Bedroom" were being cut off in the middle (showing "athroom + Bedroom"). Applied explicit trailing constraints, changed truncation mode from middle to tail (ellipsis at end), added tooltips showing full names on hover. Applies to all cards: group cards, speaker cards, member cards, and now-playing labels (PR #55)
 - Transport state updates for all speakers - fixed critical bug where play/pause events weren't triggering UI updates. Root cause: Sonos sends AVTransport events with HTML-encoded XML (`&lt;TransportState&gt;`) rather than raw tags. Added HTML entity decoding before parsing. Also fixed concurrency crash by ensuring NotificationCenter posts happen on main thread via MainActor. All speakers now receive real-time play/pause UI updates (PR #53)
