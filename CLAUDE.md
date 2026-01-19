@@ -148,13 +148,12 @@ You: "Let me test this with an agent"
 
 ### 1. Picking Next Task
 
-Review `ROADMAP.md` and select from:
-- **Planned Features**: Major new functionality
-- **Enhancements**: Improvements to existing features
-- **Known Bugs**: Issues that need fixing
-- **App Store Readiness**: Tasks for App Store submission
+Review GitHub issues and select from:
+- **P0/P1/P2/P3 priorities** via `prio:*` labels
+- **Types** via `type:*` labels
+- **App Store readiness** via `area:release`
 
-Check the "In Progress" section to see what's already being worked on to avoid conflicts.
+Check `status:in-progress` to avoid conflicts.
 
 Discuss with the user which task to tackle next.
 
@@ -173,11 +172,7 @@ Before doing ANYTHING else, launch agents to gather context:
    - Enhancements: `enhancement/descriptive-name`
    - Bugs: `bug/descriptive-name`
 
-2. **Mark as In Progress**: Add to `ROADMAP.md` "In Progress" section
-   ```markdown
-   ## In Progress
-   - **Your task description** (branch: feature/task-name, @username)
-   ```
+2. **Mark as In Progress**: Apply `status:in-progress` to the issue and comment with the branch name
 
 3. **Plan mode**: Present implementation plan before coding
 
@@ -192,8 +187,7 @@ Before doing ANYTHING else, launch agents to gather context:
 2. **Update documentation** (first time - without PR number):
    - Add to `CHANGELOG.md` under appropriate section (Added/Changed/Fixed)
    - Example: `- First launch onboarding with welcome banner`
-   - Remove from "In Progress" section in `ROADMAP.md`
-   - Remove from planned work section in `ROADMAP.md` if applicable
+   - Remove `status:in-progress` from the issue and close it
    - **Do NOT include PR number yet** (you don't have it)
 
 3. **Commit and push**:
@@ -309,8 +303,8 @@ Key documentation files:
 ## Tips for Development
 
 - **🚀 USE AGENTS FIRST** - Before reading any files, launch agents in parallel to gather context
-- Always check `ROADMAP.md` at start of session
-- Check "In Progress" section before starting work to avoid conflicts
+- Always check GitHub issues at start of session (prio labels)
+- Check `status:in-progress` before starting work to avoid conflicts
 - **Consult `docs/sonos-api/` before implementing Sonos features** (use `thoughts-locator` agent!)
 - Use `swift run` for quick iteration during development
 - Only use `./build-app.sh --install` when ready to test installed behavior

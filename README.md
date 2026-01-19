@@ -38,7 +38,7 @@ swift run
 ```
 sonos_volume_controller/
 ├── README.md                    # Project overview
-├── ROADMAP.md                   # Planned features and known bugs
+├── ROADMAP.md                   # GitHub issues pointer (priorities + status)
 ├── CHANGELOG.md                 # Version history and completed work
 ├── CONTRIBUTING.md              # Contribution guidelines
 ├── DEVELOPMENT.md               # Development workflow and architecture
@@ -60,7 +60,7 @@ This is a personal project, but suggestions and issues are welcome! See [CONTRIB
 ## Resources
 
 - [Official Sonos API Documentation](https://docs.sonos.com/docs/control-sonos-players)
-- [ROADMAP.md](ROADMAP.md) - Planned features and known bugs
+- [GitHub Issues](https://github.com/austinbjohnson/sonos_volume_controller/issues) - Current priorities and known issues
 - [CHANGELOG.md](CHANGELOG.md) - Version history and completed improvements
 - [DEVELOPMENT.md](DEVELOPMENT.md) - Development workflow and architecture
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Contribution guidelines
