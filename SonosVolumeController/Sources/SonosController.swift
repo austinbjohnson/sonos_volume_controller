@@ -1754,12 +1754,19 @@ actor SonosController {
     /// Get transport capabilities for the selected device
     /// Returns (canControl: Bool, supportsSkipping: Bool)
     nonisolated func getTransportCapabilities() -> (canControl: Bool, supportsSkipping: Bool) {
-        guard let device = _cachedSelectedDevice else {
+        guard let selectedDevice = _cachedSelectedDevice else {
             return (false, false)
         }
 
+        let transportDevice: SonosDevice
+        if let group = getCachedGroupForDevice(selectedDevice) {
+            transportDevice = group.coordinator
+        } else {
+            transportDevice = selectedDevice
+        }
+
         // Check if we have audio source info
-        let sourceType = device.audioSource ?? .idle
+        let sourceType = transportDevice.audioSource ?? .idle
         
         // Can control if not idle
         let canControl = sourceType != .idle
