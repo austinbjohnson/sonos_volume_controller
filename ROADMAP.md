@@ -10,6 +10,7 @@ _When starting work on a task, add it here with your branch name and username to
 
 **Example format:**
 - **Task description** (branch: feature/task-name, @username)
+- **CodexBar UX + code pattern learnings doc** (branch: enhancement/codexbar-learnings-doc, @ajohnson)
 
 ---
 
