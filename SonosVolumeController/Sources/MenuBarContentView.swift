@@ -36,6 +36,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     // UI Elements
     private var statusDot: NSView!
     private var statusLabel: NSTextField!
+    private var lastUpdatedLabel: NSTextField!
     private var speakerNameLabel: NSTextField!
     private var volumeSlider: NSSlider!
     private var volumeLabel: NSTextField!
@@ -75,6 +76,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var pendingGroupVolumeUpdate: Int?  // Store latest volume from Sonos while user drags
     private var groupVolumeResetTimer: Timer?  // Debounce network updates until drag settles
     private var memberVolumeThrottleTimer: Timer?  // Throttle member volume refresh calls
+    private var lastUpdatedTimer: Timer?
 
     // Cache now-playing data to prevent flicker during card rebuilds
     private var nowPlayingCache: [String: (state: String?, sourceType: SonosController.AudioSourceType?, nowPlaying: SonosController.NowPlayingInfo?)] = [:]
@@ -177,6 +179,16 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             name: NSNotification.Name("SonosTransportStateDidChange"),
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleRefreshStatusChanged(_:)),
+            name: NSNotification.Name("SonosRefreshStatusChanged"),
+            object: nil
+        )
+
+        startLastUpdatedTimer()
+        updateLastUpdatedLabel()
     }
 
     @objc private func handlePermissionStatusChanged(_ notification: Notification) {
@@ -266,6 +278,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     }
 
     deinit {
+        lastUpdatedTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -286,6 +299,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         statusLabel.textColor = .tertiaryLabelColor
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(statusLabel)
+
+        // Last updated label
+        lastUpdatedLabel = NSTextField(labelWithString: "Last updated: —")
+        lastUpdatedLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        lastUpdatedLabel.textColor = .tertiaryLabelColor
+        lastUpdatedLabel.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(lastUpdatedLabel)
 
         // Speaker name - large and prominent
         let currentSpeaker = appDelegate?.settings.lastActiveSpeaker ?? "No Speaker"
@@ -334,9 +354,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             statusLabel.leadingAnchor.constraint(equalTo: statusDot.trailingAnchor, constant: 8),
             statusLabel.centerYAnchor.constraint(equalTo: statusDot.centerYAnchor),
 
+            lastUpdatedLabel.leadingAnchor.constraint(equalTo: statusLabel.leadingAnchor),
+            lastUpdatedLabel.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 2),
+            lastUpdatedLabel.trailingAnchor.constraint(lessThanOrEqualTo: refreshButton.leadingAnchor, constant: -8),
+
             // Speaker name
             speakerNameLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
-            speakerNameLabel.topAnchor.constraint(equalTo: statusDot.bottomAnchor, constant: 10),
+            speakerNameLabel.topAnchor.constraint(equalTo: lastUpdatedLabel.bottomAnchor, constant: 8),
 
             // Power button
             powerButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
@@ -2761,6 +2785,62 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         powerButton.contentTintColor = enabled ? .controlAccentColor : .tertiaryLabelColor
     }
 
+    @objc private func handleRefreshStatusChanged(_ notification: Notification) {
+        updateLastUpdatedLabel()
+    }
+
+    private func startLastUpdatedTimer() {
+        lastUpdatedTimer?.invalidate()
+        lastUpdatedTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            self?.updateLastUpdatedLabel()
+        }
+    }
+
+    private func updateLastUpdatedLabel() {
+        guard let controller = appDelegate?.sonosController else {
+            lastUpdatedLabel.stringValue = "Last updated: —"
+            lastUpdatedLabel.textColor = .tertiaryLabelColor
+            return
+        }
+
+        let lastRefresh = controller.cachedLastRefreshDate
+        let lastError = controller.cachedLastRefreshErrorDate
+        let staleThreshold: TimeInterval = 120
+
+        if let lastRefresh = lastRefresh {
+            lastUpdatedLabel.stringValue = "Last updated: \(relativeTimeString(since: lastRefresh))"
+        } else {
+            lastUpdatedLabel.stringValue = "Last updated: —"
+        }
+
+        if let lastError = lastError,
+           lastRefresh == nil || lastError >= (lastRefresh ?? lastError) {
+            lastUpdatedLabel.textColor = .systemRed
+            lastUpdatedLabel.stringValue += " (error)"
+        } else if let lastRefresh = lastRefresh,
+                  Date().timeIntervalSince(lastRefresh) > staleThreshold {
+            lastUpdatedLabel.textColor = .systemOrange
+        } else {
+            lastUpdatedLabel.textColor = .tertiaryLabelColor
+        }
+    }
+
+    private func relativeTimeString(since date: Date) -> String {
+        let elapsed = Int(Date().timeIntervalSince(date))
+        if elapsed < 10 {
+            return "just now"
+        }
+        if elapsed < 60 {
+            return "\(elapsed)s ago"
+        }
+        if elapsed < 3600 {
+            let minutes = elapsed / 60
+            return "\(minutes)m ago"
+        }
+        let hours = elapsed / 3600
+        return "\(hours)h ago"
+    }
+
     func refresh() {
         guard isViewLoaded else { return }
 
@@ -2769,6 +2849,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         speakerNameLabel.stringValue = appDelegate?.settings.lastActiveSpeaker ?? "No Speaker"
         updateStatus()
+        updateLastUpdatedLabel()
         updateTriggerDeviceLabel()
         populateSpeakers()
         // Don't fetch volume here - it will be updated via notification after device selection
