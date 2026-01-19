@@ -251,14 +251,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
 
         // Fetch fresh now playing info
-        if let (state, sourceType, nowPlaying) = await controller.getAudioSourceInfo(for: device) {
+        if let info = await controller.getAudioSourceInfo(for: device) {
             await MainActor.run {
                 // Update the card with the fresh info
                 updateCardWithNowPlaying(
                     uuid: deviceUUID,
-                    state: state,
-                    sourceType: sourceType,
-                    nowPlaying: nowPlaying
+                    state: info.state,
+                    sourceType: info.sourceType,
+                    nowPlaying: info.nowPlaying
                 )
             }
         }
