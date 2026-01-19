@@ -18,5 +18,8 @@ Commits stay scoped and imperative. When produced with an AI agent, follow the t
 ## AI Collaboration Workflow
 Start every effort with `/start <descriptor>` to sync GitHub issues (priority + status labels), branch correctly, and log ownership; end with `/finish` to run the completion checklist. Break multi-step work with the TodoWrite tool, marking entries in progress or complete immediately. Launch specialized agents proactively: `architecture-advisor` for structural decisions, `ux-ui-designer` for menu bar or HUD tweaks, `discovery-documenter`/`requirements-writer`/`ticket-breaker` for product planning, and `/security-review` before merging sensitive changes.
 
+## Response Guidance
+Always make a recommendation when presenting options, and include tradeoffs for each option.
+
 ## Security & Configuration Tips
 Grant Accessibility control so volume hotkeys fire, and ensure the Mac shares a subnet with Sonos hardware for multicast discovery. Store credentials via `AppSettings` or keychain helpers—never hardcode secrets. Reinstall via `./build-app.sh --install` when testing login-item behavior or entitlement changes.
