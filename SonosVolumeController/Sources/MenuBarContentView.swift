@@ -958,10 +958,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         )
         card.addTrackingArea(trackingArea)
 
-        // Add click gesture to card (since we removed the interactive star button)
-        let cardClick = NSClickGestureRecognizer(target: self, action: #selector(selectGroup(_:)))
-        cardClick.delegate = self
-        card.addGestureRecognizer(cardClick)
+        // Add click gesture to content (keeps checkbox fully clickable)
+        let iconClick = NSClickGestureRecognizer(target: self, action: #selector(selectGroup(_:)))
+        iconClick.delegate = self
+        icon.addGestureRecognizer(iconClick)
+        let nameClick = NSClickGestureRecognizer(target: self, action: #selector(selectGroup(_:)))
+        nameClick.delegate = self
+        nameLabel.addGestureRecognizer(nameClick)
 
         card.addSubview(icon)
         card.addSubview(nameLabel)
@@ -1192,10 +1195,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         )
         card.addTrackingArea(trackingArea)
 
-        // Add click gesture to card (since we removed the interactive star button)
-        let cardClick = NSClickGestureRecognizer(target: self, action: #selector(selectSpeaker(_:)))
-        cardClick.delegate = self
-        card.addGestureRecognizer(cardClick)
+        // Add click gesture to content (keeps checkbox fully clickable)
+        let iconClick = NSClickGestureRecognizer(target: self, action: #selector(selectSpeaker(_:)))
+        iconClick.delegate = self
+        icon.addGestureRecognizer(iconClick)
+        let textClick = NSClickGestureRecognizer(target: self, action: #selector(selectSpeaker(_:)))
+        textClick.delegate = self
+        textStack.addGestureRecognizer(textClick)
 
         card.addSubview(icon)
         card.addSubview(textStack)
