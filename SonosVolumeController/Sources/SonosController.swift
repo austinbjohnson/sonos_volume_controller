@@ -1331,6 +1331,31 @@ actor SonosController {
             return results
         }
         
+        // Line-in should always win when actively playing (high intent source).
+        let lineInDevices = devices.filter { device in
+            guard let info = sourceInfos[device.uuid] else { return false }
+            return info.state == "PLAYING" && info.sourceType == .lineIn
+        }
+
+        if !lineInDevices.isEmpty {
+            if lineInDevices.count == 1 {
+                let coordinator = lineInDevices[0]
+                print("🎙️ Line-in playing on \(coordinator.name) - using as coordinator")
+                return CoordinatorSelection(
+                    suggestedCoordinator: coordinator,
+                    playingDevices: lineInDevices,
+                    requiresUserChoice: false
+                )
+            }
+
+            print("⚠️ Multiple line-in sources playing - user input required")
+            return CoordinatorSelection(
+                suggestedCoordinator: lineInDevices[0],
+                playingDevices: lineInDevices,
+                requiresUserChoice: true
+            )
+        }
+
         // Find all devices that are currently PLAYING (new simplified priority model)
         let playingDevices = devices.filter { device in
             sourceInfos[device.uuid]?.state == "PLAYING"
@@ -2062,4 +2087,3 @@ extension String {
         return attributedString.string
     }
 }
-

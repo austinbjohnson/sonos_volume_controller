@@ -2467,6 +2467,12 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     }
                     infoLines.append("") // Blank line between devices
                 }
+
+                let hasLineIn = playingDevices.contains { deviceInfos[$0.uuid]?.sourceType == .lineIn }
+                if hasLineIn {
+                    infoLines.append("⚠️ Line-In will take over the group and stop other audio sources.")
+                    infoLines.append("")
+                }
                 
                 infoLines.append("Other speakers will sync to the selected audio source.")
                 alert.informativeText = infoLines.joined(separator: "\n")
