@@ -2043,10 +2043,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Check if click location is on a button (checkbox)
         let clickLocation = clickGesture.location(in: card)
-        for subview in card.subviews {
-            if subview is NSButton && subview.frame.contains(clickLocation) {
-                // Don't start gesture - let the button handle it
-                return false
+        if let hitView = card.hitTest(clickLocation) {
+            var view: NSView? = hitView
+            while let current = view {
+                if current is NSButton {
+                    // Don't start gesture - let the button handle it
+                    return false
+                }
+                view = current.superview
             }
         }
         return true
