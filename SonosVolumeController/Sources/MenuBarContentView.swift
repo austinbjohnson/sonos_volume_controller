@@ -943,8 +943,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         checkbox.identifier = NSUserInterfaceItemIdentifier(group.id)
         checkbox.translatesAutoresizingMaskIntoConstraints = false
         checkbox.toolTip = "Select for ungrouping"
-        // Hidden by default, shown on hover (unless already checked)
-        checkbox.isHidden = (checkbox.state != .on)
+        // Keep group checkboxes visible to avoid hover/tap ambiguity
+        checkbox.isHidden = false
 
         // Card identifier for tracking (use coordinator UUID for Now Playing lookup)
         card.identifier = NSUserInterfaceItemIdentifier(group.coordinator.uuid)
