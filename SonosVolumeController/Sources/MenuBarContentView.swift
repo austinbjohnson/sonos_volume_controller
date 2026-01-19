@@ -251,14 +251,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
 
         // Fetch fresh now playing info
-        if let (state, sourceType, nowPlaying) = await controller.getAudioSourceInfo(for: device) {
+        if let info = await controller.getAudioSourceInfo(for: device) {
             await MainActor.run {
                 // Update the card with the fresh info
                 updateCardWithNowPlaying(
                     uuid: deviceUUID,
-                    state: state,
-                    sourceType: sourceType,
-                    nowPlaying: nowPlaying
+                    state: info.state,
+                    sourceType: info.sourceType,
+                    nowPlaying: info.nowPlaying
                 )
             }
         }
@@ -943,8 +943,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         checkbox.identifier = NSUserInterfaceItemIdentifier(group.id)
         checkbox.translatesAutoresizingMaskIntoConstraints = false
         checkbox.toolTip = "Select for ungrouping"
-        // Hidden by default, shown on hover (unless already checked)
-        checkbox.isHidden = (checkbox.state != .on)
+        // Keep group checkboxes visible to avoid hover/tap ambiguity
+        checkbox.isHidden = false
 
         // Card identifier for tracking (use coordinator UUID for Now Playing lookup)
         card.identifier = NSUserInterfaceItemIdentifier(group.coordinator.uuid)
@@ -958,14 +958,22 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         )
         card.addTrackingArea(trackingArea)
 
-        // Add click gesture to card (since we removed the interactive star button)
-        let cardClick = NSClickGestureRecognizer(target: self, action: #selector(selectGroup(_:)))
-        cardClick.delegate = self
-        card.addGestureRecognizer(cardClick)
+        let selectionButton = NSButton()
+        selectionButton.title = ""
+        selectionButton.isBordered = false
+        selectionButton.bezelStyle = .regularSquare
+        selectionButton.focusRingType = .none
+        selectionButton.setButtonType(.momentaryChange)
+        selectionButton.target = self
+        selectionButton.action = #selector(selectGroup(_:))
+        selectionButton.identifier = NSUserInterfaceItemIdentifier(group.id)
+        selectionButton.translatesAutoresizingMaskIntoConstraints = false
+        selectionButton.toolTip = "Select group"
 
         card.addSubview(icon)
         card.addSubview(nameLabel)
         card.addSubview(checkbox)
+        card.addSubview(selectionButton)
 
         // Set up constraints - nameLabel positioned directly after icon (no album art)
         NSLayoutConstraint.activate([
@@ -984,7 +992,12 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
             checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
 
-            card.heightAnchor.constraint(equalToConstant: 42)
+            selectionButton.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            selectionButton.topAnchor.constraint(equalTo: card.topAnchor),
+            selectionButton.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+            selectionButton.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -6),
+
+            card.heightAnchor.constraint(greaterThanOrEqualToConstant: 50)
         ])
         
         // Add source badge if available (no album art in cards)
@@ -1192,14 +1205,22 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         )
         card.addTrackingArea(trackingArea)
 
-        // Add click gesture to card (since we removed the interactive star button)
-        let cardClick = NSClickGestureRecognizer(target: self, action: #selector(selectSpeaker(_:)))
-        cardClick.delegate = self
-        card.addGestureRecognizer(cardClick)
+        let selectionButton = NSButton()
+        selectionButton.title = ""
+        selectionButton.isBordered = false
+        selectionButton.bezelStyle = .regularSquare
+        selectionButton.focusRingType = .none
+        selectionButton.setButtonType(.momentaryChange)
+        selectionButton.target = self
+        selectionButton.action = #selector(selectSpeaker(_:))
+        selectionButton.identifier = NSUserInterfaceItemIdentifier(device.name)
+        selectionButton.translatesAutoresizingMaskIntoConstraints = false
+        selectionButton.toolTip = "Select speaker"
 
         card.addSubview(icon)
         card.addSubview(textStack)
         card.addSubview(checkbox)
+        card.addSubview(selectionButton)
 
         // Add source badge if available (no album art in cards)
         if let cached = nowPlayingCache[device.uuid],
@@ -1220,6 +1241,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
             checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
             checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+
+            selectionButton.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            selectionButton.topAnchor.constraint(equalTo: card.topAnchor),
+            selectionButton.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+            selectionButton.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -6),
 
             card.heightAnchor.constraint(greaterThanOrEqualToConstant: 50)
         ])
@@ -2043,10 +2069,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Check if click location is on a button (checkbox)
         let clickLocation = clickGesture.location(in: card)
-        for subview in card.subviews {
-            if subview is NSButton && subview.frame.contains(clickLocation) {
-                // Don't start gesture - let the button handle it
-                return false
+        if let hitView = card.hitTest(clickLocation) {
+            var view: NSView? = hitView
+            while let current = view {
+                if current is NSButton {
+                    // Don't start gesture - let the button handle it
+                    return false
+                }
+                view = current.superview
             }
         }
         return true
@@ -2126,17 +2156,40 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let selectedGroupIds = selectedSpeakerCards.filter { id in
             groups.contains(where: { $0.id == id && $0.members.count > 1 })
         }
-        let selectedSpeakerCount = selectedSpeakerCards.count - selectedGroupIds.count
+        let selectedDeviceNames = selectedDeviceNamesForGrouping(from: groups)
+        let groupingSelectionCount = selectedDeviceNames.count
 
         // Enable group button if multiple speakers selected (not groups)
-        groupButton.isEnabled = selectedSpeakerCount > 1
-        groupButton.title = selectedSpeakerCount > 1 ?
-            "Group \(selectedSpeakerCount) Speakers" : "Group Selected"
+        groupButton.isEnabled = groupingSelectionCount > 1
+        groupButton.title = groupingSelectionCount > 1 ?
+            "Group \(groupingSelectionCount) Speakers" : "Group Selected"
 
         // Enable ungroup button if any groups selected
         ungroupButton.isEnabled = !selectedGroupIds.isEmpty
         ungroupButton.title = selectedGroupIds.count > 1 ?
             "Ungroup \(selectedGroupIds.count) Groups" : "Ungroup Selected"
+    }
+
+    private func selectedDeviceNamesForGrouping(from groups: [SonosController.SonosGroup]) -> Set<String> {
+        var deviceNames = Set<String>()
+
+        for selection in selectedSpeakerCards {
+            if let group = groups.first(where: { $0.id == selection && $0.members.count > 1 }) {
+                deviceNames.insert(group.coordinator.name)
+            } else {
+                deviceNames.insert(selection)
+            }
+        }
+
+        return deviceNames
+    }
+
+    private func groupingSelectionCount() -> Int {
+        guard let controller = appDelegate?.sonosController else {
+            return selectedSpeakerCards.count
+        }
+
+        return selectedDeviceNamesForGrouping(from: controller.cachedDiscoveredGroups).count
     }
 
 
@@ -2328,16 +2381,18 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     }
 
     @objc private func groupSpeakers() {
-        guard selectedSpeakerCards.count > 1 else {
+        guard let controller = appDelegate?.sonosController else { return }
+
+        let selectedDeviceNames = selectedDeviceNamesForGrouping(from: controller.cachedDiscoveredGroups)
+        guard selectedDeviceNames.count > 1 else {
             print("⚠️ Need at least 2 speakers to create a group")
             return
         }
 
         // Get the actual device objects
-        guard let controller = appDelegate?.sonosController else { return }
-        let selectedDevices = controller.cachedDiscoveredDevices.filter { selectedSpeakerCards.contains($0.name) }
+        let selectedDevices = controller.cachedDiscoveredDevices.filter { selectedDeviceNames.contains($0.name) }
 
-        guard selectedDevices.count == selectedSpeakerCards.count else {
+        guard selectedDevices.count == selectedDeviceNames.count else {
             print("⚠️ Could not find all selected devices")
             return
         }
@@ -2349,60 +2404,32 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         // Disable button and show progress during operation
         groupButton.isEnabled = false
-        groupButton.title = "Grouping..."
+        groupButton.title = "Analyzing..."
         groupProgressIndicator.startAnimation(nil)
 
-        // Proceed with smart coordinator selection (backend now handles audio source detection)
-        performGrouping(devices: selectedDevices, coordinator: nil)
-    }
-
-    private func showSourcePreservationDialog(
-        lineInDevices: [SonosController.SonosDevice],
-        tvDevices: [SonosController.SonosDevice],
-        streamingDevices: [SonosController.SonosDevice],
-        allDevices: [SonosController.SonosDevice]
-    ) {
-        let alert = NSAlert()
-
-        if !lineInDevices.isEmpty {
-            let lineInNames = lineInDevices.map { $0.name }.joined(separator: ", ")
-            alert.messageText = "Line-In Audio Detected"
-            alert.informativeText = """
-            \(lineInNames) \(lineInDevices.count == 1 ? "is" : "are") playing from a physical audio input (line-in).
-
-            When grouped, all speakers will play from the line-in source. Any streaming audio will stop.
-
-            The line-in speaker will be used as the group coordinator to preserve the audio.
-            """
-        } else if !tvDevices.isEmpty {
-            let tvNames = tvDevices.map { $0.name }.joined(separator: ", ")
-            alert.messageText = "TV Audio Detected"
-            alert.informativeText = """
-            \(tvNames) \(tvDevices.count == 1 ? "is" : "are") playing TV/home theater audio.
-
-            When grouped, all speakers will play the TV audio. Any streaming audio will stop.
-
-            The TV speaker will be used as the group coordinator to preserve the audio.
-            """
-        }
-
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Continue")
-        alert.addButton(withTitle: "Cancel")
-
-        let response = alert.runModal()
-
-        if response == .alertFirstButtonReturn {
-            print("✅ User confirmed grouping with line-in/TV audio preservation")
-            performGrouping(devices: allDevices, coordinator: nil)
-        } else {
-            print("❌ User cancelled grouping")
-            groupProgressIndicator.stopAnimation(nil)
-            groupButton.isEnabled = true
-            groupButton.title = "Group \(selectedSpeakerCards.count) Speakers"
+        // Analyze devices to determine coordinator selection
+        Task {
+            let selection = await controller.analyzeCoordinatorSelection(from: selectedDevices)
+            
+            await MainActor.run {
+                if selection.requiresUserChoice {
+                    // Multiple devices playing - show dialog with now-playing info
+                    print("🤔 Multiple devices playing - asking user to choose")
+                    self.showEnhancedCoordinatorSelectionDialog(
+                        playingDevices: selection.playingDevices,
+                        allDevices: selectedDevices
+                    )
+                } else {
+                    // Automatic selection (0-1 devices playing)
+                    print("✅ Automatic coordinator selection: \(selection.suggestedCoordinator.name)")
+                    self.groupButton.title = "Grouping..."
+                    self.performGrouping(devices: selectedDevices, coordinator: selection.suggestedCoordinator)
+                }
+            }
         }
     }
 
+    // Legacy dialog kept for reference - replaced by showEnhancedCoordinatorSelectionDialog
     private func showCoordinatorSelectionDialog(playingDevices: [SonosController.SonosDevice], allDevices: [SonosController.SonosDevice]) {
         let alert = NSAlert()
         alert.messageText = "Multiple Speakers Playing"
@@ -2429,7 +2456,107 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             print("❌ User cancelled grouping")
             groupProgressIndicator.stopAnimation(nil)
             groupButton.isEnabled = true
-            groupButton.title = "Group \(selectedSpeakerCards.count) Speakers"
+            groupButton.title = "Group \(groupingSelectionCount()) Speakers"
+        }
+    }
+    
+    /// Enhanced coordinator selection dialog with now-playing information
+    private func showEnhancedCoordinatorSelectionDialog(playingDevices: [SonosController.SonosDevice], allDevices: [SonosController.SonosDevice]) {
+        guard let controller = appDelegate?.sonosController else { return }
+        
+        // Fetch now-playing info for each device
+        Task {
+            let deviceInfos = await withTaskGroup(of: (String, SonosController.NowPlayingInfo?, SonosController.AudioSourceType).self) { group in
+                for device in playingDevices {
+                    group.addTask {
+                        if let info = await controller.getAudioSourceInfo(for: device) {
+                            return (device.uuid, info.nowPlaying, info.sourceType)
+                        }
+                        return (device.uuid, nil, .idle)
+                    }
+                }
+                
+                var results: [String: (nowPlaying: SonosController.NowPlayingInfo?, sourceType: SonosController.AudioSourceType)] = [:]
+                for await (uuid, nowPlaying, sourceType) in group {
+                    results[uuid] = (nowPlaying: nowPlaying, sourceType: sourceType)
+                }
+                return results
+            }
+            
+            // Build the dialog on the main thread
+            await MainActor.run {
+                let alert = NSAlert()
+                alert.messageText = "Which Audio Should the Group Play?"
+                
+                // Build informative text with device details
+                var infoLines: [String] = ["Multiple speakers are playing audio:\n"]
+                
+                for device in playingDevices {
+                    let info = deviceInfos[device.uuid]
+                    let sourceType = info?.sourceType ?? .idle
+                    
+                    // Device name with emoji
+                    infoLines.append("🔊 \(device.name)")
+                    
+                    // Now-playing details based on source type
+                    if let nowPlaying = info?.nowPlaying {
+                        // Streaming or radio with track info
+                        infoLines.append("   Playing: \(nowPlaying.displayText)")
+                        if let album = nowPlaying.album, !album.isEmpty {
+                            infoLines.append("   Album: \(album)")
+                        }
+                    } else {
+                        // Non-streaming source (line-in, TV, etc.)
+                        switch sourceType {
+                        case .lineIn:
+                            infoLines.append("   Source: Line-In Audio")
+                        case .tv:
+                            infoLines.append("   Source: TV/Home Theater")
+                        case .radio:
+                            infoLines.append("   Source: Radio Station")
+                        case .streaming:
+                            infoLines.append("   Source: Streaming Audio")
+                        default:
+                            infoLines.append("   Source: \(sourceType.description)")
+                        }
+                    }
+                    infoLines.append("") // Blank line between devices
+                }
+
+                let hasLineIn = playingDevices.contains { deviceInfos[$0.uuid]?.sourceType == .lineIn }
+                if hasLineIn {
+                    infoLines.append("⚠️ Line-In will take over the group and stop other audio sources.")
+                    infoLines.append("")
+                }
+                
+                infoLines.append("Other speakers will sync to the selected audio source.")
+                alert.informativeText = infoLines.joined(separator: "\n")
+                alert.alertStyle = .informational
+                
+                // Add buttons with clear action text
+                for device in playingDevices {
+                    alert.addButton(withTitle: "Continue with \(device.name)")
+                }
+                alert.addButton(withTitle: "Cancel")
+                
+                let response = alert.runModal()
+                
+                // Map response to device selection
+                if response.rawValue >= NSApplication.ModalResponse.alertFirstButtonReturn.rawValue,
+                   response.rawValue < NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + playingDevices.count {
+                    let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+                    let chosenCoordinator = playingDevices[index]
+                    print("✅ User chose coordinator: \(chosenCoordinator.name)")
+                    self.groupButton.title = "Grouping..."
+                    self.performGrouping(devices: allDevices, coordinator: chosenCoordinator)
+                } else {
+                    // User cancelled
+                    print("❌ User cancelled grouping")
+                    self.groupProgressIndicator.stopAnimation(nil)
+                    self.groupButton.isEnabled = true
+                    self.groupButton.title = "Group \(self.groupingSelectionCount()) Speakers"
+                }
+            }
         }
     }
 
@@ -2479,7 +2606,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     // Re-enable button and hide progress
                     self.groupProgressIndicator.stopAnimation(nil)
                     self.groupButton.isEnabled = true
-                    self.groupButton.title = "Group \(self.selectedSpeakerCards.count) Speakers"
+                    self.groupButton.title = "Group \(self.groupingSelectionCount()) Speakers"
                 }
             }
             }

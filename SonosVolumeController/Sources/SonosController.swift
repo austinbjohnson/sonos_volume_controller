@@ -1270,6 +1270,13 @@ actor SonosController {
         }
     }
 
+    /// Result of coordinator selection analysis
+    struct CoordinatorSelection {
+        let suggestedCoordinator: SonosDevice
+        let playingDevices: [SonosDevice]
+        let requiresUserChoice: Bool  // True if multiple devices are playing
+    }
+    
     /// Create a group from multiple devices with smart coordinator selection (async/await)
     /// If coordinatorDevice is not specified, will choose intelligently based on audio sources
     func createGroup(devices deviceList: [SonosDevice], coordinatorDevice: SonosDevice? = nil, completion: (@Sendable (Bool) -> Void)? = nil) {
@@ -1300,21 +1307,141 @@ actor SonosController {
             await self.performGrouping(devices: deviceList, coordinator: coordinator, completion: completion)
         }
     }
-
-    /// Select the best coordinator from a list of devices based on audio source priority
-    private func selectBestCoordinator(from devices: [SonosDevice]) async -> SonosDevice {
+    
+    /// Analyze devices and determine best coordinator selection
+    /// Returns coordinator selection info including whether user input is needed
+    func analyzeCoordinatorSelection(from devices: [SonosDevice]) async -> CoordinatorSelection {
         // Get audio source info for all devices in parallel
-        let sourceInfos = await withTaskGroup(of: (String, (state: String, sourceType: AudioSourceType)?).self) { group in
+        let sourceInfos = await withTaskGroup(of: (String, (state: String, sourceType: AudioSourceType, nowPlaying: NowPlayingInfo?, trackURI: String?)?).self) { group in
             for device in devices {
                 group.addTask {
                     if let info = await self.getAudioSourceInfo(for: device) {
-                        return (device.uuid, (state: info.state, sourceType: info.sourceType))
+                        return (device.uuid, (state: info.state, sourceType: info.sourceType, nowPlaying: info.nowPlaying, trackURI: info.trackURI))
                     }
                     return (device.uuid, nil)
                 }
             }
 
-            var results: [String: (state: String, sourceType: AudioSourceType)] = [:]
+            var results: [String: (state: String, sourceType: AudioSourceType, nowPlaying: NowPlayingInfo?, trackURI: String?)] = [:]
+            for await (uuid, info) in group {
+                if let info = info {
+                    results[uuid] = info
+                }
+            }
+            return results
+        }
+        
+        // Line-in should always win when actively playing (high intent source).
+        let lineInDevices = devices.filter { device in
+            guard let info = sourceInfos[device.uuid] else { return false }
+            return info.state == "PLAYING" && info.sourceType == .lineIn
+        }
+
+        if !lineInDevices.isEmpty {
+            if lineInDevices.count == 1 {
+                let coordinator = lineInDevices[0]
+                print("🎙️ Line-in playing on \(coordinator.name) - using as coordinator")
+                return CoordinatorSelection(
+                    suggestedCoordinator: coordinator,
+                    playingDevices: lineInDevices,
+                    requiresUserChoice: false
+                )
+            }
+
+            print("⚠️ Multiple line-in sources playing - user input required")
+            return CoordinatorSelection(
+                suggestedCoordinator: lineInDevices[0],
+                playingDevices: lineInDevices,
+                requiresUserChoice: true
+            )
+        }
+
+        func contentKey(for device: SonosDevice, info: (state: String, sourceType: AudioSourceType, nowPlaying: NowPlayingInfo?, trackURI: String?)) -> String {
+            if let uri = info.trackURI, !uri.isEmpty {
+                return uri
+            }
+            if let coordinatorUUID = device.groupCoordinatorUUID {
+                return "group:\(coordinatorUUID)"
+            }
+            if let nowPlaying = info.nowPlaying {
+                return "np:\(nowPlaying.displayText)"
+            }
+            return "device:\(device.uuid)"
+        }
+
+        // Find all devices that are currently PLAYING (new simplified priority model)
+        let playingDevices = devices.filter { device in
+            sourceInfos[device.uuid]?.state == "PLAYING"
+        }
+        
+        print("🎵 Coordinator analysis: \(playingDevices.count) of \(devices.count) devices are playing")
+        
+        if playingDevices.isEmpty {
+            // No devices playing - choose first device (prefer non-stereo-pair)
+            let nonStereoPair = devices.first { $0.channelMapSet == nil }
+            let coordinator = nonStereoPair ?? devices.first!
+            print("📍 No devices playing - using \(coordinator.name) as coordinator")
+            return CoordinatorSelection(
+                suggestedCoordinator: coordinator,
+                playingDevices: [],
+                requiresUserChoice: false
+            )
+        } else if playingDevices.count == 1 {
+            // One device playing - automatic choice
+            let coordinator = playingDevices[0]
+            print("🎵 One device playing (\(coordinator.name)) - using as coordinator")
+            return CoordinatorSelection(
+                suggestedCoordinator: coordinator,
+                playingDevices: playingDevices,
+                requiresUserChoice: false
+            )
+        } else {
+            let contentKeys = playingDevices.compactMap { device -> String? in
+                guard let info = sourceInfos[device.uuid] else { return nil }
+                return contentKey(for: device, info: info)
+            }
+            let uniqueKeys = Set(contentKeys)
+            if uniqueKeys.count == 1 {
+                let nonStereoPair = playingDevices.first { $0.channelMapSet == nil }
+                let coordinator = nonStereoPair ?? playingDevices[0]
+                print("🎵 Multiple devices playing the same content - using \(coordinator.name) as coordinator")
+                return CoordinatorSelection(
+                    suggestedCoordinator: coordinator,
+                    playingDevices: playingDevices,
+                    requiresUserChoice: false
+                )
+            }
+
+            // Multiple devices playing - user must choose
+            print("⚠️ Multiple devices playing - user input required")
+            for device in playingDevices {
+                if let info = sourceInfos[device.uuid] {
+                    print("  - \(device.name): \(info.sourceType.description)")
+                }
+            }
+            // Suggest first playing device but require user confirmation
+            return CoordinatorSelection(
+                suggestedCoordinator: playingDevices[0],
+                playingDevices: playingDevices,
+                requiresUserChoice: true
+            )
+        }
+    }
+
+    /// Select the best coordinator from a list of devices based on audio source priority
+    private func selectBestCoordinator(from devices: [SonosDevice]) async -> SonosDevice {
+        // Get audio source info for all devices in parallel
+        let sourceInfos = await withTaskGroup(of: (String, (state: String, sourceType: AudioSourceType, trackURI: String?)?).self) { group in
+            for device in devices {
+                group.addTask {
+                    if let info = await self.getAudioSourceInfo(for: device) {
+                        return (device.uuid, (state: info.state, sourceType: info.sourceType, trackURI: info.trackURI))
+                    }
+                    return (device.uuid, nil)
+                }
+            }
+
+            var results: [String: (state: String, sourceType: AudioSourceType, trackURI: String?)] = [:]
             for await (uuid, info) in group {
                 if let info = info {
                     results[uuid] = info
@@ -1671,7 +1798,7 @@ actor SonosController {
 
     /// Get audio source information for a device (async/await)
     /// Returns tuple of (transportState, audioSource, nowPlaying) or nil if unable to determine
-    func getAudioSourceInfo(for device: SonosDevice) async -> (state: String, sourceType: AudioSourceType, nowPlaying: NowPlayingInfo?)? {
+    func getAudioSourceInfo(for device: SonosDevice) async -> (state: String, sourceType: AudioSourceType, nowPlaying: NowPlayingInfo?, trackURI: String?)? {
         do {
             // Get transport state and position info in parallel
             async let transportResponse = networkClient.getTransportInfo(for: device.ipAddress)
@@ -1701,7 +1828,7 @@ actor SonosController {
                 print("🎵 \(device.name): \(state) - \(sourceType.description)")
             }
 
-            return (state: state, sourceType: sourceType, nowPlaying: nowPlaying)
+            return (state: state, sourceType: sourceType, nowPlaying: nowPlaying, trackURI: uri)
 
         } catch {
             print("❌ Failed to get audio source info for \(device.name): \(error)")
@@ -1989,4 +2116,3 @@ extension String {
         return attributedString.string
     }
 }
-
