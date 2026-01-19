@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Album art thumbnails in now playing display - 40x40pt album artwork with 4pt corner radius and subtle border, async loading with NSCache for performance, fallback SF Symbols for sources without artwork (music.note for streaming, waveform for line-in, tv for TV), refined 64pt card layout with tighter spacing (PR #49)
 
 ### Changed
-- Menu bar icon now indicates stale/error refresh state and popover shows a "Last updated" row.
+- Menu bar icon now indicates stale/error refresh state and popover shows a "Last updated" row. (PR #115)
 - Grouping coordinator selection now prioritizes line-in sources and only prompts when multiple different streams are active, with now-playing context in the chooser. (PR #58)
 - Grouping UI selection is more reliable: card selection no longer interferes with checkbox toggles, and grouping supports a selected group plus a solo speaker. (PR #58)
 - Simplified now-playing UI by consolidating album art display - album art thumbnails removed from individual speaker and group cards in the speaker list, now displayed exclusively in the dedicated now-playing section at the top. Creates cleaner, less cluttered interface while maintaining full playback information visibility in the now-playing display. Source badges (green/blue/teal colored dots) remain on cards for quick visual reference (PR #57)
