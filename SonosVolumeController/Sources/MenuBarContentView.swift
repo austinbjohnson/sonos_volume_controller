@@ -958,17 +958,22 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         )
         card.addTrackingArea(trackingArea)
 
-        // Add click gesture to content (keeps checkbox fully clickable)
-        let iconClick = NSClickGestureRecognizer(target: self, action: #selector(selectGroup(_:)))
-        iconClick.delegate = self
-        icon.addGestureRecognizer(iconClick)
-        let nameClick = NSClickGestureRecognizer(target: self, action: #selector(selectGroup(_:)))
-        nameClick.delegate = self
-        nameLabel.addGestureRecognizer(nameClick)
+        let selectionButton = NSButton()
+        selectionButton.title = ""
+        selectionButton.isBordered = false
+        selectionButton.bezelStyle = .regularSquare
+        selectionButton.focusRingType = .none
+        selectionButton.setButtonType(.momentaryChange)
+        selectionButton.target = self
+        selectionButton.action = #selector(selectGroup(_:))
+        selectionButton.identifier = NSUserInterfaceItemIdentifier(group.id)
+        selectionButton.translatesAutoresizingMaskIntoConstraints = false
+        selectionButton.toolTip = "Select group"
 
         card.addSubview(icon)
         card.addSubview(nameLabel)
         card.addSubview(checkbox)
+        card.addSubview(selectionButton)
 
         // Set up constraints - nameLabel positioned directly after icon (no album art)
         NSLayoutConstraint.activate([
@@ -986,6 +991,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             // Checkbox stays on right (aligned with speaker checkboxes)
             checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
             checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+
+            selectionButton.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            selectionButton.topAnchor.constraint(equalTo: card.topAnchor),
+            selectionButton.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+            selectionButton.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -6),
 
             card.heightAnchor.constraint(greaterThanOrEqualToConstant: 50)
         ])
@@ -1195,17 +1205,22 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         )
         card.addTrackingArea(trackingArea)
 
-        // Add click gesture to content (keeps checkbox fully clickable)
-        let iconClick = NSClickGestureRecognizer(target: self, action: #selector(selectSpeaker(_:)))
-        iconClick.delegate = self
-        icon.addGestureRecognizer(iconClick)
-        let textClick = NSClickGestureRecognizer(target: self, action: #selector(selectSpeaker(_:)))
-        textClick.delegate = self
-        textStack.addGestureRecognizer(textClick)
+        let selectionButton = NSButton()
+        selectionButton.title = ""
+        selectionButton.isBordered = false
+        selectionButton.bezelStyle = .regularSquare
+        selectionButton.focusRingType = .none
+        selectionButton.setButtonType(.momentaryChange)
+        selectionButton.target = self
+        selectionButton.action = #selector(selectSpeaker(_:))
+        selectionButton.identifier = NSUserInterfaceItemIdentifier(device.name)
+        selectionButton.translatesAutoresizingMaskIntoConstraints = false
+        selectionButton.toolTip = "Select speaker"
 
         card.addSubview(icon)
         card.addSubview(textStack)
         card.addSubview(checkbox)
+        card.addSubview(selectionButton)
 
         // Add source badge if available (no album art in cards)
         if let cached = nowPlayingCache[device.uuid],
@@ -1226,6 +1241,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
             checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
             checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+
+            selectionButton.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            selectionButton.topAnchor.constraint(equalTo: card.topAnchor),
+            selectionButton.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+            selectionButton.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -6),
 
             card.heightAnchor.constraint(greaterThanOrEqualToConstant: 50)
         ])
@@ -2136,17 +2156,40 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let selectedGroupIds = selectedSpeakerCards.filter { id in
             groups.contains(where: { $0.id == id && $0.members.count > 1 })
         }
-        let selectedSpeakerCount = selectedSpeakerCards.count - selectedGroupIds.count
+        let selectedDeviceNames = selectedDeviceNamesForGrouping(from: groups)
+        let groupingSelectionCount = selectedDeviceNames.count
 
         // Enable group button if multiple speakers selected (not groups)
-        groupButton.isEnabled = selectedSpeakerCount > 1
-        groupButton.title = selectedSpeakerCount > 1 ?
-            "Group \(selectedSpeakerCount) Speakers" : "Group Selected"
+        groupButton.isEnabled = groupingSelectionCount > 1
+        groupButton.title = groupingSelectionCount > 1 ?
+            "Group \(groupingSelectionCount) Speakers" : "Group Selected"
 
         // Enable ungroup button if any groups selected
         ungroupButton.isEnabled = !selectedGroupIds.isEmpty
         ungroupButton.title = selectedGroupIds.count > 1 ?
             "Ungroup \(selectedGroupIds.count) Groups" : "Ungroup Selected"
+    }
+
+    private func selectedDeviceNamesForGrouping(from groups: [SonosController.SonosGroup]) -> Set<String> {
+        var deviceNames = Set<String>()
+
+        for selection in selectedSpeakerCards {
+            if let group = groups.first(where: { $0.id == selection && $0.members.count > 1 }) {
+                deviceNames.insert(group.coordinator.name)
+            } else {
+                deviceNames.insert(selection)
+            }
+        }
+
+        return deviceNames
+    }
+
+    private func groupingSelectionCount() -> Int {
+        guard let controller = appDelegate?.sonosController else {
+            return selectedSpeakerCards.count
+        }
+
+        return selectedDeviceNamesForGrouping(from: controller.cachedDiscoveredGroups).count
     }
 
 
@@ -2338,16 +2381,18 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     }
 
     @objc private func groupSpeakers() {
-        guard selectedSpeakerCards.count > 1 else {
+        guard let controller = appDelegate?.sonosController else { return }
+
+        let selectedDeviceNames = selectedDeviceNamesForGrouping(from: controller.cachedDiscoveredGroups)
+        guard selectedDeviceNames.count > 1 else {
             print("⚠️ Need at least 2 speakers to create a group")
             return
         }
 
         // Get the actual device objects
-        guard let controller = appDelegate?.sonosController else { return }
-        let selectedDevices = controller.cachedDiscoveredDevices.filter { selectedSpeakerCards.contains($0.name) }
+        let selectedDevices = controller.cachedDiscoveredDevices.filter { selectedDeviceNames.contains($0.name) }
 
-        guard selectedDevices.count == selectedSpeakerCards.count else {
+        guard selectedDevices.count == selectedDeviceNames.count else {
             print("⚠️ Could not find all selected devices")
             return
         }
@@ -2411,7 +2456,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             print("❌ User cancelled grouping")
             groupProgressIndicator.stopAnimation(nil)
             groupButton.isEnabled = true
-            groupButton.title = "Group \(selectedSpeakerCards.count) Speakers"
+            groupButton.title = "Group \(groupingSelectionCount()) Speakers"
         }
     }
     
@@ -2509,7 +2554,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     print("❌ User cancelled grouping")
                     self.groupProgressIndicator.stopAnimation(nil)
                     self.groupButton.isEnabled = true
-                    self.groupButton.title = "Group \(self.selectedSpeakerCards.count) Speakers"
+                    self.groupButton.title = "Group \(self.groupingSelectionCount()) Speakers"
                 }
             }
         }
@@ -2561,7 +2606,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                     // Re-enable button and hide progress
                     self.groupProgressIndicator.stopAnimation(nil)
                     self.groupButton.isEnabled = true
-                    self.groupButton.title = "Group \(self.selectedSpeakerCards.count) Speakers"
+                    self.groupButton.title = "Group \(self.groupingSelectionCount()) Speakers"
                 }
             }
             }
