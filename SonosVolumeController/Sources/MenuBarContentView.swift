@@ -2126,7 +2126,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 await controller.subscribeToTransportUpdates(for: transportDevice.uuid)
                 
                 // Fetch audio source info to populate the device's audioSource field
-                if let sourceInfo = await controller.getAudioSourceInfo(for: transportDevice) {
+                if let sourceInfo = await controller.refreshAudioSourceInfo(for: transportDevice) {
                     await MainActor.run {
                         self.currentTransportState = sourceInfo.state
                         self.updatePlayPauseButton(isPlaying: sourceInfo.state == "PLAYING")

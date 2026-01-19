@@ -1843,6 +1843,27 @@ actor SonosController {
         }
     }
 
+    /// Fetch audio source info and update the cached device entry.
+    func refreshAudioSourceInfo(for device: SonosDevice) async -> (state: String, sourceType: AudioSourceType, nowPlaying: NowPlayingInfo?, trackURI: String?)? {
+        guard let info = await getAudioSourceInfo(for: device) else {
+            return nil
+        }
+
+        if let index = devices.firstIndex(where: { $0.uuid == device.uuid }) {
+            devices[index].audioSource = info.sourceType
+            devices[index].transportState = info.state
+            devices[index].nowPlaying = info.nowPlaying
+
+            if _selectedDevice?.uuid == device.uuid {
+                _selectedDevice = devices[index]
+            }
+
+            updateCachedValues()
+        }
+
+        return info
+    }
+
     /// Detect audio source type from track URI and transport state
     nonisolated func detectAudioSourceType(from uri: String?, state: String) -> AudioSourceType {
         // Check URI first - line-in and TV sources should be detected even when paused
