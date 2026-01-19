@@ -1,0 +1,24 @@
+name: Technical Debt
+description: Refactors, cleanup, or architecture improvements.
+labels:
+  - type:tech-debt
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What needs to be cleaned up or refactored?
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Risks, bugs, or slowdowns this causes.
+  - type: textarea
+    id: approach
+    attributes:
+      label: Proposed approach
+      placeholder: |
+        - [ ] ...
+        - [ ] ...

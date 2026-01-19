@@ -4,8 +4,8 @@ Thank you for your interest in contributing! This guide will help you understand
 
 ## Getting Started
 
-1. **Check what's being worked on**: Review the "In Progress" section in `ROADMAP.md` to avoid duplicate work
-2. **Pick a task**: Choose from Features, Enhancements, or Bugs in `ROADMAP.md`
+1. **Check what's being worked on**: Review GitHub issues with `status:in-progress` to avoid duplicate work
+2. **Pick a task**: Choose from GitHub issues using `prio:P0`–`prio:P3`
 3. **Discuss if needed**: For major features, open an issue or discussion first
 
 ## Branch Naming Conventions
@@ -36,12 +36,8 @@ git checkout -b feature/your-feature-name
 ```
 
 **Mark your work in progress:**
-- Edit `ROADMAP.md` and add your item to the "In Progress" section:
-  ```markdown
-  ## In Progress
-  - **Your feature name** (branch: feature/your-feature-name, @yourusername)
-  ```
-- Commit this change to your branch so others can see what you're working on
+- Apply the `status:in-progress` label to the issue
+- Comment on the issue with your branch name
 
 ### 2. During Development
 
@@ -66,15 +62,13 @@ swift build -c release
 
 **Update documentation:**
 
-1. Move your completed item from "In Progress" to `CHANGELOG.md`:
+1. Add your completed item to `CHANGELOG.md`:
    ```markdown
    ### Added
    - Your feature description
    ```
 
-2. Remove from "In Progress" section in `ROADMAP.md`
-
-3. If it was planned work, remove from the relevant section in `ROADMAP.md`
+2. Remove `status:in-progress` and close the issue
 
 ### 4. Creating Pull Request
 
@@ -151,7 +145,7 @@ Co-Authored-By: Your Name <your.email@example.com>
 
 ## Avoiding Merge Conflicts
 
-1. **Check ROADMAP.md "In Progress" section** before starting work
+1. **Check `status:in-progress` issues** before starting work
 2. **Update your branch regularly** with main:
    ```bash
    git checkout main
@@ -169,7 +163,7 @@ Before submitting a PR, ensure:
 - [ ] App runs correctly: `swift run`
 - [ ] Tested installed behavior if UI/permissions changes: `./build-app.sh --install`
 - [ ] No console errors or warnings
-- [ ] Documentation updated (README, CHANGELOG, ROADMAP)
+- [ ] Documentation updated (README, CHANGELOG, GitHub issues status)
 
 ## Code Style
 

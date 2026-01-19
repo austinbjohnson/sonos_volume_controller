@@ -10,13 +10,13 @@ This guide is for AI assistants (like Claude Code) working on the Sonos Volume C
 
 **`/start [optional focus area]`**
 - Automated workflow to begin new work
-- Checks for open PRs, returns to main, suggests next tasks from ROADMAP.md
-- Creates feature branch and updates "In Progress" section
+- Checks for open PRs, returns to main, suggests next tasks from GitHub issues (prio labels)
+- Creates feature branch and applies `status:in-progress` to the selected issue
 - Presents implementation plan before coding
 
 **`/finish [optional context]`**
 - Checklist to complete current work
-- Guides through PR creation, CHANGELOG/ROADMAP updates
+- Guides through PR creation, CHANGELOG + issue status updates
 - Tracks technical debt
 
 **`/security-review [file or directory]`**
@@ -74,9 +74,9 @@ This guide is for AI assistants (like Claude Code) working on the Sonos Volume C
 **Always use `/start` command** - it automates:
 1. Checking for open PRs
 2. Returning to main branch
-3. Suggesting prioritized tasks from ROADMAP.md
+3. Suggesting prioritized tasks from GitHub issues (prio labels)
 4. Creating appropriately named branch
-5. Updating "In Progress" section
+5. Applying `status:in-progress` and commenting with the branch name
 6. Launching appropriate agent if needed
 
 **Branch naming:**
@@ -116,7 +116,7 @@ pkill SonosVolumeController && swift run
 **Use `/finish` command** - it guides through:
 1. Testing (swift build -c release)
 2. CHANGELOG.md update (without PR number)
-3. ROADMAP.md cleanup (remove from "In Progress" and planned sections)
+3. Issue cleanup (remove `status:in-progress`, close issue)
 4. Commit and push
 5. PR creation with gh pr create
 6. CHANGELOG.md update (add PR number)
@@ -292,17 +292,17 @@ You: [Launch discovery-documenter to formalize the exploration]
 - [ ] Check for open PRs (`gh pr list --author @me --state open`)
 - [ ] Ensure on main branch (`git branch --show-current`)
 - [ ] Pull latest changes (`git pull`)
-- [ ] Check ROADMAP.md "In Progress" section for conflicts
+- [ ] Check GitHub issues with `status:in-progress` for conflicts
 
 ### During Work
 - [ ] Create appropriately named branch
-- [ ] Add task to ROADMAP.md "In Progress" section
+- [ ] Apply `status:in-progress` label and comment with branch name
 - [ ] Commit frequently with descriptive messages
 - [ ] Test before committing
 
 ### Post-work Checklist
 - [ ] Update CHANGELOG.md (without PR number)
-- [ ] Remove from ROADMAP.md "In Progress" and planned sections
+- [ ] Remove `status:in-progress` and close the issue
 - [ ] Commit and push
 - [ ] Create PR with `gh pr create`
 - [ ] Update CHANGELOG.md (add PR number)
@@ -359,7 +359,7 @@ You: [Launch discovery-documenter to formalize the exploration]
 ❌ **Don't skip CHANGELOG.md PR number update** - it's a two-stage process
 ❌ **Don't use bash for file reading** - use Read tool
 ❌ **Don't commit without testing** - always run swift build or swift run first
-❌ **Don't work on "In Progress" items** - check ROADMAP.md first
+❌ **Don't work on "In Progress" items** - check `status:in-progress` first
 
 ---
 
@@ -367,7 +367,7 @@ You: [Launch discovery-documenter to formalize the exploration]
 
 You're doing well when:
 - ✅ PRs are focused on single feature/bug/enhancement
-- ✅ CHANGELOG.md and ROADMAP.md stay in sync
+- ✅ CHANGELOG.md and GitHub issues stay in sync
 - ✅ Commits have proper format and co-authorship
 - ✅ TodoWrite shows clear progress tracking
 - ✅ Appropriate agents launched for complex work
@@ -378,7 +378,7 @@ You're doing well when:
 
 ## Getting Help
 
-- **ROADMAP.md** - Current priorities and known issues
+- **GitHub Issues** - Current priorities and known issues
 - **CHANGELOG.md** - Historical context for decisions
 - **CLAUDE.md** - Project-specific collaboration guidelines
 - **CONTRIBUTING.md** - Detailed collaboration guidelines

@@ -1,0 +1,24 @@
+name: Enhancement
+description: Improve existing behavior or UI.
+labels:
+  - type:enhancement
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What should be improved?
+    validations:
+      required: true
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Rationale
+      description: Why is this valuable now?
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
