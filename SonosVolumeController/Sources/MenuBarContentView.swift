@@ -206,7 +206,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         Task { @MainActor in
             // Check if this is the selected device
             let selectedUUID = appDelegate?.sonosController.cachedSelectedDevice?.uuid
-            if deviceUUID == selectedUUID {
+            let transportUUID = resolveTransportDevice()?.uuid ?? selectedUUID
+            if deviceUUID == transportUUID {
                 // Update current transport state
                 currentTransportState = state
                 
@@ -532,6 +533,19 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Start hidden (will be shown when device is selected and playing)
         nowPlayingContainer.isHidden = true
     }
+
+    private func resolveTransportDevice() -> SonosController.SonosDevice? {
+        guard let controller = appDelegate?.sonosController,
+              let selectedDevice = controller.cachedSelectedDevice else {
+            return nil
+        }
+
+        if let group = controller.getCachedGroupForDevice(selectedDevice) {
+            return group.coordinator
+        }
+
+        return selectedDevice
+    }
     
     /// Update the now-playing display with current track info
     @MainActor
@@ -542,12 +556,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             hideNowPlayingSection()
             return
         }
+
+        let transportDevice = resolveTransportDevice() ?? selectedDevice
         
         // Check cache first for this device's now-playing info
-        let cache = nowPlayingCache[selectedDevice.uuid]
-        let sourceType = cache?.sourceType ?? selectedDevice.audioSource
-        let nowPlaying = cache?.nowPlaying ?? selectedDevice.nowPlaying
-        let transportState = cache?.state ?? selectedDevice.transportState
+        let cache = nowPlayingCache[transportDevice.uuid]
+        let sourceType = cache?.sourceType ?? transportDevice.audioSource
+        let nowPlaying = cache?.nowPlaying ?? transportDevice.nowPlaying
+        let transportState = cache?.state ?? transportDevice.transportState
         
         // Hide if idle or no source type
         guard let source = sourceType, source != .idle else {
@@ -586,13 +602,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         case .lineIn:
             showNowPlayingSection()
             nowPlayingTitle.stringValue = "Line-In Audio"
-            nowPlayingArtist.stringValue = selectedDevice.name
+            nowPlayingArtist.stringValue = transportDevice.name
             setFallbackAlbumArt(sourceType: source)
             
         case .tv:
             showNowPlayingSection()
             nowPlayingTitle.stringValue = "TV Audio"
-            nowPlayingArtist.stringValue = selectedDevice.name
+            nowPlayingArtist.stringValue = transportDevice.name
             setFallbackAlbumArt(sourceType: source)
             
         case .grouped:
@@ -2103,13 +2119,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         Task {
             await appDelegate?.sonosController.selectDevice(name: deviceName)
 
-            // Subscribe to transport state updates for this device
+            // Subscribe to transport state updates for the transport target
             if let controller = appDelegate?.sonosController,
                let device = controller.cachedDiscoveredDevices.first(where: { $0.name == deviceName }) {
-                await controller.subscribeToTransportUpdates(for: device.uuid)
+                let transportDevice = controller.getCachedGroupForDevice(device)?.coordinator ?? device
+                await controller.subscribeToTransportUpdates(for: transportDevice.uuid)
                 
                 // Fetch audio source info to populate the device's audioSource field
-                if let sourceInfo = await controller.getAudioSourceInfo(for: device) {
+                if let sourceInfo = await controller.getAudioSourceInfo(for: transportDevice) {
                     await MainActor.run {
                         self.currentTransportState = sourceInfo.state
                         self.updatePlayPauseButton(isPlaying: sourceInfo.state == "PLAYING")
@@ -2120,8 +2137,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 } else {
                     // Fallback: use cached transport state if available
                     await MainActor.run {
-                        self.currentTransportState = device.transportState
-                        self.updatePlayPauseButton(isPlaying: device.transportState == "PLAYING")
+                        self.currentTransportState = transportDevice.transportState
+                        self.updatePlayPauseButton(isPlaying: transportDevice.transportState == "PLAYING")
                         self.updatePlaybackControlsState()
                         self.updateNowPlayingDisplay()
                     }
