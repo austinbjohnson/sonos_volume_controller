@@ -984,7 +984,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
             checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
 
-            card.heightAnchor.constraint(equalToConstant: 42)
+            card.heightAnchor.constraint(greaterThanOrEqualToConstant: 50)
         ])
         
         // Add source badge if available (no album art in cards)
