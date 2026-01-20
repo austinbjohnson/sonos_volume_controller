@@ -1,15 +1,15 @@
 import Cocoa
 
-// Custom view that enforces 380px width for popover sizing
+// Custom view that enforces MenuBarLayout.popoverWidth for popover sizing
 private class FixedWidthView: NSView {
     private var widthConstraint: NSLayoutConstraint?
 
     override func updateConstraints() {
         super.updateConstraints()
 
-        // Enforce 380px width constraint
+        // Enforce popover width constraint
         if widthConstraint == nil {
-            let constraint = widthAnchor.constraint(equalToConstant: 380)
+            let constraint = widthAnchor.constraint(equalToConstant: MenuBarLayout.popoverWidth)
             constraint.priority = .required
             constraint.isActive = true
             widthConstraint = constraint
@@ -17,11 +17,11 @@ private class FixedWidthView: NSView {
     }
 
     override var fittingSize: NSSize {
-        return NSSize(width: 380, height: super.fittingSize.height)
+        return NSSize(width: MenuBarLayout.popoverWidth, height: super.fittingSize.height)
     }
 
     override var intrinsicContentSize: NSSize {
-        return NSSize(width: 380, height: NSView.noIntrinsicMetric)
+        return NSSize(width: MenuBarLayout.popoverWidth, height: NSView.noIntrinsicMetric)
     }
 }
 
@@ -43,12 +43,17 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var volumeTypeLabel: NSTextField!  // "Group Volume" or "Speaker Volume"
     private var speakerCardsContainer: NSStackView!
     private var selectedSpeakerCards: Set<String> = []
+    private var manageGroupsButton: NSButton!
     private var groupButton: NSButton!
     private var ungroupButton: NSButton!
     private var groupProgressIndicator: NSProgressIndicator!
     private var ungroupProgressIndicator: NSProgressIndicator!
     private var powerButton: NSButton!
     private var refreshButton: NSButton!
+    private var lastSectionDivider: NSBox?
+    private var groupActionsContainer: NSStackView!
+    private var groupActionsHeightConstraint: NSLayoutConstraint!
+    private var groupActionsTopConstraint: NSLayoutConstraint!
     
     // Playback Controls
     private var playPauseButton: NSButton!
@@ -77,6 +82,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var groupVolumeResetTimer: Timer?  // Debounce network updates until drag settles
     private var memberVolumeThrottleTimer: Timer?  // Throttle member volume refresh calls
     private var lastUpdatedTimer: Timer?
+    private let showSourceBadgesInList = false
+    private var isManagingGroups: Bool = false
+    private var expandedGroupIds: Set<String> = []
 
     // Cache now-playing data to prevent flicker during card rebuilds
     private var nowPlayingCache: [String: (state: String?, sourceType: SonosController.AudioSourceType?, nowPlaying: SonosController.NowPlayingInfo?)] = [:]
@@ -91,12 +99,12 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     }
 
     override func loadView() {
-        // Main container - width fixed at 380px via custom fittingSize, height dynamic
-        containerView = FixedWidthView(frame: NSRect(x: 0, y: 0, width: 380, height: 500))
+        // Main container - width fixed at popoverWidth via custom fittingSize, height dynamic
+        containerView = FixedWidthView(frame: NSRect(x: 0, y: 0, width: MenuBarLayout.popoverWidth, height: 500))
         self.view = containerView
 
         // Set preferred content size to prevent auto-sizing
-        self.preferredContentSize = NSSize(width: 380, height: 500)
+        self.preferredContentSize = NSSize(width: MenuBarLayout.popoverWidth, height: 500)
 
         // Single glass effect view
         glassView = NSGlassEffectView()
@@ -104,14 +112,16 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         glassView.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(glassView)
 
-        // Main content container - constrain to exact width
+        // Main content container - fill glass view bounds
         let contentView = NSView()
         contentView.translatesAutoresizingMaskIntoConstraints = false
         glassView.contentView = contentView
 
-        // Force contentView to be exactly 380px minus margins (2 * 8px = 16px)
         NSLayoutConstraint.activate([
-            contentView.widthAnchor.constraint(equalToConstant: 364)
+            contentView.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
+            contentView.topAnchor.constraint(equalTo: glassView.topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: glassView.bottomAnchor)
         ])
 
         // Build all sections inside the single glass view
@@ -296,21 +306,20 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         statusDot.layer?.backgroundColor = NSColor.systemGreen.cgColor
         statusDot.layer?.cornerRadius = 5
         statusDot.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(statusDot)
 
         // Status label
         statusLabel = NSTextField(labelWithString: "Active")
         statusLabel.font = .systemFont(ofSize: 12, weight: .medium)
         statusLabel.textColor = .tertiaryLabelColor
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(statusLabel)
 
         // Last updated label
         lastUpdatedLabel = NSTextField(labelWithString: "Last updated: —")
         lastUpdatedLabel.font = .systemFont(ofSize: 11, weight: .regular)
         lastUpdatedLabel.textColor = .tertiaryLabelColor
+        lastUpdatedLabel.lineBreakMode = .byTruncatingTail
+        lastUpdatedLabel.maximumNumberOfLines = 1
         lastUpdatedLabel.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(lastUpdatedLabel)
 
         // Speaker name - large and prominent
         let currentSpeaker = appDelegate?.settings.lastActiveSpeaker ?? "No Speaker"
@@ -318,7 +327,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         speakerNameLabel.font = .systemFont(ofSize: 22, weight: .semibold)
         speakerNameLabel.textColor = .labelColor
         speakerNameLabel.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(speakerNameLabel)
 
         // Refresh button
         refreshButton = NSButton()
@@ -331,7 +339,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         refreshButton.action = #selector(refreshTopology)
         refreshButton.translatesAutoresizingMaskIntoConstraints = false
         refreshButton.toolTip = "Refresh speaker topology"
-        container.addSubview(refreshButton)
 
         // Power toggle
         powerButton = NSButton()
@@ -343,48 +350,71 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         powerButton.target = self
         powerButton.action = #selector(togglePower)
         powerButton.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(powerButton)
+
+        let row1Stack = NSStackView()
+        row1Stack.orientation = .horizontal
+        row1Stack.spacing = 8
+        row1Stack.alignment = .centerY
+        row1Stack.translatesAutoresizingMaskIntoConstraints = false
+        row1Stack.addArrangedSubview(statusDot)
+        row1Stack.addArrangedSubview(statusLabel)
+        row1Stack.addArrangedSubview(lastUpdatedLabel)
+
+        let buttonStack = NSStackView()
+        buttonStack.orientation = .horizontal
+        buttonStack.spacing = 4
+        buttonStack.alignment = .centerY
+        buttonStack.translatesAutoresizingMaskIntoConstraints = false
+        buttonStack.addArrangedSubview(refreshButton)
+        buttonStack.addArrangedSubview(powerButton)
+
+        let row2Stack = NSStackView()
+        row2Stack.orientation = .horizontal
+        row2Stack.spacing = 8
+        row2Stack.alignment = .centerY
+        row2Stack.translatesAutoresizingMaskIntoConstraints = false
+        row2Stack.addArrangedSubview(speakerNameLabel)
+        row2Stack.addArrangedSubview(buttonStack)
+
+        speakerNameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        buttonStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+        lastUpdatedLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let headerStack = NSStackView()
+        headerStack.orientation = .vertical
+        headerStack.spacing = 6
+        headerStack.alignment = .leading
+        headerStack.translatesAutoresizingMaskIntoConstraints = false
+        headerStack.addArrangedSubview(row1Stack)
+        headerStack.addArrangedSubview(row2Stack)
+        container.addSubview(headerStack)
 
         // Divider
         let divider1 = createDivider()
         container.addSubview(divider1)
 
         NSLayoutConstraint.activate([
-            // Status indicator
-            statusDot.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
-            statusDot.topAnchor.constraint(equalTo: container.topAnchor, constant: 24),
             statusDot.widthAnchor.constraint(equalToConstant: 10),
             statusDot.heightAnchor.constraint(equalToConstant: 10),
 
-            statusLabel.leadingAnchor.constraint(equalTo: statusDot.trailingAnchor, constant: 8),
-            statusLabel.centerYAnchor.constraint(equalTo: statusDot.centerYAnchor),
+            headerStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            headerStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+            headerStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
 
-            lastUpdatedLabel.leadingAnchor.constraint(equalTo: statusLabel.leadingAnchor),
-            lastUpdatedLabel.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 2),
-            lastUpdatedLabel.trailingAnchor.constraint(lessThanOrEqualTo: refreshButton.leadingAnchor, constant: -8),
-
-            // Speaker name
-            speakerNameLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
-            speakerNameLabel.topAnchor.constraint(equalTo: lastUpdatedLabel.bottomAnchor, constant: 8),
-
-            // Power button
-            powerButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
-            powerButton.centerYAnchor.constraint(equalTo: speakerNameLabel.centerYAnchor, constant: -8),
             powerButton.widthAnchor.constraint(equalToConstant: 40),
             powerButton.heightAnchor.constraint(equalToConstant: 40),
 
-            // Refresh button (to the left of power button)
-            refreshButton.trailingAnchor.constraint(equalTo: powerButton.leadingAnchor, constant: -4),
-            refreshButton.centerYAnchor.constraint(equalTo: powerButton.centerYAnchor),
             refreshButton.widthAnchor.constraint(equalToConstant: 40),
             refreshButton.heightAnchor.constraint(equalToConstant: 40),
 
             // Divider
             divider1.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             divider1.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
-            divider1.topAnchor.constraint(equalTo: speakerNameLabel.bottomAnchor, constant: 20),
+            divider1.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 16),
             divider1.heightAnchor.constraint(equalToConstant: 1)
         ])
+
+        lastSectionDivider = divider1
     }
 
     // MARK: - Playback Controls Section
@@ -431,12 +461,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let divider = createDivider()
         container.addSubview(divider)
 
-        // Find the previous divider to anchor to
-        let previousDivider = container.subviews.compactMap { $0 as? NSBox }.first
+        guard let previousDivider = lastSectionDivider else { return }
 
         NSLayoutConstraint.activate([
             // Controls container - centered horizontally below header with more breathing room
-            controlsContainer.topAnchor.constraint(equalTo: previousDivider!.bottomAnchor, constant: 20),
+            controlsContainer.topAnchor.constraint(equalTo: previousDivider.bottomAnchor, constant: 20),
             controlsContainer.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             controlsContainer.heightAnchor.constraint(equalToConstant: 48),
 
@@ -465,6 +494,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             divider.topAnchor.constraint(equalTo: controlsContainer.bottomAnchor, constant: 20),
             divider.heightAnchor.constraint(equalToConstant: 1)
         ])
+
+        lastSectionDivider = divider
     }
 
     /// Create a styled transport control button
@@ -491,6 +522,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private func setupNowPlayingSection(in container: NSView) {
         // Container for now playing info
         nowPlayingContainer = NSView()
+        nowPlayingContainer.wantsLayer = true
+        nowPlayingContainer.layer?.cornerRadius = 10
+        nowPlayingContainer.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.03).cgColor
         nowPlayingContainer.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(nowPlayingContainer)
         
@@ -532,9 +566,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         nowPlayingArtist.translatesAutoresizingMaskIntoConstraints = false
         textStack.addArrangedSubview(nowPlayingArtist)
         
-        // Find the previous divider to anchor to (after playback controls)
-        let allDividers = container.subviews.compactMap { $0 as? NSBox }
-        let previousDivider = allDividers.count >= 2 ? allDividers[1] : allDividers.first
+        guard let previousDivider = lastSectionDivider else { return }
         
         // Create height constraint for show/hide functionality
         nowPlayingHeightConstraint = nowPlayingContainer.heightAnchor.constraint(equalToConstant: 0)
@@ -544,18 +576,18 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             // Container positioning (between playback controls and volume)
             nowPlayingContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             nowPlayingContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
-            nowPlayingContainer.topAnchor.constraint(equalTo: previousDivider!.bottomAnchor, constant: 16),
+            nowPlayingContainer.topAnchor.constraint(equalTo: previousDivider.bottomAnchor, constant: 16),
             nowPlayingHeightConstraint,
             
             // Album art positioning and size
-            nowPlayingAlbumArt.leadingAnchor.constraint(equalTo: nowPlayingContainer.leadingAnchor),
+            nowPlayingAlbumArt.leadingAnchor.constraint(equalTo: nowPlayingContainer.leadingAnchor, constant: 10),
             nowPlayingAlbumArt.centerYAnchor.constraint(equalTo: nowPlayingContainer.centerYAnchor),
             nowPlayingAlbumArt.widthAnchor.constraint(equalToConstant: 44),
             nowPlayingAlbumArt.heightAnchor.constraint(equalToConstant: 44),
             
             // Text stack positioning
             textStack.leadingAnchor.constraint(equalTo: nowPlayingAlbumArt.trailingAnchor, constant: 12),
-            textStack.trailingAnchor.constraint(equalTo: nowPlayingContainer.trailingAnchor),
+            textStack.trailingAnchor.constraint(equalTo: nowPlayingContainer.trailingAnchor, constant: -10),
             textStack.centerYAnchor.constraint(equalTo: nowPlayingContainer.centerYAnchor),
         ])
         
@@ -665,7 +697,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     
     private func showNowPlayingSection() {
         nowPlayingContainer.isHidden = false
-        nowPlayingHeightConstraint.constant = 60  // Album art (44pt) + padding
+        nowPlayingHeightConstraint.constant = 64  // Album art (44pt) + padding
         updatePopoverSize(animated: true, duration: 0.2)
     }
     
@@ -804,17 +836,45 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             divider2.topAnchor.constraint(equalTo: volumeIcon.bottomAnchor, constant: 16),
             divider2.heightAnchor.constraint(equalToConstant: 1)
         ])
+
+        lastSectionDivider = divider2
     }
 
     // MARK: - Speakers Section
 
     private func setupSpeakersSection(in container: NSView) {
-        // Section title
+        // Section title + manage toggle
         let speakersTitle = NSTextField(labelWithString: "Speakers")
         speakersTitle.font = .systemFont(ofSize: 13, weight: .medium)
         speakersTitle.textColor = .secondaryLabelColor
         speakersTitle.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(speakersTitle)
+
+        manageGroupsButton = NSButton()
+        manageGroupsButton.title = "Manage"
+        manageGroupsButton.bezelStyle = .inline
+        manageGroupsButton.setButtonType(.toggle)
+        manageGroupsButton.controlSize = .small
+        manageGroupsButton.isBordered = false
+        manageGroupsButton.contentTintColor = .secondaryLabelColor
+        manageGroupsButton.target = self
+        manageGroupsButton.action = #selector(toggleManageGroups(_:))
+        manageGroupsButton.translatesAutoresizingMaskIntoConstraints = false
+
+        let speakersHeaderStack = NSStackView()
+        speakersHeaderStack.orientation = .horizontal
+        speakersHeaderStack.spacing = 8
+        speakersHeaderStack.alignment = .centerY
+        speakersHeaderStack.translatesAutoresizingMaskIntoConstraints = false
+
+        let headerSpacer = NSView()
+        headerSpacer.translatesAutoresizingMaskIntoConstraints = false
+        headerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        headerSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        speakersHeaderStack.addArrangedSubview(speakersTitle)
+        speakersHeaderStack.addArrangedSubview(headerSpacer)
+        speakersHeaderStack.addArrangedSubview(manageGroupsButton)
+        container.addSubview(speakersHeaderStack)
 
         // Permission banner (shows when accessibility permission not granted)
         permissionBanner = createPermissionBanner()
@@ -845,7 +905,11 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         speakerCardsContainer.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 8, right: 0)
 
         // Show loading indicator if no devices discovered yet
-        if appDelegate?.sonosController.cachedDiscoveredDevices.isEmpty != false {
+        if let controller = appDelegate?.sonosController {
+            if controller.cachedDiscoveredDevices.isEmpty {
+                isLoadingDevices = true
+            }
+        } else {
             isLoadingDevices = true
         }
 
@@ -861,7 +925,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         groupButton.action = #selector(groupSpeakers)
         groupButton.isEnabled = false
         groupButton.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(groupButton)
 
         // Ungroup button
         ungroupButton = NSButton()
@@ -872,7 +935,18 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         ungroupButton.action = #selector(ungroupSelected)
         ungroupButton.isEnabled = false
         ungroupButton.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(ungroupButton)
+
+        // Group actions container
+        groupActionsContainer = NSStackView()
+        groupActionsContainer.orientation = .horizontal
+        groupActionsContainer.spacing = 12
+        groupActionsContainer.alignment = .centerY
+        groupActionsContainer.distribution = .fillEqually
+        groupActionsContainer.translatesAutoresizingMaskIntoConstraints = false
+        groupActionsContainer.addArrangedSubview(groupButton)
+        groupActionsContainer.addArrangedSubview(ungroupButton)
+        groupActionsContainer.isHidden = true
+        container.addSubview(groupActionsContainer)
 
         // Progress indicators for buttons
         groupProgressIndicator = NSProgressIndicator()
@@ -893,9 +967,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let divider3 = createDivider()
         container.addSubview(divider3)
 
-        // Find the previous divider to anchor to
-        let previousDividers = container.subviews.compactMap { $0 as? NSBox }
-        let previousDivider = previousDividers[previousDividers.count - 2]
+        guard let previousDivider = lastSectionDivider else { return }
 
         // Create height constraints for dynamic sizing
         // Start with a reasonable default, will be updated dynamically based on content and screen size
@@ -903,14 +975,17 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         scrollViewHeightConstraint.priority = .defaultHigh  // Allow it to be overridden
         permissionBannerHeightConstraint = permissionBanner.heightAnchor.constraint(equalToConstant: 0) // Start hidden
         welcomeBannerHeightConstraint = welcomeBanner.heightAnchor.constraint(equalToConstant: 0) // Start hidden
+        groupActionsTopConstraint = groupActionsContainer.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 0)
+        groupActionsHeightConstraint = groupActionsContainer.heightAnchor.constraint(equalToConstant: 0)
 
         NSLayoutConstraint.activate([
-            speakersTitle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
-            speakersTitle.topAnchor.constraint(equalTo: previousDivider.bottomAnchor, constant: 12),
+            speakersHeaderStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            speakersHeaderStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+            speakersHeaderStack.topAnchor.constraint(equalTo: previousDivider.bottomAnchor, constant: 12),
 
             permissionBanner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             permissionBanner.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
-            permissionBanner.topAnchor.constraint(equalTo: speakersTitle.bottomAnchor, constant: 12),
+            permissionBanner.topAnchor.constraint(equalTo: speakersHeaderStack.bottomAnchor, constant: 12),
             permissionBannerHeightConstraint,
 
             welcomeBanner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
@@ -925,12 +1000,10 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
             speakerCardsContainer.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
 
-            // Position buttons side by side
-            groupButton.trailingAnchor.constraint(equalTo: container.centerXAnchor, constant: -6),
-            groupButton.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 12),
-
-            ungroupButton.leadingAnchor.constraint(equalTo: container.centerXAnchor, constant: 6),
-            ungroupButton.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 12),
+            groupActionsContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            groupActionsContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+            groupActionsTopConstraint,
+            groupActionsHeightConstraint,
 
             // Progress indicator positions (leading edge of buttons)
             groupProgressIndicator.leadingAnchor.constraint(equalTo: groupButton.leadingAnchor, constant: 12),
@@ -945,13 +1018,16 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
             divider3.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             divider3.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
-            divider3.topAnchor.constraint(equalTo: groupButton.bottomAnchor, constant: 16),
+            divider3.topAnchor.constraint(equalTo: groupActionsContainer.bottomAnchor, constant: 16),
             divider3.heightAnchor.constraint(equalToConstant: 1)
         ])
+
+        lastSectionDivider = divider3
+        updateGroupActionsVisibility()
     }
 
     // Create a card for a multi-speaker group
-    private func createGroupCard(group: SonosController.SonosGroup, isActive: Bool) -> NSView {
+    private func createGroupCard(group: SonosController.SonosGroup, isActive: Bool, isExpanded: Bool) -> NSView {
         let card = NSView()
         card.wantsLayer = true
         card.layer?.backgroundColor = isActive ?
@@ -964,13 +1040,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let icon = NSImageView()
         icon.image = NSImage(systemSymbolName: "hifispeaker.2.fill", accessibilityDescription: "Group")
         icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        icon.contentTintColor = isActive ? .controlAccentColor : .systemBlue
+        icon.contentTintColor = isActive ? .controlAccentColor : .secondaryLabelColor
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         // Group name
         let nameLabel = NSTextField(labelWithString: group.name)
         nameLabel.font = .systemFont(ofSize: 13, weight: isActive ? .semibold : .medium)
-        nameLabel.textColor = isActive ? .labelColor : .labelColor
+        nameLabel.textColor = isActive ? .labelColor : .secondaryLabelColor
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.maximumNumberOfLines = 1
         nameLabel.toolTip = group.name  // Show full name on hover
@@ -988,8 +1064,27 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         checkbox.identifier = NSUserInterfaceItemIdentifier(group.id)
         checkbox.translatesAutoresizingMaskIntoConstraints = false
         checkbox.toolTip = "Select for ungrouping"
-        // Keep group checkboxes visible to avoid hover/tap ambiguity
-        checkbox.isHidden = false
+        checkbox.isHidden = !isManagingGroups
+
+        let expandButton = NSButton()
+        expandButton.image = NSImage(systemSymbolName: isExpanded ? "chevron.down" : "chevron.right", accessibilityDescription: "Expand group")
+        expandButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        expandButton.bezelStyle = .inline
+        expandButton.isBordered = false
+        expandButton.contentTintColor = .tertiaryLabelColor
+        expandButton.target = self
+        expandButton.action = #selector(toggleGroupExpanded(_:))
+        expandButton.identifier = NSUserInterfaceItemIdentifier(group.id)
+        expandButton.translatesAutoresizingMaskIntoConstraints = false
+        expandButton.toolTip = isExpanded ? "Collapse group" : "Expand group"
+
+        let trailingStack = NSStackView()
+        trailingStack.orientation = .horizontal
+        trailingStack.spacing = 4
+        trailingStack.alignment = .centerY
+        trailingStack.translatesAutoresizingMaskIntoConstraints = false
+        trailingStack.addArrangedSubview(expandButton)
+        trailingStack.addArrangedSubview(checkbox)
 
         // Card identifier for tracking (use coordinator UUID for Now Playing lookup)
         card.identifier = NSUserInterfaceItemIdentifier(group.coordinator.uuid)
@@ -1017,7 +1112,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         card.addSubview(icon)
         card.addSubview(nameLabel)
-        card.addSubview(checkbox)
+        card.addSubview(trailingStack)
         card.addSubview(selectionButton)
 
         // Set up constraints - nameLabel positioned directly after icon (no album art)
@@ -1031,22 +1126,25 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             // Position name after icon: 8 (leading) + 20 (icon width) + 10 (spacing) = 38pt
             nameLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 38),
             nameLabel.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            nameLabel.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -10),
+            nameLabel.trailingAnchor.constraint(equalTo: trailingStack.leadingAnchor, constant: -8),
 
-            // Checkbox stays on right (aligned with speaker checkboxes)
-            checkbox.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
-            checkbox.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            trailingStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -10),
+            trailingStack.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+
+            expandButton.widthAnchor.constraint(equalToConstant: 20),
+            expandButton.heightAnchor.constraint(equalToConstant: 20),
 
             selectionButton.leadingAnchor.constraint(equalTo: card.leadingAnchor),
             selectionButton.topAnchor.constraint(equalTo: card.topAnchor),
             selectionButton.bottomAnchor.constraint(equalTo: card.bottomAnchor),
-            selectionButton.trailingAnchor.constraint(equalTo: checkbox.leadingAnchor, constant: -6),
+            selectionButton.trailingAnchor.constraint(equalTo: trailingStack.leadingAnchor, constant: -6),
 
             card.heightAnchor.constraint(greaterThanOrEqualToConstant: 50)
         ])
         
         // Add source badge if available (no album art in cards)
-        if let cached = nowPlayingCache[group.coordinator.uuid],
+        if showSourceBadgesInList,
+           let cached = nowPlayingCache[group.coordinator.uuid],
            let sourceType = cached.sourceType {
             addSourceBadge(to: card, sourceType: sourceType)
         }
@@ -1065,7 +1163,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Blue connection line
         let connectionLine = NSView()
         connectionLine.wantsLayer = true
-        connectionLine.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.6).cgColor
+        connectionLine.layer?.backgroundColor = NSColor.secondaryLabelColor.withAlphaComponent(0.35).cgColor
         connectionLine.translatesAutoresizingMaskIntoConstraints = false
 
         // Speaker icon
@@ -1160,7 +1258,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         if isInGroup && !isGroupCoordinator {
             let groupIndicator = NSView()
             groupIndicator.wantsLayer = true
-            groupIndicator.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.6).cgColor
+            groupIndicator.layer?.backgroundColor = NSColor.secondaryLabelColor.withAlphaComponent(0.4).cgColor
             groupIndicator.layer?.cornerRadius = 1.5
             groupIndicator.translatesAutoresizingMaskIntoConstraints = false
             card.addSubview(groupIndicator)
@@ -1178,7 +1276,15 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let iconName = isGroupCoordinator ? "person.3.fill" : "hifispeaker.fill"
         icon.image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Speaker")
         icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        icon.contentTintColor = isGroupCoordinator ? .systemBlue : (isActive ? .controlAccentColor : .tertiaryLabelColor)
+        let iconTint: NSColor
+        if isActive {
+            iconTint = .controlAccentColor
+        } else if isGroupCoordinator {
+            iconTint = .secondaryLabelColor
+        } else {
+            iconTint = .tertiaryLabelColor
+        }
+        icon.contentTintColor = iconTint
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         // Build display name with group info
@@ -1200,8 +1306,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         textStack.addArrangedSubview(nameLabel)
 
-        // Add group info label if in a group
-        if isInGroup {
+        // Add group info label only in manage mode
+        if isManagingGroups && isInGroup {
             let group = appDelegate?.sonosController.cachedDiscoveredGroups.first(where: {
                 $0.coordinatorUUID == device.groupCoordinatorUUID
             })
@@ -1216,7 +1322,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
                 let groupLabel = NSTextField(labelWithString: groupInfoText)
                 groupLabel.font = .systemFont(ofSize: 10, weight: .regular)
-                groupLabel.textColor = .systemBlue
+                groupLabel.textColor = .secondaryLabelColor
                 groupLabel.translatesAutoresizingMaskIntoConstraints = false
                 textStack.addArrangedSubview(groupLabel)
             }
@@ -1233,8 +1339,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         checkbox.identifier = NSUserInterfaceItemIdentifier(device.name)
         checkbox.translatesAutoresizingMaskIntoConstraints = false
         checkbox.toolTip = "Select for grouping"
-        // Hidden by default, shown on hover (unless already checked)
-        checkbox.isHidden = (checkbox.state != .on)
+        checkbox.isHidden = !isManagingGroups
 
         // Card identifier for tracking (use UUID for Now Playing lookup)
         card.identifier = NSUserInterfaceItemIdentifier(device.uuid)
@@ -1268,7 +1373,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         card.addSubview(selectionButton)
 
         // Add source badge if available (no album art in cards)
-        if let cached = nowPlayingCache[device.uuid],
+        if showSourceBadgesInList,
+           let cached = nowPlayingCache[device.uuid],
            let sourceType = cached.sourceType {
             addSourceBadge(to: card, sourceType: sourceType)
         }
@@ -1382,7 +1488,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Add groups first
         for group in sortedGroups {
             let isActive = group.members.contains(where: { $0.name == currentSpeaker })
-            let groupCard = createGroupCard(group: group, isActive: isActive)
+            let isExpanded = expandedGroupIds.contains(group.id)
+            let groupCard = createGroupCard(group: group, isActive: isActive, isExpanded: isExpanded)
             speakerCardsContainer.addArrangedSubview(groupCard)
 
             // Force consistent width
@@ -1390,23 +1497,24 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 groupCard.widthAnchor.constraint(equalTo: speakerCardsContainer.widthAnchor)
             ])
 
-            // Always show member cards (groups always expanded)
-            for member in group.members.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) {
-                let memberCard = createMemberCard(device: member)
-                // Add left padding for indentation
-                let paddedContainer = NSView()
-                paddedContainer.translatesAutoresizingMaskIntoConstraints = false
-                paddedContainer.identifier = NSUserInterfaceItemIdentifier("\(group.id)_member_\(member.uuid)")
-                paddedContainer.addSubview(memberCard)
+            if isExpanded {
+                for member in group.members.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) {
+                    let memberCard = createMemberCard(device: member)
+                    // Add left padding for indentation
+                    let paddedContainer = NSView()
+                    paddedContainer.translatesAutoresizingMaskIntoConstraints = false
+                    paddedContainer.identifier = NSUserInterfaceItemIdentifier("\(group.id)_member_\(member.uuid)")
+                    paddedContainer.addSubview(memberCard)
 
-                NSLayoutConstraint.activate([
-                    memberCard.leadingAnchor.constraint(equalTo: paddedContainer.leadingAnchor, constant: 20),
-                    memberCard.trailingAnchor.constraint(equalTo: paddedContainer.trailingAnchor),
-                    memberCard.topAnchor.constraint(equalTo: paddedContainer.topAnchor),
-                    memberCard.bottomAnchor.constraint(equalTo: paddedContainer.bottomAnchor)
-                ])
+                    NSLayoutConstraint.activate([
+                        memberCard.leadingAnchor.constraint(equalTo: paddedContainer.leadingAnchor, constant: 20),
+                        memberCard.trailingAnchor.constraint(equalTo: paddedContainer.trailingAnchor),
+                        memberCard.topAnchor.constraint(equalTo: paddedContainer.topAnchor),
+                        memberCard.bottomAnchor.constraint(equalTo: paddedContainer.bottomAnchor)
+                    ])
 
-                speakerCardsContainer.addArrangedSubview(paddedContainer)
+                    speakerCardsContainer.addArrangedSubview(paddedContainer)
+                }
             }
         }
 
@@ -1503,7 +1611,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         for subview in speakerCardsContainer.arrangedSubviews {
             if subview.identifier?.rawValue == uuid {
                 // Add colored badge only (no album art in cards)
-                if let sourceType = sourceType {
+                if showSourceBadgesInList,
+                   let sourceType = sourceType {
                     addSourceBadge(to: subview, sourceType: sourceType)
                 }
                 break
@@ -1578,8 +1687,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
 
         volumeTypeLabel.stringValue = "Group Volume (\(group.members.count) speakers)"
-        volumeTypeLabel.textColor = .systemBlue
-        volumeTypeLabel.font = .systemFont(ofSize: 11, weight: .semibold) // Bolder for groups
+        volumeTypeLabel.textColor = .secondaryLabelColor
+        volumeTypeLabel.font = .systemFont(ofSize: 11, weight: .medium)
     }
 
     // MARK: - Trigger Device Section
@@ -1608,9 +1717,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let divider4 = createDivider()
         container.addSubview(divider4)
 
-        // Find the previous divider to anchor to
-        let previousDividers = container.subviews.compactMap { $0 as? NSBox }
-        let previousDivider = previousDividers[previousDividers.count - 2]
+        guard let previousDivider = lastSectionDivider else { return }
 
         NSLayoutConstraint.activate([
             triggerTitle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
@@ -1624,14 +1731,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             divider4.topAnchor.constraint(equalTo: triggerDeviceLabel.bottomAnchor, constant: 12),
             divider4.heightAnchor.constraint(equalToConstant: 1)
         ])
+
+        lastSectionDivider = divider4
     }
 
     // MARK: - Actions Section
 
     private func setupActionsSection(in container: NSView) {
-        // Find the last divider to anchor to
-        let dividers = container.subviews.compactMap { $0 as? NSBox }
-        let previousDivider = dividers.last!
+        guard let previousDivider = lastSectionDivider else { return }
 
         // Preferences button with label
         let prefsStack = NSStackView()
@@ -2189,6 +2296,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     }
 
     @objc private func speakerSelectionChanged(_ sender: NSButton) {
+        guard isManagingGroups else { return }
         guard let identifier = sender.identifier?.rawValue else { return }
 
         if sender.state == .on {
@@ -2216,6 +2324,34 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             "Ungroup \(selectedGroupIds.count) Groups" : "Ungroup Selected"
     }
 
+    @objc private func toggleManageGroups(_ sender: NSButton) {
+        isManagingGroups = sender.state == .on
+        sender.title = isManagingGroups ? "Done" : "Manage"
+
+        if !isManagingGroups {
+            selectedSpeakerCards.removeAll()
+        }
+
+        updateGroupActionsVisibility()
+        populateSpeakers()
+        updatePopoverSize(animated: true, duration: 0.15)
+    }
+
+    private func updateGroupActionsVisibility() {
+        let shouldShow = isManagingGroups
+        groupActionsContainer.isHidden = !shouldShow
+        groupActionsTopConstraint.constant = shouldShow ? 12 : 0
+        groupActionsHeightConstraint.constant = shouldShow ? 28 : 0
+
+        if !shouldShow {
+            groupButton.isEnabled = false
+            ungroupButton.isEnabled = false
+            groupButton.title = "Group Selected"
+            ungroupButton.title = "Ungroup Selected"
+        }
+    }
+
+
     private func selectedDeviceNamesForGrouping(from groups: [SonosController.SonosGroup]) -> Set<String> {
         var deviceNames = Set<String>()
 
@@ -2238,6 +2374,17 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         return selectedDeviceNamesForGrouping(from: controller.cachedDiscoveredGroups).count
     }
 
+    @objc private func toggleGroupExpanded(_ sender: NSButton) {
+        guard let groupId = sender.identifier?.rawValue else { return }
+
+        if expandedGroupIds.contains(groupId) {
+            expandedGroupIds.remove(groupId)
+        } else {
+            expandedGroupIds.insert(groupId)
+        }
+
+        populateSpeakers()
+    }
 
     @objc private func selectGroup(_ sender: Any) {
         let groupId: String
@@ -2735,48 +2882,15 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             containerView.layoutSubtreeIfNeeded()
         }
 
-        // Update popover content size to trigger resize (height only, keep width fixed at 380)
-        if let popover = appDelegate?.menuBarPopover {
-            // Force layout to complete so fittingSize is accurate
-            view.layoutSubtreeIfNeeded()
-            containerView.layoutSubtreeIfNeeded()
+        // Update menu layout to reflect dynamic height changes
+        view.layoutSubtreeIfNeeded()
+        containerView.layoutSubtreeIfNeeded()
 
-            // Get the actual banner height (0 or 50 depending on visibility)
-            let bannerHeight = welcomeBannerHeightConstraint?.constant ?? 0
-            let nowPlayingHeight = nowPlayingHeightConstraint?.constant ?? 0
+        let fittingHeight = max(containerView.fittingSize.height, 200)
+        let newSize = NSSize(width: MenuBarLayout.popoverWidth, height: fittingHeight)
+        self.preferredContentSize = newSize
 
-            // Calculate new height based on all content sections with dynamic heights
-            let newHeight: CGFloat =
-                24 + // Top padding
-                12 + 2 + 11 + 8 + 22 + 20 + // Status row + spacing + last updated + spacing + speaker name + spacing
-                1 + 20 + // Divider + spacing (after header)
-                48 + 20 + // Playback controls + spacing
-                1 + 16 + // Divider + spacing (after playback controls)
-                nowPlayingHeight + (nowPlayingHeight > 0 ? 16 : 0) + // Now playing section + spacing (when visible)
-                13 + 8 + 22 + 16 + // Volume label + spacing + slider + spacing
-                1 + 12 + // Divider + spacing (after volume)
-                13 + 12 + bannerHeight + 8 + // Speakers title + spacing + banner (dynamic) + spacing
-                newScrollHeight + 12 + 30 + 16 + // Scroll view + spacing + buttons + spacing
-                1 + 12 + // Divider + spacing (after speakers)
-                13 + 4 + 12 + 12 + // Trigger title + spacing + value label + spacing
-                1 + 16 + 44 + 16 + // Divider + spacing + actions + padding
-                8 // Bottom padding
-
-            let newSize = NSSize(width: 380, height: newHeight)
-
-            // Update preferred content size to match
-            self.preferredContentSize = newSize
-
-            if animated {
-                NSAnimationContext.runAnimationGroup({ context in
-                    context.duration = duration
-                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                    popover.contentSize = newSize
-                })
-            } else {
-                popover.contentSize = newSize
-            }
-        }
+        appDelegate?.menuBarMenu?.updateLayout()
     }
 
     // MARK: - Update Methods
@@ -2890,6 +3004,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
+        guard isManagingGroups else { return }
         if let trackingArea = event.trackingArea,
            let checkbox = trackingArea.userInfo?["checkbox"] as? NSButton {
             checkbox.isHidden = false
@@ -2898,6 +3013,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
+        guard isManagingGroups else { return }
         if let trackingArea = event.trackingArea,
            let checkbox = trackingArea.userInfo?["checkbox"] as? NSButton {
             // Keep checkbox visible if it's checked (selected for grouping/ungrouping)
