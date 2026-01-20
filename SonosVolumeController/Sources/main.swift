@@ -141,7 +141,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         // First launch - show menu to guide user to select a speaker
                         print("👋 First launch detected - showing onboarding menu")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            guard let button = self.statusItem.button else { return }
+                            guard self.statusItem.button != nil else { return }
                             self.menuBarMenu.show(from: self.statusItem)
                         }
                     }

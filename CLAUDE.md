@@ -268,7 +268,7 @@ gh pr create --title "Title" --body "Description"
 - **AudioDeviceMonitor.swift**: Tracks current audio output device
 - **SonosController.swift**: Sonos device discovery and control
 - **VolumeHUD.swift**: On-screen volume display (Liquid Glass HUD)
-- **MenuBarContentView.swift**: Menu bar popover UI
+- **MenuBarContentView.swift**: Menu bar menu UI
 - **PreferencesWindow.swift**: Settings window
 
 ### Important Patterns

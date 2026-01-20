@@ -6,7 +6,7 @@ A native macOS menu bar app for controlling Sonos speakers with hotkeys. Control
 
 - 🎹 **Hotkey Control**: F11/F12 for volume control with visual HUD display
 - 🎯 **Smart Triggering**: Optionally activate only when specific audio device is selected (defaults to "Any Device")
-- 🖥️ **Menu Bar Integration**: Native macOS menu bar app with popover controls
+- 🖥️ **Menu Bar Integration**: Native macOS menu bar app with menu controls
 - 🔍 **Auto-Discovery**: Automatic Sonos speaker detection on local network
 - 🎛️ **Speaker Grouping**: Create, manage, and control speaker groups
 - 📊 **Hierarchical Group UI**: Expandable group cards to control individual speakers within groups

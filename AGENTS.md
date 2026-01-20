@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Core code lives in `SonosVolumeController/Sources`, with infrastructure services under `Infrastructure/`, input monitors in `VolumeKeyMonitor.swift` and `AudioDeviceMonitor.swift`, and UI surfaces in `MenuBarContentView.swift`, `MenuBarPopover.swift`, and `PreferencesWindow.swift`. Packaging assets and entitlements sit in `Resources/`. Docs such as `docs/sonos-api/` hold Sonos protocol notes; keep new research there for future contributors.
+Core code lives in `SonosVolumeController/Sources`, with infrastructure services under `Infrastructure/`, input monitors in `VolumeKeyMonitor.swift` and `AudioDeviceMonitor.swift`, and UI surfaces in `MenuBarContentView.swift`, `MenuBarMenu.swift`, and `PreferencesWindow.swift`. Packaging assets and entitlements sit in `Resources/`. Docs such as `docs/sonos-api/` hold Sonos protocol notes; keep new research there for future contributors.
 
 ## Build, Test, and Development Commands
 `swift run` from `SonosVolumeController/` provides the fastest feedback loop; run `pkill SonosVolumeController` first to avoid duplicate menu bar icons. `swift build -c release` validates optimized builds. Use `./build-app.sh` to bundle locally and `./build-app.sh --install` to copy into `/Applications` and relaunch the production build.
