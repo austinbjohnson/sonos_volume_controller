@@ -986,13 +986,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let icon = NSImageView()
         icon.image = NSImage(systemSymbolName: "hifispeaker.2.fill", accessibilityDescription: "Group")
         icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        icon.contentTintColor = isActive ? .controlAccentColor : .systemBlue
+        icon.contentTintColor = isActive ? .controlAccentColor : .secondaryLabelColor
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         // Group name
         let nameLabel = NSTextField(labelWithString: group.name)
         nameLabel.font = .systemFont(ofSize: 13, weight: isActive ? .semibold : .medium)
-        nameLabel.textColor = isActive ? .labelColor : .labelColor
+        nameLabel.textColor = isActive ? .labelColor : .secondaryLabelColor
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.maximumNumberOfLines = 1
         nameLabel.toolTip = group.name  // Show full name on hover
@@ -1088,7 +1088,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         // Blue connection line
         let connectionLine = NSView()
         connectionLine.wantsLayer = true
-        connectionLine.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.6).cgColor
+        connectionLine.layer?.backgroundColor = NSColor.secondaryLabelColor.withAlphaComponent(0.35).cgColor
         connectionLine.translatesAutoresizingMaskIntoConstraints = false
 
         // Speaker icon
@@ -1183,7 +1183,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         if isInGroup && !isGroupCoordinator {
             let groupIndicator = NSView()
             groupIndicator.wantsLayer = true
-            groupIndicator.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.6).cgColor
+            groupIndicator.layer?.backgroundColor = NSColor.secondaryLabelColor.withAlphaComponent(0.4).cgColor
             groupIndicator.layer?.cornerRadius = 1.5
             groupIndicator.translatesAutoresizingMaskIntoConstraints = false
             card.addSubview(groupIndicator)
@@ -1201,7 +1201,15 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let iconName = isGroupCoordinator ? "person.3.fill" : "hifispeaker.fill"
         icon.image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Speaker")
         icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        icon.contentTintColor = isGroupCoordinator ? .systemBlue : (isActive ? .controlAccentColor : .tertiaryLabelColor)
+        let iconTint: NSColor
+        if isActive {
+            iconTint = .controlAccentColor
+        } else if isGroupCoordinator {
+            iconTint = .secondaryLabelColor
+        } else {
+            iconTint = .tertiaryLabelColor
+        }
+        icon.contentTintColor = iconTint
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         // Build display name with group info
@@ -1239,7 +1247,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
                 let groupLabel = NSTextField(labelWithString: groupInfoText)
                 groupLabel.font = .systemFont(ofSize: 10, weight: .regular)
-                groupLabel.textColor = .systemBlue
+                groupLabel.textColor = .secondaryLabelColor
                 groupLabel.translatesAutoresizingMaskIntoConstraints = false
                 textStack.addArrangedSubview(groupLabel)
             }
