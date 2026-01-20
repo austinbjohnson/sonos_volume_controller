@@ -191,6 +191,12 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         updateLastUpdatedLabel()
     }
 
+    override func viewWillDisappear() {
+        super.viewWillDisappear()
+        lastUpdatedTimer?.invalidate()
+        lastUpdatedTimer = nil
+    }
+
     @objc private func handlePermissionStatusChanged(_ notification: Notification) {
         // Refresh to update permission banner visibility
         Task { @MainActor in
@@ -278,7 +284,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     }
 
     deinit {
-        lastUpdatedTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -2792,7 +2797,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private func startLastUpdatedTimer() {
         lastUpdatedTimer?.invalidate()
         lastUpdatedTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            self?.updateLastUpdatedLabel()
+            Task { @MainActor in
+                self?.updateLastUpdatedLabel()
+            }
         }
     }
 

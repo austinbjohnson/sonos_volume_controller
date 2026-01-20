@@ -70,7 +70,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Periodically update menu bar icon to reflect stale state over time
         refreshStatusTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            self?.updateMenuBarIcon()
+            Task { @MainActor in
+                self?.updateMenuBarIcon()
+            }
         }
 
         updateMenuBarIcon()
