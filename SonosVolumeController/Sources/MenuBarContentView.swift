@@ -77,6 +77,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private var groupVolumeResetTimer: Timer?  // Debounce network updates until drag settles
     private var memberVolumeThrottleTimer: Timer?  // Throttle member volume refresh calls
     private var lastUpdatedTimer: Timer?
+    private let showSourceBadgesInList = false
 
     // Cache now-playing data to prevent flicker during card rebuilds
     private var nowPlayingCache: [String: (state: String?, sourceType: SonosController.AudioSourceType?, nowPlaying: SonosController.NowPlayingInfo?)] = [:]
@@ -296,21 +297,20 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         statusDot.layer?.backgroundColor = NSColor.systemGreen.cgColor
         statusDot.layer?.cornerRadius = 5
         statusDot.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(statusDot)
 
         // Status label
         statusLabel = NSTextField(labelWithString: "Active")
         statusLabel.font = .systemFont(ofSize: 12, weight: .medium)
         statusLabel.textColor = .tertiaryLabelColor
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(statusLabel)
 
         // Last updated label
         lastUpdatedLabel = NSTextField(labelWithString: "Last updated: —")
         lastUpdatedLabel.font = .systemFont(ofSize: 11, weight: .regular)
         lastUpdatedLabel.textColor = .tertiaryLabelColor
+        lastUpdatedLabel.lineBreakMode = .byTruncatingTail
+        lastUpdatedLabel.maximumNumberOfLines = 1
         lastUpdatedLabel.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(lastUpdatedLabel)
 
         // Speaker name - large and prominent
         let currentSpeaker = appDelegate?.settings.lastActiveSpeaker ?? "No Speaker"
@@ -318,7 +318,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         speakerNameLabel.font = .systemFont(ofSize: 22, weight: .semibold)
         speakerNameLabel.textColor = .labelColor
         speakerNameLabel.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(speakerNameLabel)
 
         // Refresh button
         refreshButton = NSButton()
@@ -331,7 +330,6 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         refreshButton.action = #selector(refreshTopology)
         refreshButton.translatesAutoresizingMaskIntoConstraints = false
         refreshButton.toolTip = "Refresh speaker topology"
-        container.addSubview(refreshButton)
 
         // Power toggle
         powerButton = NSButton()
@@ -343,46 +341,67 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         powerButton.target = self
         powerButton.action = #selector(togglePower)
         powerButton.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(powerButton)
+
+        let row1Stack = NSStackView()
+        row1Stack.orientation = .horizontal
+        row1Stack.spacing = 8
+        row1Stack.alignment = .centerY
+        row1Stack.translatesAutoresizingMaskIntoConstraints = false
+        row1Stack.addArrangedSubview(statusDot)
+        row1Stack.addArrangedSubview(statusLabel)
+        row1Stack.addArrangedSubview(lastUpdatedLabel)
+
+        let buttonStack = NSStackView()
+        buttonStack.orientation = .horizontal
+        buttonStack.spacing = 4
+        buttonStack.alignment = .centerY
+        buttonStack.translatesAutoresizingMaskIntoConstraints = false
+        buttonStack.addArrangedSubview(refreshButton)
+        buttonStack.addArrangedSubview(powerButton)
+
+        let row2Stack = NSStackView()
+        row2Stack.orientation = .horizontal
+        row2Stack.spacing = 8
+        row2Stack.alignment = .centerY
+        row2Stack.translatesAutoresizingMaskIntoConstraints = false
+        row2Stack.addArrangedSubview(speakerNameLabel)
+        row2Stack.addArrangedSubview(buttonStack)
+
+        speakerNameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        buttonStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+        lastUpdatedLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let headerStack = NSStackView()
+        headerStack.orientation = .vertical
+        headerStack.spacing = 6
+        headerStack.alignment = .leading
+        headerStack.translatesAutoresizingMaskIntoConstraints = false
+        headerStack.addArrangedSubview(row1Stack)
+        headerStack.addArrangedSubview(row2Stack)
+        container.addSubview(headerStack)
 
         // Divider
         let divider1 = createDivider()
         container.addSubview(divider1)
 
         NSLayoutConstraint.activate([
-            // Status indicator
-            statusDot.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
-            statusDot.topAnchor.constraint(equalTo: container.topAnchor, constant: 24),
             statusDot.widthAnchor.constraint(equalToConstant: 10),
             statusDot.heightAnchor.constraint(equalToConstant: 10),
 
-            statusLabel.leadingAnchor.constraint(equalTo: statusDot.trailingAnchor, constant: 8),
-            statusLabel.centerYAnchor.constraint(equalTo: statusDot.centerYAnchor),
+            headerStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            headerStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            headerStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
 
-            lastUpdatedLabel.leadingAnchor.constraint(equalTo: statusLabel.leadingAnchor),
-            lastUpdatedLabel.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 2),
-            lastUpdatedLabel.trailingAnchor.constraint(lessThanOrEqualTo: refreshButton.leadingAnchor, constant: -8),
-
-            // Speaker name
-            speakerNameLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
-            speakerNameLabel.topAnchor.constraint(equalTo: lastUpdatedLabel.bottomAnchor, constant: 8),
-
-            // Power button
-            powerButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
-            powerButton.centerYAnchor.constraint(equalTo: speakerNameLabel.centerYAnchor, constant: -8),
             powerButton.widthAnchor.constraint(equalToConstant: 40),
             powerButton.heightAnchor.constraint(equalToConstant: 40),
 
-            // Refresh button (to the left of power button)
-            refreshButton.trailingAnchor.constraint(equalTo: powerButton.leadingAnchor, constant: -4),
-            refreshButton.centerYAnchor.constraint(equalTo: powerButton.centerYAnchor),
             refreshButton.widthAnchor.constraint(equalToConstant: 40),
             refreshButton.heightAnchor.constraint(equalToConstant: 40),
 
             // Divider
             divider1.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
             divider1.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
-            divider1.topAnchor.constraint(equalTo: speakerNameLabel.bottomAnchor, constant: 20),
+            divider1.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 16),
             divider1.heightAnchor.constraint(equalToConstant: 1)
         ])
     }
@@ -1046,7 +1065,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         ])
         
         // Add source badge if available (no album art in cards)
-        if let cached = nowPlayingCache[group.coordinator.uuid],
+        if showSourceBadgesInList,
+           let cached = nowPlayingCache[group.coordinator.uuid],
            let sourceType = cached.sourceType {
             addSourceBadge(to: card, sourceType: sourceType)
         }
@@ -1268,7 +1288,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         card.addSubview(selectionButton)
 
         // Add source badge if available (no album art in cards)
-        if let cached = nowPlayingCache[device.uuid],
+        if showSourceBadgesInList,
+           let cached = nowPlayingCache[device.uuid],
            let sourceType = cached.sourceType {
             addSourceBadge(to: card, sourceType: sourceType)
         }
@@ -1503,7 +1524,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         for subview in speakerCardsContainer.arrangedSubviews {
             if subview.identifier?.rawValue == uuid {
                 // Add colored badge only (no album art in cards)
-                if let sourceType = sourceType {
+                if showSourceBadgesInList,
+                   let sourceType = sourceType {
                     addSourceBadge(to: subview, sourceType: sourceType)
                 }
                 break
@@ -2748,8 +2770,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             // Calculate new height based on all content sections with dynamic heights
             let newHeight: CGFloat =
                 24 + // Top padding
-                12 + 2 + 11 + 8 + 22 + 20 + // Status row + spacing + last updated + spacing + speaker name + spacing
-                1 + 20 + // Divider + spacing (after header)
+                12 + 6 + 22 + 16 + // Status row + spacing + speaker name + spacing
+                1 + 16 + // Divider + spacing (after header)
                 48 + 20 + // Playback controls + spacing
                 1 + 16 + // Divider + spacing (after playback controls)
                 nowPlayingHeight + (nowPlayingHeight > 0 ? 16 : 0) + // Now playing section + spacing (when visible)
