@@ -2748,7 +2748,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             // Calculate new height based on all content sections with dynamic heights
             let newHeight: CGFloat =
                 24 + // Top padding
-                10 + 8 + 22 + 20 + // Status dot + spacing + speaker name + spacing
+                12 + 2 + 11 + 8 + 22 + 20 + // Status row + spacing + last updated + spacing + speaker name + spacing
                 1 + 20 + // Divider + spacing (after header)
                 48 + 20 + // Playback controls + spacing
                 1 + 16 + // Divider + spacing (after playback controls)
