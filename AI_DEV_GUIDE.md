@@ -147,7 +147,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | `AudioDeviceMonitor.swift` | Tracks active audio output device |
 | `SonosController.swift` | Sonos device discovery and control (actor) |
 | `VolumeHUD.swift` | On-screen volume display (Liquid Glass HUD) |
-| `MenuBarContentView.swift` | Menu bar popover UI |
+| `MenuBarContentView.swift` | Menu bar menu UI |
 | `PreferencesWindow.swift` | Settings window |
 
 ### Infrastructure Layer

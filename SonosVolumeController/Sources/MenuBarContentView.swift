@@ -1,15 +1,15 @@
 import Cocoa
 
-// Custom view that enforces MenuBarLayout.popoverWidth for popover sizing
+// Custom view that enforces MenuBarLayout.menuWidth for menu sizing
 private class FixedWidthView: NSView {
     private var widthConstraint: NSLayoutConstraint?
 
     override func updateConstraints() {
         super.updateConstraints()
 
-        // Enforce popover width constraint
+        // Enforce menu width constraint
         if widthConstraint == nil {
-            let constraint = widthAnchor.constraint(equalToConstant: MenuBarLayout.popoverWidth)
+            let constraint = widthAnchor.constraint(equalToConstant: MenuBarLayout.menuWidth)
             constraint.priority = .required
             constraint.isActive = true
             widthConstraint = constraint
@@ -17,11 +17,11 @@ private class FixedWidthView: NSView {
     }
 
     override var fittingSize: NSSize {
-        return NSSize(width: MenuBarLayout.popoverWidth, height: super.fittingSize.height)
+        return NSSize(width: MenuBarLayout.menuWidth, height: super.fittingSize.height)
     }
 
     override var intrinsicContentSize: NSSize {
-        return NSSize(width: MenuBarLayout.popoverWidth, height: NSView.noIntrinsicMetric)
+        return NSSize(width: MenuBarLayout.menuWidth, height: NSView.noIntrinsicMetric)
     }
 }
 
@@ -99,12 +99,12 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     }
 
     override func loadView() {
-        // Main container - width fixed at popoverWidth via custom fittingSize, height dynamic
-        containerView = FixedWidthView(frame: NSRect(x: 0, y: 0, width: MenuBarLayout.popoverWidth, height: 500))
+        // Main container - width fixed at menuWidth via custom fittingSize, height dynamic
+        containerView = FixedWidthView(frame: NSRect(x: 0, y: 0, width: MenuBarLayout.menuWidth, height: 500))
         self.view = containerView
 
         // Set preferred content size to prevent auto-sizing
-        self.preferredContentSize = NSSize(width: MenuBarLayout.popoverWidth, height: 500)
+        self.preferredContentSize = NSSize(width: MenuBarLayout.menuWidth, height: 500)
 
         // Single glass effect view
         glassView = NSGlassEffectView()
@@ -698,13 +698,13 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private func showNowPlayingSection() {
         nowPlayingContainer.isHidden = false
         nowPlayingHeightConstraint.constant = 64  // Album art (44pt) + padding
-        updatePopoverSize(animated: true, duration: 0.2)
+        updateMenuSize(animated: true, duration: 0.2)
     }
     
     private func hideNowPlayingSection() {
         nowPlayingContainer.isHidden = true
         nowPlayingHeightConstraint.constant = 0
-        updatePopoverSize(animated: true, duration: 0.2)
+        updateMenuSize(animated: true, duration: 0.2)
     }
     
     private func loadAlbumArt(url: String, sourceType: SonosController.AudioSourceType) {
@@ -1543,7 +1543,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
 
-        // Update popover size after initial populate
+        // Update menu size after initial populate
         // Force layout to complete before calculating heights
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -1559,7 +1559,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 scrollView.reflectScrolledClipView(scrollView.contentView)
             }
 
-            self.updatePopoverSize(animated: false)
+            self.updateMenuSize(animated: false)
             
             // Update now-playing display for selected device
             self.updateNowPlayingDisplay()
@@ -1595,8 +1595,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
                 for (uuid, state, sourceType, nowPlaying) in results {
                     self.updateCardWithNowPlaying(uuid: uuid, state: state, sourceType: sourceType, nowPlaying: nowPlaying, skipResize: true)
                 }
-                // Resize popover once after all updates
-                self.updatePopoverSize(animated: true, duration: 0.15)
+                // Resize menu once after all updates
+                self.updateMenuSize(animated: true, duration: 0.15)
             }
         }
     }
@@ -2334,7 +2334,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
 
         updateGroupActionsVisibility()
         populateSpeakers()
-        updatePopoverSize(animated: true, duration: 0.15)
+        updateMenuSize(animated: true, duration: 0.15)
     }
 
     private func updateGroupActionsVisibility() {
@@ -2845,17 +2845,17 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         return cardsHeight
     }
 
-    private func updatePopoverSize(animated: Bool = true, duration: TimeInterval = 0.25) {
+    private func updateMenuSize(animated: Bool = true, duration: TimeInterval = 0.25) {
         // Guard against being called before view is loaded
         guard scrollViewHeightConstraint != nil else {
-            print("⚠️ updatePopoverSize called before view loaded, skipping")
+            print("⚠️ updateMenuSize called before view loaded, skipping")
             return
         }
 
         let contentHeight = calculateContentHeight()
         
         // Calculate max scroll height based on screen size
-        // Reserve space for menu bar, popover margins, and other sections
+        // Reserve space for menu bar, menu margins, and other sections
         let screenHeight = NSScreen.main?.visibleFrame.height ?? 900
         let otherSectionsHeight: CGFloat = 450  // Approximate height of non-scrollable sections
         let maxScrollHeight = max(200, screenHeight - otherSectionsHeight)  // At least 200pt, typically 450-700pt
@@ -2863,7 +2863,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         let newScrollHeight = min(contentHeight, maxScrollHeight)
 
         #if DEBUG
-        print("🔍 [RESIZE] updatePopoverSize(animated: \(animated), duration: \(duration))")
+        print("🔍 [RESIZE] updateMenuSize(animated: \(animated), duration: \(duration))")
         print("🔍 [RESIZE] Content height: \(contentHeight), scroll height: \(newScrollHeight)")
         #endif
 
@@ -2887,7 +2887,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         containerView.layoutSubtreeIfNeeded()
 
         let fittingHeight = max(containerView.fittingSize.height, 200)
-        let newSize = NSSize(width: MenuBarLayout.popoverWidth, height: fittingHeight)
+        let newSize = NSSize(width: MenuBarLayout.menuWidth, height: fittingHeight)
         self.preferredContentSize = newSize
 
         appDelegate?.menuBarMenu?.updateLayout()
