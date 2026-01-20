@@ -10,7 +10,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var sonosController: SonosController!
     var settings: AppSettings!
     var preferencesWindow: PreferencesWindow!
-    var menuBarPopover: MenuBarPopover!
+    var menuBarMenu: MenuBarMenu!
     var permissionCheckTimer: Timer?
     var permissionCheckStartTime: Date?
     var refreshStatusTimer: Timer?
@@ -33,33 +33,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize preferences window
         preferencesWindow = PreferencesWindow(appDelegate: self)
 
-        // Initialize popover
-        menuBarPopover = MenuBarPopover(appDelegate: self)
-
         // Initialize audio monitor (needed before preferences window is shown)
         audioMonitor = AudioDeviceMonitor(settings: settings)
 
         // Wire up audio monitor to preferences window so it can populate device dropdown
         preferencesWindow.setAudioDeviceMonitor(audioMonitor)
 
-        // Create status bar item with custom Sonos speaker icon
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = statusItem.button {
-            button.image = makeStatusIcon(indicator: .none)
-            button.target = self
-            button.action = #selector(togglePopover)
-            button.alphaValue = settings.enabled ? 1.0 : 0.5  // Dim when disabled
-            print("🔊 Menu bar icon: Custom Sonos speaker")
-        }
-        print("📍 Status bar item created")
+        // Initialize Sonos controller before menu UI so view setup can read cached devices safely
+        sonosController = SonosController(settings: settings)
 
         // Initialize remaining components (audioMonitor already initialized above)
-        sonosController = SonosController(settings: settings)
         volumeKeyMonitor = VolumeKeyMonitor(
             audioMonitor: audioMonitor,
             sonosController: sonosController,
             settings: settings
         )
+
+        // Initialize menu
+        menuBarMenu = MenuBarMenu(appDelegate: self)
+
+        // Create status bar item with custom Sonos speaker icon
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = statusItem.button {
+            button.image = makeStatusIcon(indicator: .none)
+            button.alphaValue = settings.enabled ? 1.0 : 0.5  // Dim when disabled
+            print("🔊 Menu bar icon: Custom Sonos speaker")
+        }
+        menuBarMenu.attach(to: statusItem)
+        print("📍 Status bar item created")
 
         // Start monitoring
         audioMonitor.start()
@@ -137,11 +138,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     } else {
                         print("🆕 No previous speaker - will set after first selection")
 
-                        // First launch - show popover to guide user to select a speaker
-                        print("👋 First launch detected - showing onboarding popover")
+                        // First launch - show menu to guide user to select a speaker
+                        print("👋 First launch detected - showing onboarding menu")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                             guard let button = self.statusItem.button else { return }
-                            self.menuBarPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+                            self.menuBarMenu.show(from: self.statusItem)
                         }
                     }
 
@@ -163,15 +164,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("✅ Sonos Volume Controller started")
     }
 
-    @objc func togglePopover() {
-        guard let button = statusItem.button else { return }
-        menuBarPopover.toggle(from: button)
-    }
-
     @objc func devicesDiscovered() {
-        print("📱 Devices discovered, updating popover...")
+        print("📱 Devices discovered, updating menu...")
         // Just refresh UI - device selection happens in completion handler
-        menuBarPopover.refresh()
+        menuBarMenu.refresh()
     }
 
     @objc func updateMenuBarIcon() {

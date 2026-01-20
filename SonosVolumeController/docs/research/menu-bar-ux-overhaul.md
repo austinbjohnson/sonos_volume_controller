@@ -56,3 +56,9 @@ Make "Now Playing + Transport + Primary Volume" the hero area and push the speak
 ## Open Questions
 - Do we introduce an explicit "Manage Groups" mode, or keep hover-only checkboxes?
 - How aggressive should we be with removing source badges in the list?
+
+## Implementation Learnings (CodexBar + SonosCLI)
+- Prefer NSMenu-based menu bar UIs over NSPopover for reliable centering and width control.
+- Treat menu width as a single shared constant across menu + content views to avoid drift.
+- Anchor layout sections sequentially (header -> divider -> controls -> divider, etc.) rather than scanning subviews for dividers.
+- Keep grouping controls behind an explicit Manage state; default view should prioritize playback/volume.
