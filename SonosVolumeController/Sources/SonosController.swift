@@ -26,6 +26,11 @@ actor SonosController {
     nonisolated(unsafe) private var _cachedDevices: [SonosDevice] = []
     nonisolated(unsafe) private var _cachedGroups: [SonosGroup] = []
     nonisolated(unsafe) private var _cachedSelectedDevice: SonosDevice?
+    nonisolated(unsafe) private var _cachedLastRefreshDate: Date?
+    nonisolated(unsafe) private var _cachedLastRefreshErrorDate: Date?
+
+    private var lastRefreshDate: Date?
+    private var lastRefreshErrorDate: Date?
 
     // Expose selected device (actor-isolated)
     var selectedDevice: SonosDevice? {
@@ -57,11 +62,45 @@ actor SonosController {
         return _cachedSelectedDevice
     }
 
+    nonisolated var cachedLastRefreshDate: Date? {
+        return _cachedLastRefreshDate
+    }
+
+    nonisolated var cachedLastRefreshErrorDate: Date? {
+        return _cachedLastRefreshErrorDate
+    }
+
     // Helper to update cached values (must be called from actor context)
     private func updateCachedValues() {
         _cachedDevices = devices
         _cachedGroups = groups
         _cachedSelectedDevice = _selectedDevice
+        _cachedLastRefreshDate = lastRefreshDate
+        _cachedLastRefreshErrorDate = lastRefreshErrorDate
+    }
+
+    private func updateCachedRefreshStatus() {
+        _cachedLastRefreshDate = lastRefreshDate
+        _cachedLastRefreshErrorDate = lastRefreshErrorDate
+    }
+
+    private func notifyRefreshStatusChanged() {
+        Task { @MainActor in
+            NotificationCenter.default.post(name: NSNotification.Name("SonosRefreshStatusChanged"), object: nil)
+        }
+    }
+
+    private func markRefreshSuccess() {
+        lastRefreshDate = Date()
+        lastRefreshErrorDate = nil
+        updateCachedRefreshStatus()
+        notifyRefreshStatusChanged()
+    }
+
+    private func markRefreshFailure() {
+        lastRefreshErrorDate = Date()
+        updateCachedRefreshStatus()
+        notifyRefreshStatusChanged()
     }
 
     // MARK: - Real-time Event Subscription
@@ -252,12 +291,15 @@ actor SonosController {
                 completion?()
             }
 
+            self.markRefreshSuccess()
+
             // Post notification so menu can update - needs to be on MainActor
             await MainActor.run {
                 NotificationCenter.default.post(name: NSNotification.Name("SonosDevicesDiscovered"), object: nil)
             }
         } catch {
             print("SSDP Discovery error: \(error)")
+            self.markRefreshFailure()
 
             // Notify about network error (likely permissions issue)
             Task { @MainActor in
@@ -286,12 +328,14 @@ actor SonosController {
 
             guard let responseStr = String(data: data, encoding: .utf8) else {
                 print("Failed to decode response")
+                markRefreshFailure()
                 return
             }
 
             parseGroupTopology(responseStr, completion: completion)
         } catch {
             print("GetZoneGroupState error: \(error)")
+            markRefreshFailure()
         }
     }
 
@@ -299,6 +343,7 @@ actor SonosController {
         // Extract ZoneGroupState XML from SOAP response
         guard let stateXML = XMLParsingHelpers.extractSection(from: xml, tag: "ZoneGroupState") else {
             print("Could not find ZoneGroupState in response")
+            markRefreshFailure()
             completion?()
             return
         }
@@ -455,6 +500,8 @@ actor SonosController {
         } else {
             print("📊 Topology unchanged, skipping UI update")
         }
+
+        markRefreshSuccess()
 
         // Call completion handler
         completion?()
@@ -845,6 +892,8 @@ actor SonosController {
                     )
                 }
             }
+
+            markRefreshSuccess()
 
         case .subscriptionExpired(let sid):
             print("⚠️ Transport subscription expired: \(sid)")

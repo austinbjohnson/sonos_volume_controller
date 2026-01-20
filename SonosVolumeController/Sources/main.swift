@@ -13,6 +13,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var menuBarPopover: MenuBarPopover!
     var permissionCheckTimer: Timer?
     var permissionCheckStartTime: Date?
+    var refreshStatusTimer: Timer?
+
+    private enum MenuBarIconIndicator {
+        case none
+        case stale
+        case error
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("🚀 Application did finish launching")
@@ -38,35 +45,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Create status bar item with custom Sonos speaker icon
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            // Create custom Sonos speaker icon programmatically
-            let iconImage = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
-                // Speaker body (rounded rectangle)
-                let bodyRect = NSRect(x: 4, y: 1, width: 10, height: 16)
-                let bodyPath = NSBezierPath(roundedRect: bodyRect, xRadius: 1.5, yRadius: 1.5)
-                bodyPath.lineWidth = 1.2
-                NSColor.black.setStroke()
-                bodyPath.stroke()
-
-                // Speaker grille lines
-                for y in stride(from: 4.0, through: 14.0, by: 2.0) {
-                    let line = NSBezierPath()
-                    line.move(to: NSPoint(x: 5.5, y: y))
-                    line.line(to: NSPoint(x: 12.5, y: y))
-                    line.lineWidth = 0.8
-                    line.lineCapStyle = .round
-                    NSColor.black.setStroke()
-                    line.stroke()
-                }
-
-                // Small circle at bottom (Sonos indicator)
-                let circle = NSBezierPath(ovalIn: NSRect(x: 8.4, y: 14.9, width: 1.2, height: 1.2))
-                NSColor.black.setFill()
-                circle.fill()
-
-                return true
-            }
-            iconImage.isTemplate = true  // Adapts to dark/light menu bar
-            button.image = iconImage
+            button.image = makeStatusIcon(indicator: .none)
             button.target = self
             button.action = #selector(togglePopover)
             button.alphaValue = settings.enabled ? 1.0 : 0.5  // Dim when disabled
@@ -89,11 +68,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Start permission monitoring for reactive UI updates
         settings.startPermissionMonitoring()
 
+        // Periodically update menu bar icon to reflect stale state over time
+        refreshStatusTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateMenuBarIcon()
+            }
+        }
+
+        updateMenuBarIcon()
+
         // Listen for enabled state changes to update menu bar icon
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(updateMenuBarIcon),
             name: NSNotification.Name("SonosEnabledStateChanged"),
+            object: nil
+        )
+
+        // Listen for refresh status updates (stale/error indicators)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(updateMenuBarIcon),
+            name: NSNotification.Name("SonosRefreshStatusChanged"),
             object: nil
         )
 
@@ -180,8 +176,82 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func updateMenuBarIcon() {
         guard let button = statusItem.button else { return }
-        // Dim icon when app is disabled (standby mode)
-        button.alphaValue = settings.enabled ? 1.0 : 0.5
+
+        let indicator = resolveIconIndicator()
+        button.image = makeStatusIcon(indicator: indicator)
+
+        var alphaValue: CGFloat = settings.enabled ? 1.0 : 0.5
+        if indicator != .none {
+            alphaValue *= 0.7
+        }
+        button.alphaValue = alphaValue
+    }
+
+    private func resolveIconIndicator() -> MenuBarIconIndicator {
+        guard let controller = sonosController else {
+            return .none
+        }
+
+        let lastRefresh = controller.cachedLastRefreshDate
+        let lastError = controller.cachedLastRefreshErrorDate
+
+        if let lastError = lastError,
+           lastRefresh == nil || lastError >= (lastRefresh ?? lastError) {
+            return .error
+        }
+
+        guard let lastRefresh = lastRefresh else {
+            return .stale
+        }
+
+        let staleThreshold: TimeInterval = 120
+        return Date().timeIntervalSince(lastRefresh) > staleThreshold ? .stale : .none
+    }
+
+    private func makeStatusIcon(indicator: MenuBarIconIndicator) -> NSImage {
+        let iconImage = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
+            // Speaker body (rounded rectangle)
+            let bodyRect = NSRect(x: 4, y: 1, width: 10, height: 16)
+            let bodyPath = NSBezierPath(roundedRect: bodyRect, xRadius: 1.5, yRadius: 1.5)
+            bodyPath.lineWidth = 1.2
+            NSColor.black.setStroke()
+            bodyPath.stroke()
+
+            // Speaker grille lines
+            for y in stride(from: 4.0, through: 14.0, by: 2.0) {
+                let line = NSBezierPath()
+                line.move(to: NSPoint(x: 5.5, y: y))
+                line.line(to: NSPoint(x: 12.5, y: y))
+                line.lineWidth = 0.8
+                line.lineCapStyle = .round
+                NSColor.black.setStroke()
+                line.stroke()
+            }
+
+            // Small circle at bottom (Sonos indicator)
+            let circle = NSBezierPath(ovalIn: NSRect(x: 8.4, y: 14.9, width: 1.2, height: 1.2))
+            NSColor.black.setFill()
+            circle.fill()
+
+            let indicatorRect = NSRect(x: 12.8, y: 12.8, width: 4, height: 4)
+            switch indicator {
+            case .none:
+                break
+            case .stale:
+                let ring = NSBezierPath(ovalIn: indicatorRect)
+                ring.lineWidth = 1.2
+                NSColor.black.setStroke()
+                ring.stroke()
+            case .error:
+                let dot = NSBezierPath(ovalIn: indicatorRect)
+                NSColor.black.setFill()
+                dot.fill()
+            }
+
+            return true
+        }
+        iconImage.isTemplate = true  // Adapts to dark/light menu bar
+        return iconImage
     }
 
     @objc func handleNetworkError(_ notification: Notification) {
