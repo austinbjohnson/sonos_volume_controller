@@ -510,6 +510,9 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     private func setupNowPlayingSection(in container: NSView) {
         // Container for now playing info
         nowPlayingContainer = NSView()
+        nowPlayingContainer.wantsLayer = true
+        nowPlayingContainer.layer?.cornerRadius = 10
+        nowPlayingContainer.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.03).cgColor
         nowPlayingContainer.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(nowPlayingContainer)
         
@@ -567,14 +570,14 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
             nowPlayingHeightConstraint,
             
             // Album art positioning and size
-            nowPlayingAlbumArt.leadingAnchor.constraint(equalTo: nowPlayingContainer.leadingAnchor),
+            nowPlayingAlbumArt.leadingAnchor.constraint(equalTo: nowPlayingContainer.leadingAnchor, constant: 10),
             nowPlayingAlbumArt.centerYAnchor.constraint(equalTo: nowPlayingContainer.centerYAnchor),
             nowPlayingAlbumArt.widthAnchor.constraint(equalToConstant: 44),
             nowPlayingAlbumArt.heightAnchor.constraint(equalToConstant: 44),
             
             // Text stack positioning
             textStack.leadingAnchor.constraint(equalTo: nowPlayingAlbumArt.trailingAnchor, constant: 12),
-            textStack.trailingAnchor.constraint(equalTo: nowPlayingContainer.trailingAnchor),
+            textStack.trailingAnchor.constraint(equalTo: nowPlayingContainer.trailingAnchor, constant: -10),
             textStack.centerYAnchor.constraint(equalTo: nowPlayingContainer.centerYAnchor),
         ])
         
@@ -684,7 +687,7 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
     
     private func showNowPlayingSection() {
         nowPlayingContainer.isHidden = false
-        nowPlayingHeightConstraint.constant = 60  // Album art (44pt) + padding
+        nowPlayingHeightConstraint.constant = 64  // Album art (44pt) + padding
         updatePopoverSize(animated: true, duration: 0.2)
     }
     
@@ -1600,8 +1603,8 @@ class MenuBarContentViewController: NSViewController, NSGestureRecognizerDelegat
         }
 
         volumeTypeLabel.stringValue = "Group Volume (\(group.members.count) speakers)"
-        volumeTypeLabel.textColor = .systemBlue
-        volumeTypeLabel.font = .systemFont(ofSize: 11, weight: .semibold) // Bolder for groups
+        volumeTypeLabel.textColor = .secondaryLabelColor
+        volumeTypeLabel.font = .systemFont(ofSize: 11, weight: .medium)
     }
 
     // MARK: - Trigger Device Section
